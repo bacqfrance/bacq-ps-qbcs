@@ -5,20 +5,21 @@ except this README is git-ignored, so keep the files here and nowhere else. Scri
 through `source/core/qpu/tokens.py` (`read_token()` / `token_path()`). A missing file stops the script
 with a one-line message naming the file (exit code 2).
 
-| File | Provider | What goes in it | Where to get it |
+| File | Provider | What goes in it | Where to get the token/the information |
 |---|---|---|---|
 | `ibm_token` | IBM Quantum Platform | the API key, one line | [IBM Quantum Platform](https://quantum.cloud.ibm.com/): create an API key on your account's dashboard |
 | `iqm_resonance_token` | IQM Resonance | the API token, one line | [IQM Resonance](https://resonance.iqm.tech/): generate an API token in your account settings |
 | `iqm_eqe_token` | IQM EQE1 (MQSS, LRZ) | the MQSS token, one line | LRZ's MQSS (Munich Quantum Software Stack) access for your EuroHPC project |
 | `aqt_piast-q_token` | AQT PIAST-Q (PCSS) | the PCSS API token, one line | PCSS (PSNC) quantum access for your EuroHPC project |
-| `iqm_vlq_token` | IQM VLQ (QaaS, IT4I) | the LEXIS refresh token | **don't create it**: LEXIS access is provided by the EuroHPC project, and the code saves the LEXIS-generated token automatically: the first VLQ script opens the LEXIS (MyAccessID) login in the browser and writes it, and it is renewed on every use (`.../IQM_VLQ/readme_iqm_vlq.md` §2) |
+| `iqm_vlq_token` | IQM VLQ (QaaS, IT4I) | the LEXIS refresh token | **don't create this file manually**: LEXIS access is provided by the EuroHPC project, and the code saves the LEXIS-generated token automatically: the first VLQ script opens the LEXIS (MyAccessID) login in the browser and writes it, and it is renewed on every use (`.../IQM_VLQ/readme_iqm_vlq.md` §2) |
 | `iqm_vlq_project_info` | IQM VLQ (QaaS, IT4I) | two lines, see below | the LEXIS portal page of the EuroHPC project that holds the VLQ allocation (LEXIS access is provided by the EuroHPC project) |
 
 `...` stands for `source/benchmark_scripts/real_qpu_scripts`.
 
 ## Token files
 
-A token file holds the token alone, without quotes, a `KEY =` prefix, or anything else. Spaces and
+Unless specified, the user should create the token files.
+A token file should hold the token alone: plain token without quotes, a `KEY =` prefix, or anything else. Spaces and
 a newline around it are ignored. To create one (here for IBM; use the file name from the table):
 
 Windows (PowerShell):
