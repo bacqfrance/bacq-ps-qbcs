@@ -119,7 +119,7 @@ Quantum_Benchmarking_project/
 │   │       ├── mitigation.py            #   expectation values, NEC/RC/cRC mitigation, AWAE, run_data*.json
 │   │       ├── run_timing.py            #   CPU/QPU/queue time, failed attempts, QPU workload (prices) — see §10.2
 │   │       ├── derived_quantities.py    #   summary quantities from AWAE and times, cumulative AWAE, EPSILON, best schemes; JSON helpers
-│   │       └── collective_plots.py      #   plots comparing all analyzed runs (AWAE, QPU time, cost) — see §10
+│   │       └── collective_plots.py      #   plots comparing all analyzed runs (AWAE, QPU, submission and collection time, window, cost) — see §10
 │   ├── analysis_scripts/                #   every analysis script; run_post_process.py launches the others — see §10
 │   │   ├── run_post_process.py          #   post-processing driver for a set of runs
 │   │   ├── bacq_ps_qbcs_summary_json.py      #   per-run summary JSON
@@ -1222,6 +1222,9 @@ settings (samples, depths, shots) still come from its run folder; the argument o
 | `cumul_awae_best_ems_vs_Nt.png` | the same for the cumulative AWAE (Z_exact-weighted mean over the depths up to $N_t$, `derived_quantities.cumulative_awae()`), the quantity $N_{acc}$ is defined by |
 | `awae_and_cumul_awae_best_ems_vs_Nt.png` | both side by side |
 | `qpu_time.png` | `QPU_time_s` per run, log scale with plain-number labels |
+| `submission_time.png` | summed submission time per run (`timing_breakdown.cpu.submit_s` + `health_check_submit_s`, a part of `CPU_time_s`), log scale; runs without it (synchronous services, old runs) are left out |
+| `collection_time.png` | `Collect_time_s` per run (summed result-collection time, failed jobs included), log scale; runs collected before it was timed are left out |
+| `submission_to_results_duration.png` | `QPU_submission_to_results_duration_s` per run (earliest chunk submission to latest chunk result, wall clock), log scale; simulations are left out |
 | `effective_cost_EUR.png` | `effective_cost_EUR` per run, log scale with plain-number labels |
 
 Runs are labelled by QPU, kind of run and connectivity (`computer_name`, the label every figure of the run uses:

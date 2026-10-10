@@ -7,7 +7,8 @@ Run the full BACQ analysis pipeline for a chosen set of runs (real QPU or local 
   4. AWAE plots        (source/analysis_scripts/plot_awae.py)
   5. health checks     (source/analysis_scripts/plot_health_checks.py)
   6. collective plots  (source/core/analysis/collective_plots.py) — all analyzed runs together:
-     AWAE vs N_t of each run's best EMS, QPU time and effective cost per QPU
+     AWAE vs N_t of each run's best EMS; QPU, submission and collection time, the
+     submission-to-results window and the effective cost per QPU
 
 Stages 2-5 reuse the existing scripts, driven per-run via the QPU_RUN_FOLDER /
 QPU_N_SAMPLES env vars; each run's summary json is also copied to analysis/summaries/. Each run's own settings (shots, samples,
