@@ -1,0 +1,33 @@
+# ── IQM VLQ environment (iqm_vlq.venv) ──
+# Python 3.12
+# See source/benchmark_scripts/real_qpu_scripts/IQM_VLQ/readme_iqm_vlq.md
+# Build in one pass (fresh venv + this file), not layered on an existing env:
+#   pip install -r requirements_iqm_vlq.txt --extra-index-url https://opencode.it4i.eu/api/v4/projects/107/packages/pypi/simple
+
+# No myQLM here: build() runs in local_sim.venv and caches every circuit as
+# Qiskit QPY (plus the exact reference values); this venv only reads those
+# files (USER_MANUAL §3.1). all_to_all circuits are cached at QPY version 13, which
+# this venv's Qiskit 2.1 can read. Do NOT install qiskit-iqm: it conflicts with qaas.
+
+# IT4I VLQ access (LEXIS/HEAppE)
+qaas==0.5.2            # IT4I's QaaS client (extra index above); pins qiskit<2.2 and the iqm-* packages below
+py4lexis==7.1.1        # LEXIS login (MyAccessID); the refresh token is saved to <project root>/tokens/iqm_vlq_token
+
+# Qiskit simulation
+qiskit==2.1.2
+qiskit-aer==0.17.2
+qiskit-qasm3-import==0.6.0
+iqm-client==34.0.4     # pulled by qaas; listed so a rebuild gets the same version
+
+# Scientific Python
+numpy==2.5.3
+scipy==1.18.1
+matplotlib==3.11.2
+
+# Utilities
+tqdm==4.70.1
+tzdata==2026.5; sys_platform == "win32"   # IANA time zones for zoneinfo (job_timing.py); Windows has none of its own
+dill==0.4.1
+pylatexenc==2.11       # Qiskit matplotlib circuit diagrams
+# CairoSVG is not installed in this venv (the circuit drawings use Qiskit + matplotlib, no SVG rendering)
+# — add it back if you need it in this environment too.

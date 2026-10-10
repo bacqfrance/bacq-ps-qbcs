@@ -1,0 +1,6 @@
+{
+  "_comment": "QPUs the scripts may run on. Every script requires backend=NAME. \"lnn\": true = linear-nearest-neighbour circuits, false = all-to-all.",
+  "backends": {
+    "PIAST-Q": {"lnn": false}
+  }
+}

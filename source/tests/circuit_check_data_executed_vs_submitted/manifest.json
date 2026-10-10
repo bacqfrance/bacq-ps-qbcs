@@ -1,0 +1,84 @@
+{
+  "iqm_garnet_health_check": {
+    "provider": "IQM_RESONANCE",
+    "qubit_names": "iqm_garnet_qubit_names.json",
+    "backend": "garnet",
+    "job_id": "01a0e1fd-f3c9-745f-b223-ccd0ac002a21",
+    "shots": 100,
+    "submitted": "iqm_garnet_health_check_submitted.qpy",
+    "executed": "iqm_garnet_health_check_payload.json",
+    "expected": "match"
+  },
+  "iqm_emerald_health_check_vs_garnet_submission": {
+    "provider": "IQM_RESONANCE",
+    "qubit_names": "iqm_garnet_qubit_names.json",
+    "backend": "emerald",
+    "job_id": "01a0e1fd-eb88-747c-8a70-8d2bf573b703",
+    "shots": 100,
+    "submitted": "iqm_garnet_health_check_submitted.qpy",
+    "executed": "iqm_emerald_health_check_payload.json",
+    "expected": "mismatch",
+    "note": "a garnet submission compared with an emerald job: different qubits"
+  },
+  "iqm_garnet_chunk0": {
+    "provider": "IQM_RESONANCE",
+    "qubit_names": "iqm_garnet_qubit_names.json",
+    "backend": "garnet",
+    "job_id": "01a0e219-51a9-7656-87ff-a1208c506a26",
+    "shots": 10,
+    "circuits_kept_from_job": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      67
+    ],
+    "submitted": "iqm_garnet_chunk0_submitted.qpy",
+    "executed": "iqm_garnet_chunk0_payload.json",
+    "expected": "match"
+  },
+  "ibm_fez_health_check": {
+    "provider": "IBM",
+    "backend": "ibm_fez",
+    "job_id": "dasd8odvr3kc73ek02e0",
+    "shots": 100,
+    "submitted": "ibm_fez_health_check_submitted.qpy",
+    "executed": "ibm_fez_health_check_executed.qpy",
+    "expected": "match"
+  },
+  "ibm_marrakesh_health_check": {
+    "provider": "IBM",
+    "backend": "ibm_marrakesh",
+    "job_id": "dasd8mrojkfs738p6v7g",
+    "shots": 100,
+    "submitted": "ibm_marrakesh_health_check_submitted.qpy",
+    "executed": "ibm_marrakesh_health_check_executed.qpy",
+    "expected": "match"
+  },
+  "ibm_fez_chunk0": {
+    "provider": "IBM",
+    "backend": "ibm_fez",
+    "job_id": "dase4hdvr3kc73ek15gg",
+    "shots": 10,
+    "circuits_kept_from_job": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      67
+    ],
+    "submitted": "ibm_fez_chunk0_submitted.qpy",
+    "executed": "ibm_fez_chunk0_executed.qpy",
+    "expected": "match"
+  }
+}

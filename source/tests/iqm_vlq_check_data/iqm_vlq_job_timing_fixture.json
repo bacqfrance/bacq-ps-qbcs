@@ -1,0 +1,86 @@
+{
+ "source": "datafiles/bacq_real_iqm_vlq_lnnFalse_spamTrue_mini/job_records/job_record_chunk_0.json \u2014 the VLQ mini benchmark's job (HEAppE 79735, 8 chunks, 160 circuits, 600 shots), collected 2026-09-29",
+ "job": {
+  "timeline": [
+   {
+    "source": "iqm-server",
+    "status": "created",
+    "timestamp": "2026-09-28T22:21:06.462231Z"
+   },
+   {
+    "source": "iqm-station-control",
+    "status": "received",
+    "timestamp": "2026-09-28T22:21:06.571867Z"
+   },
+   {
+    "source": "iqm-station-control",
+    "status": "validation_started",
+    "timestamp": "2026-09-28T22:21:06.603184Z"
+   },
+   {
+    "source": "iqm-station-control",
+    "status": "validation_ended",
+    "timestamp": "2026-09-28T22:21:06.687562Z"
+   },
+   {
+    "source": "iqm-station-control",
+    "status": "compilation_started",
+    "timestamp": "2026-09-28T22:21:06.705264Z"
+   },
+   {
+    "source": "iqm-station-control",
+    "status": "compilation_ended",
+    "timestamp": "2026-09-28T22:21:07.391774Z"
+   },
+   {
+    "source": "iqm-station-control",
+    "status": "execution_started",
+    "timestamp": "2026-09-28T22:21:07.703496Z"
+   },
+   {
+    "source": "iqm-station-control",
+    "status": "execution_ended",
+    "timestamp": "2026-09-28T22:21:38.845409Z"
+   },
+   {
+    "source": "iqm-station-control",
+    "status": "post_processing_started",
+    "timestamp": "2026-09-28T22:21:38.848180Z"
+   },
+   {
+    "source": "iqm-station-control",
+    "status": "post_processing_ended",
+    "timestamp": "2026-09-28T22:21:38.929195Z"
+   },
+   {
+    "source": "iqm-station-control",
+    "status": "ready",
+    "timestamp": "2026-09-28T22:21:38.932355Z"
+   },
+   {
+    "source": "iqm-server",
+    "status": "completed",
+    "timestamp": "2026-09-28T22:21:38.957565Z"
+   }
+  ],
+  "remote_hw_runtime": 31.141913,
+  "consumpted_resources": 4456.828939999997,
+  "allocation_amount": 12614400,
+  "iqm_job_id": "01a0ea1b-81e3-7b03-abeb-5a6332183b50"
+ },
+ "upload_end_at": "2026-09-28T22:21:03.136204Z",
+ "expected": {
+  "qpu_s": 32.0,
+  "qpu_s_source": "iqm_equivalent_billed",
+  "qpu_exec_s": 31.141913,
+  "qpu_exec_s_source": "remote_hw_runtime",
+  "compilation_seconds": 0.68651,
+  "execution_seconds": 31.141913,
+  "queue_s": 3.56906,
+  "it4i_wait_s": 3.326027,
+  "iqm_queue_s": 0.243033,
+  "created_at": "2026-09-28T22:21:06.462231Z",
+  "execution_start": "2026-09-28T22:21:07.703496Z",
+  "execution_end": "2026-09-28T22:21:38.845409Z"
+ }
+}

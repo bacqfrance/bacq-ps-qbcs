@@ -1,0 +1,262 @@
+{
+ "job_id": "01a0e1fd-f3c9-745f-b223-ccd0ac002a21",
+ "payload": {
+  "circuits": [
+   {
+    "name": "circuit-41",
+    "instructions": [
+     {
+      "name": "prx",
+      "locus": [
+       "QB3"
+      ],
+      "args": {
+       "angle": 3.141592653589793,
+       "phase": 0.0
+      },
+      "implementation": null
+     },
+     {
+      "name": "prx",
+      "locus": [
+       "QB8"
+      ],
+      "args": {
+       "angle": 3.141592653589793,
+       "phase": 0.0
+      },
+      "implementation": null
+     },
+     {
+      "name": "prx",
+      "locus": [
+       "QB13"
+      ],
+      "args": {
+       "angle": 3.141592653589793,
+       "phase": 0.0
+      },
+      "implementation": null
+     },
+     {
+      "name": "barrier",
+      "locus": [
+       "QB3",
+       "QB8",
+       "QB13"
+      ],
+      "args": {},
+      "implementation": null
+     },
+     {
+      "name": "prx",
+      "locus": [
+       "QB8"
+      ],
+      "args": {
+       "angle": 1.5707963267948966,
+       "phase": 4.71238898038469
+      },
+      "implementation": null
+     },
+     {
+      "name": "cz",
+      "locus": [
+       "QB8",
+       "QB3"
+      ],
+      "args": {},
+      "implementation": null
+     },
+     {
+      "name": "prx",
+      "locus": [
+       "QB8"
+      ],
+      "args": {
+       "angle": 1.5707963267948966,
+       "phase": 7.853981633974483
+      },
+      "implementation": null
+     },
+     {
+      "name": "barrier",
+      "locus": [
+       "QB3",
+       "QB8",
+       "QB13"
+      ],
+      "args": {},
+      "implementation": null
+     },
+     {
+      "name": "prx",
+      "locus": [
+       "QB13"
+      ],
+      "args": {
+       "angle": 1.5707963267948966,
+       "phase": 4.71238898038469
+      },
+      "implementation": null
+     },
+     {
+      "name": "cz",
+      "locus": [
+       "QB8",
+       "QB13"
+      ],
+      "args": {},
+      "implementation": null
+     },
+     {
+      "name": "prx",
+      "locus": [
+       "QB13"
+      ],
+      "args": {
+       "angle": 1.5707963267948966,
+       "phase": 7.853981633974483
+      },
+      "implementation": null
+     },
+     {
+      "name": "barrier",
+      "locus": [
+       "QB3",
+       "QB8",
+       "QB13"
+      ],
+      "args": {},
+      "implementation": null
+     },
+     {
+      "name": "prx",
+      "locus": [
+       "QB8"
+      ],
+      "args": {
+       "angle": 1.5707963267948966,
+       "phase": 10.995574287564276
+      },
+      "implementation": null
+     },
+     {
+      "name": "cz",
+      "locus": [
+       "QB8",
+       "QB13"
+      ],
+      "args": {},
+      "implementation": null
+     },
+     {
+      "name": "prx",
+      "locus": [
+       "QB8"
+      ],
+      "args": {
+       "angle": 1.5707963267948966,
+       "phase": 14.137166941154069
+      },
+      "implementation": null
+     },
+     {
+      "name": "barrier",
+      "locus": [
+       "QB3",
+       "QB8",
+       "QB13"
+      ],
+      "args": {},
+      "implementation": null
+     },
+     {
+      "name": "prx",
+      "locus": [
+       "QB3"
+      ],
+      "args": {
+       "angle": 1.5707963267948966,
+       "phase": 4.71238898038469
+      },
+      "implementation": null
+     },
+     {
+      "name": "cz",
+      "locus": [
+       "QB8",
+       "QB3"
+      ],
+      "args": {},
+      "implementation": null
+     },
+     {
+      "name": "prx",
+      "locus": [
+       "QB3"
+      ],
+      "args": {
+       "angle": 1.5707963267948966,
+       "phase": 7.853981633974483
+      },
+      "implementation": null
+     },
+     {
+      "name": "barrier",
+      "locus": [
+       "QB3",
+       "QB8",
+       "QB13"
+      ],
+      "args": {},
+      "implementation": null
+     },
+     {
+      "name": "measure",
+      "locus": [
+       "QB3"
+      ],
+      "args": {
+       "key": "c_3_0_0"
+      },
+      "implementation": null
+     },
+     {
+      "name": "measure",
+      "locus": [
+       "QB8"
+      ],
+      "args": {
+       "key": "c_3_0_1"
+      },
+      "implementation": null
+     },
+     {
+      "name": "measure",
+      "locus": [
+       "QB13"
+      ],
+      "args": {
+       "key": "c_3_0_2"
+      },
+      "implementation": null
+     }
+    ],
+    "metadata": {}
+   }
+  ],
+  "calibration_set_id": "52680d76-039e-4f9f-b16c-53be7849d8d7",
+  "qubit_mapping": null,
+  "shots": 100,
+  "max_circuit_duration_over_t2": null,
+  "heralding_mode": "none",
+  "move_gate_validation": "strict",
+  "move_gate_frame_tracking": "full",
+  "active_reset_cycles": null,
+  "dd_mode": "disabled",
+  "dd_strategy": null,
+  "move_validation_mode": "strict",
+  "move_gate_frame_tracking_mode": "full"
+ }
+}

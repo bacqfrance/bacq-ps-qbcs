@@ -1,0 +1,31 @@
+# ── IBM environment (ibm.venv) ──
+# Python 3.12
+# See source/benchmark_scripts/real_qpu_scripts/IBM/readme_IBM.md
+# Build in one pass (fresh venv + this file), not layered on an existing env.
+# Same base stack as venvs/requirements_local_sim.txt, plus qiskit-ibm-runtime — the
+# one piece the base env deliberately doesn't include, since it's needed
+# for real IBM submission (and for pulling a real backend NoiseModel, USER_MANUAL
+# §4.2), not for base local simulation.
+
+# No myQLM here: build() runs in local_sim.venv and caches every circuit as
+# Qiskit QPY (plus the exact reference values); this venv only reads those
+# files (USER_MANUAL §3.1). Build there first — a script that finds the cache
+# incomplete stops with a message saying so.
+
+# Qiskit simulation + IBM hardware
+qiskit==2.5.2
+qiskit-aer==0.17.2
+qiskit-ibm-runtime==0.48.0     # real IBM submission + pull a NoiseModel for local noisy simulation
+
+# Scientific Python
+numpy==2.4.4
+scipy==1.17.1
+matplotlib==3.10.9
+
+# Utilities
+tqdm==4.67.3
+tzdata==2026.5; sys_platform == "win32"   # IANA time zones for zoneinfo (job_timing.py); Windows has none of its own
+pylatexenc==2.10              # Qiskit matplotlib circuit diagrams
+ipykernel==7.2.0             # optional — notebooks
+# CairoSVG is not installed in this venv (the circuit drawings use Qiskit + matplotlib, no SVG rendering)
+# — add it back if you need it in this environment too.

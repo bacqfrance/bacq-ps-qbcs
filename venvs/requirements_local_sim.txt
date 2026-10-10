@@ -1,0 +1,24 @@
+# ── BACQ base environment — local myQLM + local Qiskit/Aer simulation ──
+# Python 3.12
+# Real QPUs need their own venv + provider SDK — see source/benchmark_scripts/real_qpu_scripts/<QPU>/readme_*.md
+
+# Core pipeline: myQLM circuit build/compile + myQLM -> Qiskit translation
+myqlm==1.13.7          # metapackage — pulls myqlm-fermion, myqlm-simulators, qat-core/-lang/-comm/-devices, ...
+qat-qiskit==0.1.1      # not pulled by myqlm
+
+# Qiskit simulation
+qiskit==2.5.2
+qiskit-aer==0.17.2
+
+# Scientific Python
+numpy==2.4.4
+scipy==1.17.1
+matplotlib==3.10.9
+
+# Utilities
+tqdm==4.67.3
+tzdata==2026.5; sys_platform == "win32"   # IANA time zones for zoneinfo (job_timing.py); Windows has none of its own
+pytest==9.1.1                 # the source/tests/ suite — see USER_MANUAL §9
+CairoSVG==2.9.0                # myQLM circuit SVG rendering
+pylatexenc==2.10              # Qiskit matplotlib circuit diagrams
+ipykernel==7.2.0             # optional — notebooks

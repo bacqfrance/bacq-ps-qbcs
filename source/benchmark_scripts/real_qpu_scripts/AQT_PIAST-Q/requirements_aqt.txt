@@ -1,0 +1,32 @@
+# ── AQT environment (aqt.venv) ──
+# Python 3.12
+# See source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/readme_aqt.md
+# Build in one pass (fresh venv + this file) — installing qiskit-aqt-provider on
+# top of an already-installed newer qiskit lets pip silently downgrade it instead
+# of resolving everything consistently.
+
+# No myQLM here: build() runs in local_sim.venv and caches every circuit as
+# Qiskit QPY (plus the exact reference values); this venv only reads those
+# files (USER_MANUAL §3.1). Build there first — a script that finds the cache
+# incomplete stops with a message saying so.
+
+# Qiskit — pinned to major version 1, not root's 2.5.2
+qiskit==1.4.6          # forced by qiskit-aqt-provider's own "qiskit>=1,<2" requirement
+qiskit-aer==0.17.2
+
+# AQT (PIAST-Q, via PSNC)
+pcss_qapi==0.2.2               # AuthorizationService + PCSS_AQTProvider; own deps are just pyjwt, requests
+qiskit-aqt-provider==1.14.0    # the actual AQT Qiskit backend integration; pulls aqt-connector==0.1.0
+
+# Scientific Python
+numpy==2.5.2
+scipy==1.18.1
+matplotlib==3.11.1
+
+# Utilities
+tqdm==4.70.0
+tzdata==2026.5; sys_platform == "win32"   # IANA time zones for zoneinfo (job_timing.py); Windows has none of its own
+pytest==9.1.1                  # source/tests/test_12_aqt_shot_split.py starts the real tests (aqt_venv_test_12_shot_split.py) in this venv
+pylatexenc==2.11              # Qiskit matplotlib circuit diagrams
+# CairoSVG and ipykernel are not installed in this venv (no notebooks/SVG
+# rendering here) — add them back if you need those in this environment too.

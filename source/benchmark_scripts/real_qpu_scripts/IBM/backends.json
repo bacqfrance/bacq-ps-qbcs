@@ -1,0 +1,8 @@
+{
+  "_comment": "QPUs the IBM scripts may run on. Every script requires backend=NAME. \"lnn\": true = linear-nearest-neighbour circuits, false = all-to-all.",
+  "backends": {
+    "ibm_marrakesh": {"lnn": true},
+    "ibm_fez": {"lnn": true},
+    "ibm_kingston": {"lnn": true}
+  }
+}

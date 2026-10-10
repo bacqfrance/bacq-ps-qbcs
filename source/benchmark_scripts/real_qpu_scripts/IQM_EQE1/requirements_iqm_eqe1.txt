@@ -1,0 +1,28 @@
+# ── IQM EQE1 environment (iqm_eqe1.venv) ──
+# Python 3.12
+# See source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/readme_iqm_eqe1.md
+# Build in one pass (fresh venv + this file), not layered on an existing env.
+
+# No myQLM here: build() runs in local_sim.venv and caches every circuit as
+# Qiskit QPY (plus the exact reference values); this venv only reads those
+# files (USER_MANUAL §3.1). Build there first — a script that finds the cache
+# incomplete stops with a message saying so.
+
+# Qiskit simulation
+qiskit==2.5.2          # same as root's
+qiskit-aer==0.17.2
+
+# IQM EQE1 (via MQSS)
+mqss-qiskit==0.2.0     # provides mqss.qiskit_adapter.MQSSQiskitAdapter; pulls mqss-client==0.2.1
+
+# Scientific Python
+numpy==2.5.2
+scipy==1.18.1
+matplotlib==3.11.1
+
+# Utilities
+tqdm==4.70.0
+tzdata==2026.5; sys_platform == "win32"   # IANA time zones for zoneinfo (job_timing.py); Windows has none of its own
+pylatexenc==2.11              # Qiskit matplotlib circuit diagrams
+# CairoSVG and ipykernel are not installed in this venv (no notebooks/SVG
+# rendering here) — add them back if you need those in this environment too.

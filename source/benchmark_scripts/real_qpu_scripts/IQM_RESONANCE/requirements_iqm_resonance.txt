@@ -1,0 +1,30 @@
+# ── IQM Resonance environment (iqm_resonance.venv) ──
+# Python 3.12
+# See source/benchmark_scripts/real_qpu_scripts/IQM_RESONANCE/readme_iqm_resonance.md
+# Build in one pass (fresh venv + this file), not layered on an existing env.
+
+# No myQLM here: build() runs in local_sim.venv and caches every circuit as
+# Qiskit QPY (plus the exact reference values); this venv only reads those
+# files (USER_MANUAL §3.1). Build there first — a script that finds the cache
+# incomplete stops with a message saying so.
+
+# Qiskit simulation
+qiskit==2.5.2          # same as root's
+qiskit-aer==0.17.2
+
+# IQM Resonance (cloud)
+iqm-client==35.0.2     # provides iqm.qiskit_iqm.IQMProvider — a different SDK from EQE1's mqss-qiskit
+                       # requires iqm-pulse>=14.0.2,<15 and iqm-station-control-client>=13.0.2,<14 (only the optional
+                       # "pin" extras pin iqm-data-definitions==3.0)
+
+# Scientific Python
+numpy==2.5.2
+scipy==1.18.1
+matplotlib==3.11.1
+
+# Utilities
+tqdm==4.70.0
+tzdata==2026.5; sys_platform == "win32"   # IANA time zones for zoneinfo (job_timing.py); Windows has none of its own
+pylatexenc==2.11              # Qiskit matplotlib circuit diagrams
+# CairoSVG and ipykernel are not installed in this venv (no notebooks/SVG
+# rendering here) — add them back if you need those in this environment too.
