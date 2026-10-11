@@ -1,11 +1,3 @@
-tmp.py
-# API tokens (source/core/qpu/tokens.py reads them from here); only the README is committed
-/tokens/*
-!/tokens/README.md
-# py4lexis' log of the VLQ (LEXIS) logins — source/core/qpu/iqm_vlq.py
-iqm_vlq_authentication_lexis_logs.log
-analysis/plots/
-analysis/summaries/
 __pycache__/
 *.pyc
 *.pyo
@@ -15,11 +7,20 @@ __pycache__/
 .vscode/*
 !.vscode/settings.json
 git_add.sh
+tmp.py
 
 # Run logs if output in the root directory (also the Slurm logs of the sbatch scripts, <job-name>_<jobid>.out)
 /*.log
 /*.out
+/*.err
 
 # Run circuits, raw data, and analyzed data
-/datafiles/
-/analysis/
+/datafiles/*
+/analysis/*
+
+# API tokens (source/core/qpu/tokens.py reads them from here); only the README is committed
+/tokens/*
+!/tokens/README.md
+
+# py4lexis' log of the VLQ (LEXIS) logins — source/core/qpu/iqm_vlq.py
+iqm_vlq_authentication_lexis_logs.log
