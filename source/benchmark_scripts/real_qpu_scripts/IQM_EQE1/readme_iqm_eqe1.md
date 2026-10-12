@@ -183,7 +183,8 @@ circuit, before and after transpilation, as PDFs in `datafiles/<run_folder>/circ
 (`01_bare_before_transpilation.pdf`, `01_bare_after_transpilation.pdf`, … numbered per role; `00_SPAM_…` and
 `health_check_…` for SPAM and the health check; main USER_MANUAL §4).
 
-Standard run-folder layout (main USER_MANUAL §8): `datafiles/<run_folder>/`.
+Standard run-folder layout (main USER_MANUAL §8): `datafiles/<run_folder>/`. Health
+checks live *inside* the run folder, in `health_checks/`:
 
 ```
 datafiles/<run_folder>/

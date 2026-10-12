@@ -31,8 +31,8 @@ iteration, with a live wallclock ETA and a QPU-time-budget projection.
     (a chunk's attempt is saved as failed and a rerun resumes it; the same for a health check's circuit).
     A health check that still can't be executed after those retries ends the script
     with exit code 12 (QPU health unknown; no record is written for it); a health
-    check that ran and found the QPU degraded ends it with exit code 10. Any other
-    error ends the script with code 1.
+    check that ran and found the QPU degraded ends it with exit code 10. Unusable
+    arguments or a missing token end it with code 2; any other error with code 1.
 
 Benchmark size (required — there is no default), from the command line (source/core/runner_support/benchmark_args.py; readme: "Benchmark size and run folders"):
   mini · full · mini|full nshots_per_circuit=N ·
@@ -143,9 +143,9 @@ qbcs = bacq_ps_qbcs(
 )
 qbcs.build(circuit_transpilation_LNN=LNN)   # all_to_all: loads the QPY-v13 chunks aqt.venv can read
 
-# CHUNK_STOP was set to SAMPLE_SIZE above, which overshoots the real number of
-# submission chunks (qbcs.n_chunks, set by build()) — clamp it now that it's
-# known, since submit(chunks=[...]) rejects a chunk number above n_chunks.
+# CHUNK_STOP was set to SAMPLE_SIZE above, which equals the number of submission
+# chunks (qbcs.n_chunks, set by build()). Clamp it to n_chunks anyway, as a guard
+# in case they ever differ, since submit(chunks=[...]) rejects a chunk number above n_chunks.
 CHUNK_STOP = min(CHUNK_STOP, qbcs.n_chunks)
 
 # The chunks this session submits: those of CHUNK_START..CHUNK_STOP (1-based) without a 'submitted' /

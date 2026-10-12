@@ -2,8 +2,9 @@
 aqt_venv_test_12_shot_split.py
 ==============================
 Run by source/tests/test_12_aqt_shot_split.py in venvs/aqt.venv (not collected by pytest under that name).
-Manually: venvs/aqt.venv/Scripts/python -m pytest --noconftest source/tests/aqt_venv_test_12_shot_split.py
-(Linux: venvs/aqt.venv/bin/python -m pytest --noconftest source/tests/aqt_venv_test_12_shot_split.py)
+Manually, with PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 (qiskit-aqt-provider registers a pytest plugin that needs pytest-httpx):
+  Windows PowerShell: $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = "1"; venvs/aqt.venv/Scripts/python -m pytest --noconftest source/tests/aqt_venv_test_12_shot_split.py
+  Linux: PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 venvs/aqt.venv/bin/python -m pytest --noconftest source/tests/aqt_venv_test_12_shot_split.py
 
 Unit tests (no simulator, no QPU, no network) for AQT's 200-shots-per-circuit limit:
 

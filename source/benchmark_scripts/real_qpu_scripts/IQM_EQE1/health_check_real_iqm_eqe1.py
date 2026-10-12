@@ -34,8 +34,7 @@ REPS         = STANDALONE_HEALTH_CHECK_REPS               # 1 repetition = 4 CNO
 QUBIT_SET    = None           # physical qubit indices for the 3-qubit health check, e.g. [2, 3, 4]; None = let the transpiler route
 RUN_FOLDER   = dated_run_folder(health_check_run_name("IQM_EQE1", BACKEND_NAME, REPS, NSHOTS))
 
-path = Path(f"datafiles/{RUN_FOLDER}")
-shutil.rmtree(path, ignore_errors=True)   # fresh submission every run
+shutil.rmtree(f"datafiles/{RUN_FOLDER}", ignore_errors=True)   # fresh submission every run
 
 # ── Connect to EQE1 via MQSS ──────────────────────────────────────────────────
 print(f"\n[{BACKEND_NAME} — connection]")
@@ -46,7 +45,7 @@ print(f"  Backend:      {real_backend.name}")
 print(f"  Pending jobs: {real_backend.num_pending_jobs}")
 
 # ── Submit ────────────────────────────────────────────────────────────────────
-submit_health_check(
+path = submit_health_check(
     run_folder    = RUN_FOLDER,
     backend       = real_backend,
     sampler       = None,
@@ -59,13 +58,10 @@ submit_health_check(
     qubit_set     = QUBIT_SET,
 )
 print(f"\n✅ Submitted to {BACKEND_NAME}")
-print(f"   Run folder: {rel_path(path)}")
 print(f"   Job record: {rel_path(path)}/job_records/health_check.json")
 
-# ── Collect ───────────────────────────────────────────────────────────────────
-print(f"\n  Collecting health check results from {BACKEND_NAME}...")
-print(f"  Run folder: {rel_path(path)}\n")
-
+# ── Collect result (blocks until the MQSS job is finished) ────────────────────
+print(f"\n⏳ Waiting for the result ...")
 result = collect_health_check(
     exp_results_folder_path = path,
     service                 = adapter,
@@ -74,6 +70,7 @@ result = collect_health_check(
     backend_name            = BACKEND_NAME,
 )
 
+# ── Summary ────────────────────────────────────────────────────────────────
 p_011  = result["P011"]
 status = result["verdict"]
 

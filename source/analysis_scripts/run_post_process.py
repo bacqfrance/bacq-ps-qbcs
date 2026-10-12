@@ -371,6 +371,16 @@ def folder_order(run_folder):
     return (n.data_type, n.device, n.benchmark, n.lnn, n.layout, n.date or "", n.run_number or 0)
 
 
+def coherent_noise_of_run(run_path):
+    """The run's CONFIG["coherent_noise"] (dict with noise_type, infidelity_total, ratio_ct) from its first job
+    record, or None for a noiseless run, an old record without the key, or no job record. The circuit cache
+    folder (get_circuit_folder()) is named by it, so the rebuilt pipeline object needs it."""
+    rec0_path = Path(run_path) / "job_records" / "job_record_chunk_0.json"
+    if not rec0_path.exists():
+        return None
+    return json.loads(rec0_path.read_text(encoding="utf-8"))["CONFIG"].get("coherent_noise")
+
+
 def merge_and_analyze(run_folder, n_samples_override=None):
     """Stage 1 — reuses bacq_ps_qbcs.merge_all_chunks()/.analyze_results() as-is.
 
@@ -416,8 +426,10 @@ def merge_and_analyze(run_folder, n_samples_override=None):
             print(f"⚠️  {backend_name}: all {sample_size} chunks collected and already analyzed — skipping merge/analyze.")
             return True, None
 
+    noise = coherent_noise_of_run(run_path) or {}   # a coherent-noise run's circuits live in its own cache
     qbcs = bacq_ps_qbcs(
-        infidelity_total=0.0, ratio_ct=0.0, noise_type="pauli",
+        infidelity_total=noise.get("infidelity_total", 0.0), ratio_ct=noise.get("ratio_ct", 0.0),
+        noise_type=noise.get("noise_type", "pauli"),
         sample_size=sample_size, chunk_size=info.chunk_size,
         list_circuit_times=info.list_times, error_mitigation_strategies=info.ems,
         do_SPAM=info.do_spam, nshots=info.nshots, dt=info.dt,
@@ -428,7 +440,7 @@ def merge_and_analyze(run_folder, n_samples_override=None):
     qbcs._use_circuit_LNN           = info.lnn
     qbcs._status                    = "submitted"
     if is_sim:
-        qbcs.CONFIG["service"] = "local"   # same runtime accounting as the run that produced it
+        qbcs.CONFIG["service"] = "local"   # kept in CONFIG only; nothing reads it back
 
     # A real run's job records carry the CONFIG it was submitted with — it must agree with what we just rebuilt.
     rec0_path = run_path / "job_records" / "job_record_chunk_0.json"
@@ -436,9 +448,9 @@ def merge_and_analyze(run_folder, n_samples_override=None):
         rec_cfg = json.loads(rec0_path.read_text(encoding="utf-8"))["CONFIG"]
         assert np.allclose(rec_cfg["T_list"], qbcs.CONFIG["T_list"])
         for k in ("dt", "chunk_size", "shots", "nsites", "g", "SPAM_correction",
-                  "nec_measurement_counts", "lnn_architecture"):
-            assert rec_cfg[k] == qbcs.CONFIG[k], (
-                f"{backend_name}: CONFIG mismatch on '{k}' — run had {rec_cfg[k]!r}, "
+                  "nec_measurement_counts", "lnn_architecture", "coherent_noise"):
+            assert rec_cfg.get(k) == qbcs.CONFIG.get(k), (
+                f"{backend_name}: CONFIG mismatch on '{k}' — run had {rec_cfg.get(k)!r}, "
                 f"pipeline has {qbcs.CONFIG[k]!r}"
             )
 

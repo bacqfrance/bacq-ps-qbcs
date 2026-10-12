@@ -13,7 +13,7 @@ Plots comparing all runs analyzed by source/analysis_scripts/run_post_process.py
   effective_cost_EUR.png    effective cost in EUR per run (log scale)
   n_acc.png                 N_acc per run (linear scale)
   e_min_nmax.png            E_min at N_max per run (linear scale, with the threshold epsilon)
-and, in analysis/summaries/ (not with the plots), <benchmark>_collective_<data types>.csv: one row per run with
+and, in analysis/summaries/ (not with the plots), <benchmark>_collective_<data types>[<filter suffix>].csv (the suffix only for a filtered set of runs): one row per run with
   run, n_samples, N_acc, N_max, E_min_Nmax, best_scheme_Nmax, QPU_time_s, QPU_time, effective_cost_EUR
 
 Reads each run's processed_results/summary.json (a subset: summary+nsamples-N.json) and

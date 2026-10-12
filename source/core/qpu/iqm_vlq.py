@@ -64,7 +64,8 @@ CONNECTION_LOG_NAME = "iqm_vlq_connection.log"   # every network call to IT4I / 
 TIMEOUTS = {
     "public status":        30,
     "calibration download": 120,
-    "LEXIS login":          120,
+    "LEXIS login":          120,    # silent login with the saved refresh token
+    "LEXIS login (browser)": 1800,  # the user approves it in a browser page
     "access token":         60,
     "get_backend":          300,    # submits HEAppE's backend_init job (30 s walltime) and polls it
     "retrieve_job":         120,
@@ -200,8 +201,8 @@ def lexis_session(token_file=TOKEN_FILE, allow_browser=True, log_file=None):
             raise RuntimeError(f"No valid LEXIS token in {token_file} and browser login not allowed.")
         print("  [VLQ] 🔑 LEXIS login needed: approve it in the browser page that opens now "
               "(MyAccessID). The token is then saved and reused.", flush=True)
-        session = call("LEXIS login", lambda: LexisSession(login_method="url", offline_access=True,
-                       reraise_exceptions=True, log_file=str(log_file)), "browser", timeout_s=1800)
+        session = call("LEXIS login (browser)", lambda: LexisSession(login_method="url", offline_access=True,
+                       reraise_exceptions=True, log_file=str(log_file)), "browser")
     token_file.write_text(session.get_refresh_token(), encoding="utf-8")
     return session
 

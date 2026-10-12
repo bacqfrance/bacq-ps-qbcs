@@ -115,7 +115,7 @@ qbcs_real_submit_aqt_loop.py           (synchronous — one submit() call per ch
   choose the layout (once per run)     → recorded in transpiled_circuits/physical_qubits.json
   record the run (run_info.json)       → an aborted run stays analyzable (health checks only)
   PRE health check (once, before the loop; exit 10 degraded, 12 not submitted, 13 task timed out)
-  for nc in CHUNK_START..CHUNK_STOP:
+  for n in CHUNK_START..CHUNK_STOP:    (1-based; chunk index nc = n - 1)
       STOP file in the run folder → exit 4, before the chunk
       submit(chunks=[nc])   → submit + wait + save this chunk, inline
       POST health check (exit 10 degraded, 12 not submitted, 13 task timed out)
@@ -125,8 +125,8 @@ qbcs_real_submit_aqt_loop.py           (synchronous — one submit() call per ch
 - **`qbcs_real_submit_aqt_loop.py`** — the only submit script; also the
   production path for a full run. It always submits the benchmark; for a health check on its
   own, use `health_check_real_aqt.py` (below). Its own outer loop calls
-  `qbcs.submit(..., chunks=[nc])` once per chunk number in
-  `CHUNK_START..CHUNK_STOP` (`submit_chunk_aqt` is idempotent, so
+  `qbcs.submit(..., chunks=[nc])` once per chunk of
+  `CHUNK_START..CHUNK_STOP` (1-based; `nc` is the 0-based chunk index, the loop value minus 1) (`submit_chunk_aqt` is idempotent, so
   already-completed chunks are instant skips — safe to re-run after an
   interruption, and safe to point at a small range for a quick connectivity
   test). Runs a health check once before the loop and once after every

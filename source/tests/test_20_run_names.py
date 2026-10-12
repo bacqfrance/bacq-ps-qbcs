@@ -17,7 +17,9 @@ plot-folder and summary names are built and parsed:
   - the service names (test_service_names);
   - the run filters of run_post_process.py (RunFilter, make_run_filter, parse_date_filter) and the collective folder name of a filtered set;
   - the collective plots' run labels and run order (collective_plots._labels, run_order), time units
-    (_duration_fmt), the run table CSV (_write_run_table) and the linear bar plot (_bar_plot, log=False).
+    (_duration_fmt), the run table CSV (_write_run_table) and the linear bar plot (_bar_plot, log=False);
+  - the coherent noise of a run read back from its job record (run_post_process.coherent_noise_of_run) and
+    the circuit cache folder it names (common.get_circuit_folder).
 """
 
 import sys, os
@@ -27,6 +29,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))   # datafiles/ paths are relative to the project root
 
 import csv
+import json
 
 import pytest
 
@@ -317,6 +320,21 @@ def test_run_filter_values_and_names():
     assert mk(date=":2026-09-30").suffix() == "_dates-until-2026-09-30"
     long = mk(backends=[f"ibm-b{i}" for i in range(10)])
     assert len(long.suffix()) < 40 and long.suffix().startswith("_backends-10-")
+
+
+def test_coherent_noise_of_run_names_the_cache(tmp_path):
+    from source.analysis_scripts.run_post_process import coherent_noise_of_run
+    from source.core.common import get_circuit_folder
+    noise = {"noise_type": "pauli", "infidelity_total": 5e-3, "ratio_ct": 0.5}
+    (tmp_path / "job_records").mkdir()
+    rec = tmp_path / "job_records" / "job_record_chunk_0.json"
+    rec.write_text(json.dumps({"CONFIG": {"coherent_noise": noise}}), encoding="utf-8")
+    assert coherent_noise_of_run(tmp_path) == noise
+    cfg = {"lnn_architecture": False, "coherent_noise": coherent_noise_of_run(tmp_path)}
+    assert get_circuit_folder(cfg, top_folder=True).endswith("_pauli_I5.0e-03_rct5.0e-01")
+    rec.write_text(json.dumps({"CONFIG": {}}), encoding="utf-8")   # an old or noiseless record
+    assert coherent_noise_of_run(tmp_path) is None
+    assert coherent_noise_of_run(tmp_path / "no_such_run") is None
 
 
 if __name__ == "__main__":

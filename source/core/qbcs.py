@@ -834,7 +834,7 @@ class bacq_ps_qbcs:
                 f"source/core/records/run_names.py) for a local-simulator submission — run_post_process.py and "
                 f"the post-processing scripts tell local runs from real ones by it."
             )
-        self.CONFIG["service"] = service   # recorded for analyze_results()'s local-vs-real-QPU runtime split
+        self.CONFIG["service"] = service   # kept in CONFIG only; nothing in the pipeline or analysis reads it back
         # Set run folder
         if "folder_path" not in self.CONFIG or self.CONFIG["folder_path"] is None:
             self.CONFIG["folder_path"] = os.path.join(PROJECT_ROOT, "datafiles", run_folder)
@@ -1002,7 +1002,7 @@ class bacq_ps_qbcs:
             # ── Bookend "All chunks submitted." — once, on the real last chunk ─
             if nc == self.n_chunks - 1:
                 timestamp(label="All chunks submitted.", timestamp_file=self.TIMESTAMP_FILE)
-                print(f"  [{PCSS}] All chunks submitted and merged.")
+                print(f"  [{PCSS}] All chunks submitted.")
 
             gc.collect()
 
@@ -1174,8 +1174,9 @@ class bacq_ps_qbcs:
 
         if self.CONFIG.get("SPAM_correction", False):
             # With SPAM correction — QPU/total runtime is identical either way
-            # (it comes from timestamps_local_time.csv, not from SPAM_correction), so
-            # skip the printout here and let the non-SPAM call below print it once.
+            # (QPU time comes from the job records, CPU time from the timestamp log,
+            # neither from SPAM_correction), so skip the printout here and let the
+            # non-SPAM call below print it once.
             post_processing_and_saving(CONFIG=self.CONFIG, roles=self.roles,
                                        use_circuit_LNN=use_circuit_LNN,
                                        filename="run_data_spam.json", n_samples=n_samples,

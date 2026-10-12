@@ -87,6 +87,7 @@ submit_async_run(
     real_backend = real_backend, collect_service = service,
     bench = BENCH, layout = LAYOUT, lnn = LNN, do_spam = DO_SPAM, chunks_to_submit = CHUNKS_TO_SUBMIT,
     submit_kwargs = dict(chunks_per_qpu_job_batch = CHUNKS_PER_JOB),
+    config_extra = [("Chunks per job", f"{CHUNKS_PER_JOB}")],
     health_check_session = health_check_batch,
     after_layout = print_run_qubit_calibration,
     collect_script = "qbcs_real_collect_ibm.py",

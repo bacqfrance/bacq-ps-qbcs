@@ -3,7 +3,7 @@ test_07_full_pipeline_local_sim.py
 ===================================
 End-to-end integration test for the local-simulator pipeline: builds +
 submits + analyzes (mirroring benchmark_noiseless_all_to_all.py), checks every output file
-lands where §8 documents,
+lands where USER_MANUAL §8 documents,
 verifies source/analysis_scripts/run_post_process.py's local-sim post-processing chain
 (merge_and_analyze + the four downstream scripts) runs cleanly, and checks
 that AWAE (shot-noise error) is small and decays with more shots for all six
@@ -85,7 +85,7 @@ def _run_one_shot_value(qbcs, nshots, run_folder):
 
 
 def _assert_local_run_outputs(run_path, do_spam=True):
-    """§8's output tree, restricted to what a local run driven through bacq_ps_qbcs
+    """USER_MANUAL §8's output tree, restricted to what a local run driven through bacq_ps_qbcs
     directly produces — verified against a real sim run's directory tree. It has job
     records like a real-QPU run, one 'complete' record per chunk (no chunk_times_UTC_time.json
     is written); submit.log is written by the scripts, not by submit(), so it is not here."""
