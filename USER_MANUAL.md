@@ -23,6 +23,8 @@ Based on:
   - [3. Setup](#3-setup)
     - [3.1 Software modules](#31-software-modules)
     - [3.2 Build the base virtual environment](#32-build-the-base-virtual-environment)
+      - [Setup (Windows)](#setup-windows)
+      - [Setup (Linux)](#setup-linux)
   - [4. Quickstart — run the benchmark on the local simulator](#4-quickstart--run-the-benchmark-on-the-local-simulator)
     - [4.1 Circuit caches and format](#41-circuit-caches-and-format)
     - [4.2 Local simulator with a real backend's noise model](#42-local-simulator-with-a-real-backends-noise-model)
@@ -119,7 +121,7 @@ Quantum_Benchmarking_project/
 │   │       ├── mitigation.py            #   expectation values, NEC/RC/cRC mitigation, AWAE, run_data*.json
 │   │       ├── run_timing.py            #   CPU/QPU/queue time, failed attempts, QPU workload (prices) — see §10.2
 │   │       ├── derived_quantities.py    #   summary quantities from AWAE and times, cumulative AWAE, EPSILON, best schemes; JSON helpers
-│   │       └── collective_plots.py      #   plots comparing all analyzed runs (AWAE, QPU, submission and collection time, window, cost) — see §10
+│   │       └── collective_plots.py      #   plots comparing all analyzed runs (AWAE, QPU, submission and collection time, window, cost, N_acc, E_min) and their table as a CSV — see §10
 │   ├── analysis_scripts/                #   every analysis script; run_post_process.py launches the others — see §10
 │   │   ├── run_post_process.py          #   post-processing driver for a set of runs
 │   │   ├── bacq_ps_qbcs_summary_json.py      #   per-run summary JSON
@@ -145,7 +147,7 @@ Quantum_Benchmarking_project/
 │   └── tests/                           # validation scripts (§9)
 ├── analysis/                            # analysis output only
 │   ├── plots/                           #   figures (created by the post-processing)
-│   ├── summaries/                       #   a copy of every run's summary JSON
+│   ├── summaries/                       #   a copy of every run's summary JSON, and the collective run tables (CSV)
 │   └── tests/                           #   test output (git-ignored)
 ├── calibration_input_files/             # the latest provider calibration files (PIAST-Q, Euro-Q-Exa) for calibration_file= — see §5.4
 ├── datafiles/                           # all output: per-run folders, and the circuit caches in circuits/ (§4.1)
@@ -252,7 +254,7 @@ pytest source/tests/
 Runs `test_00`/`test_01`/`test_07`/`test_08`/`test_10`/`test_11`/`test_12`/`test_13`/`test_14`/`test_15`/`test_16`/`test_17`/`test_18`/`test_19`/`test_20`/`test_21`/`test_22`/`test_23`/`test_24`/`test_25`/`test_26` (§9) —
 fundamental checks that confirm the circuits are built correctly, a full
 local-sim pipeline + post-processing integration check, and unit tests of the
-executed-circuit check and the timing bookkeeping — in 5 to 10 minutes (272 tests; longer on slower machines).
+executed-circuit check and the timing bookkeeping — in 5 to 10 minutes (293 tests; longer on slower machines).
 **Two venvs are needed**: `local_sim.venv` runs the suite (the run stops at once with instructions if `venvs/local_sim.venv` is missing; `test_10` also starts a child process in it), and `test_12` runs itself in `aqt.venv` — it fails with an error telling you to create `venvs/aqt.venv` (`source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/readme_aqt.md` §1, `requirements_aqt.txt`, which includes `pytest`) or to run `venvs/aqt.venv/Scripts/python -m pip install pytest` (`bin/python` on Linux) if only `pytest` is missing there.
 All tests passing (no failures, no errors) means the base venv, myQLM↔Qiskit
 translation, local Aer simulation, and `source/analysis_scripts/run_post_process.py` all work
@@ -275,8 +277,8 @@ on the local simulator, in this order:
 | 2 | `benchmark_noiseless_lnn.py` | `local_sim.venv` | the same with linear-nearest-neighbor circuits (what the IBM, IQM EQE1 and IQM Resonance Emerald/Garnet runs use; IQM VLQ and Sirius run all-to-all) | ~10 s including the circuit build |
 | 3 | `benchmark_fake_fez_lnn.py` | `ibm.venv` | the LNN circuits under realistic IBM Fez noise (§4.2), transpiled onto Fez's qubits; needs #2 first | ~35 s (no build of its own) |
 
-A rerun into a run folder that already holds results finishes in about a second, because
-every stage is skipped (§5.5). Delete `datafiles/<run folder>/` to run it again for real.
+A rerun of a finished run starts a new run folder (dated today, with the next run number); only
+an unfinished run folder is resumed, skipping the stages already done (§5.4, §5.5).
 Each script prints `build time`, `Local execution time`, `analysis time` and
 `total wall time`, so you get the numbers for your own machine.
 
@@ -412,7 +414,7 @@ sampler      = AerSamplerV2(options=dict(backend_options=dict(noise_model=noise_
 qbcs.build(circuit_transpilation_LNN=True)     # LNN transpilation for a real-device topology
 
 run_folder_path = qbcs.submit(
-    run_folder     = "mini_sim-qpu-noise_ibm-fez_lnn-True_service-local_spam-True_layout-optimized",   # a run name (§5.4)
+    run_folder     = "mini_sim-qpu-noise_ibm-fez_lnn-True_service-local_spam-True_layout-optimized_2026-10-11_#1",   # a run name (§5.4)
     lang           = "qiskit",
     service        = "local",
     backend        = sampler,
@@ -443,8 +445,8 @@ only) — a check that the circuits are right before any QPU time is spent.
 
 (The simulation times were measured at 1000 shots per circuit.)
 
-**Benchmark size — the command-line arguments.** Every script in `source/benchmark_scripts/`
-(these and the real-QPU ones, §7) takes the benchmark size the same way
+**Benchmark size — the command-line arguments.** Every benchmark script in `source/benchmark_scripts/` (submit, collect, job-status, simulate and the local
+simulation scripts, also the real-QPU ones, §7) takes the benchmark size the same way
 (`source/core/runner_support/benchmark_args.py`):
 
 | Arguments | Benchmark | `<benchmark>` field of the run folder (§5.4) |
@@ -466,9 +468,9 @@ python source/benchmark_scripts/local_simulation_scripts/benchmark_noiseless_lnn
 python source/benchmark_scripts/local_simulation_scripts/benchmark_noiseless_lnn.py full     # full, ~60 min the first time
 ```
 
-The local runs are saved in `datafiles/<benchmark>_<data type>_local-aer_lnn-<bool>_service-local_spam-True_layout-none/`,
+The local runs are saved in `datafiles/<benchmark>_<data type>_local-aer_lnn-<bool>_service-local_spam-<bool>_layout-none_<YYYY-MM-DD>_#<N>/`,
 with data type `sim-noiseless`, `sim-coherent` or `sim-fake-fez` — e.g.
-`datafiles/mini_sim-noiseless_local-aer_lnn-True_service-local_spam-True_layout-none/` (§5.4).
+`datafiles/mini_sim-noiseless_local-aer_lnn-True_service-local_spam-True_layout-none_2026-10-11_#1/` (§5.4).
 
 **Building the circuits** is the slow part, and it happens only once per topology
 and depth list. For the full benchmark it takes about 60 min per topology (compiling the twirled circuits, interleaving them
@@ -653,7 +655,7 @@ usage of each script lists it):
 | `optimized` | the scorer above — the default for IBM, IQM Resonance and IQM VLQ. If the QPU has no SWAP-free placement the script exits with code 2 and one line, before any health check or job |
 | `random` | one of all valid SWAP-free layouts on the QPU, drawn once with a fresh random seed; the seed is stored in `physical_qubits.json`, and a resumed run reuses the recorded layout |
 | `lowest` | the lexicographically lowest valid layout |
-| `15,14,21` | exactly these qubits (virtual qubit `i` → the `i`-th number; `[15,14,21]` also works, but brackets need quoting in most shells). The script raises if the QPU cannot run them: wrong number of qubits, a qubit that does not exist, or a missing coupler |
+| `15,14,21` | exactly these qubits (virtual qubit `i` → the `i`-th number; `[15,14,21]` also works, but brackets need quoting in most shells). A wrong number of qubits is rejected with the usage; if the QPU cannot run them (a qubit that does not exist, or a missing coupler) the script ends with a one-line `❌ Layout:` message and exit code 2 |
 
 `calibration_file=PATH` goes with `layout=optimized`: the calibration to score the placements with. The file
 may be in the project's snapshot format (`calibration_snapshot.json` of a run) or exactly as the provider
@@ -688,12 +690,12 @@ support) ends the script with a one-line `❌ Layout:` message and exit code 2 b
 
 The layout is part of the run folder name — `…_layout-optimized`, `…_layout-random`,
 `…_layout-lowest` or `…_layout-15-14-21` (always three qubits) — so runs with different layouts of one benchmark
-never collide. Collect and status scripts take `layout=` too; it is optional when the benchmark has only one run folder.
+never collide. Collect and status scripts take `layout=` too; it is optional: without `layout=` and `date=` every run of that benchmark with something left to collect is collected (or reported) in turn, all layouts and dates; give `layout=` to pick one run (including an already finished one); `date=YYYY-MM-DD` alone takes each layout's latest run of that day, `date=YYYY-MM-DD_#N` each layout's run with that number (layouts without one are skipped; exit code 2 only when no layout has one). With no unfinished run the script exits with code 2 and lists the folders found.
 
 **Run, plot and summary names** (`source/core/records/run_names.py`, the one place they are built and parsed):
 
 ```
-<benchmark>_<data type>_<provider>-<backend>_lnn-<bool>_service-<svc>_spam-<bool>_layout-<mode>
+<benchmark>_<data type>_<provider>-<backend>_lnn-<bool>_service-<svc>_spam-<bool>_layout-<mode>_<YYYY-MM-DD>_#<N>
 ```
 
 Fields are separated by `_`; inside a field `-` joins a name and its value, and `+` joins the parameters of `<benchmark>`.
@@ -705,11 +707,22 @@ Fields are separated by `_`; inside a field `-` joins a name and its value, and 
 | `<provider>-<backend>` | `ibm-fez`, `ibm-kingston`, `ibm-marrakesh`, `iqm-emerald`, `iqm-garnet`, `iqm-sirius`, `iqm-vlq`, `iqm-eqe1`, `aqt-piast-q`; `local-aer` for local simulations without a QPU's noise (also the `sim-fake-fez` runs, which carry FakeFez's noise); the simulated QPU's `<provider>-<backend>` for `sim-qpu-noise` runs |
 | `lnn`, `spam` | `True`, `False`, or `none` (standalone health checks) |
 | `service` | `ibm-cloud`, `iqm-resonance`, `qaas-it4i` (VLQ), `mqss-lrz` (EQE1), `pcss` (AQT), `local` (every simulation) |
-| `layout` | `optimized`, `random`, `lowest`, three qubits (`15-14-21`), `legacy` (old runs: qiskit chose per circuit), `none` (no QPU, or a standalone health check) |
+| `layout` | `optimized`, `random`, `lowest`, three qubits (`15-14-21`), `legacy` (old runs: qiskit chose per circuit), `none` (no QPU run: local simulations and standalone health checks) |
+| `<YYYY-MM-DD>_#<N>` | the UTC day the submit, simulate or health-check script first made the folder, and the number of the run that day (`#1` for the first) |
 
-E.g. `full_real-data_ibm-fez_lnn-True_service-ibm-cloud_spam-True_layout-optimized`. A run's plots go to
+**The date tells runs of the same settings apart.** A submit, simulate or health-check script works in the latest
+folder of its settings while that run is unfinished (not every chunk submitted, or simulated; for a standalone health
+check, no result yet), whatever its date, so a rerun resumes it; once it is finished, the next run of the same settings
+starts a new folder dated today (UTC) with the next run number of the day. A submit script's `--force-new-run` starts a new
+folder even while the latest run of its settings is unfinished (that one is left as it is). With `layout=` or `date=` given, collect and status scripts read the
+latest folder of that layout, or the one of `date=YYYY-MM-DD` (its latest run that day) or `date=YYYY-MM-DD_#N`; `date=` alone does this for every layout that has such a run. A folder name without a date is still read (as `date unknown`).
+
+E.g. `full_real-data_ibm-fez_lnn-True_service-ibm-cloud_spam-True_layout-optimized_2026-10-11_#1`. Figures name a run by its
+QPU and kind of data, layout and date with run number (`ibm-fez — real QPU, layout optimized, 11/10/2026 #1`; in the plots comparing
+several runs `ibm-fez — real QPU, lnn-True, layout optimized, 11/10/2026 #1`, ordered by QPU, layout and date). A run's plots go to
 `analysis/plots/<run name>/`; the plots comparing several runs to `analysis/plots/<benchmark>_collective_<data types>/`
-(e.g. `mini_collective_real-data+sim-noiseless`). A run's summary is `processed_results/summary.json` in the run
+(e.g. `mini_collective_real-data+sim-noiseless`; with `run_post_process.py`'s filters the folder name ends in them, e.g.
+`…_dates-2026-09-01-to-2026-09-30_backends-ibm-fez`). A run's summary is `processed_results/summary.json` in the run
 (`summary+nsamples-N.json` for an analysis of its first N samples — short, since the folder already carries the name
 and Windows limits paths to 260 characters), and `run_post_process.py` copies it to
 `analysis/summaries/summary_<run name>.json` (`summary_<benchmark>+nsamples-N_…json`), where every run's summary is
@@ -763,7 +776,7 @@ invalidated automatically.
 | 3c | Compute the exact observables | `build()` → `cache_exact_observables()` | `<shared>/exact_observables.json` | depth skipped; the analysis reads the file instead of simulating the ideal circuit in myQLM (falls back to myQLM, with a warning, if a depth is missing) |
 | 4 | Transpile chunk to backend ISA | `submit()` → `resolve_physical_qubits()`, then `transpile_chunk_for_backend_to_isa()` / `transpile_spam_for_backend_to_isa()` | `<run>/transpiled_circuits/physical_qubits.json`, `chunk_{nc}_transpiled.qpy` (+ `spam_transpiled.qpy`) | loaded instead of re-selecting / re-transpiling |
 | 5 | Submit chunk to QPU | `submit()` → `submit_chunk_ibm()` / `submit_batch_ibm()` / `submit_batch_iqm()` / `submit_chunk_aqt()` | `<run>/job_records/job_record_chunk_{nc}.json` | chunk skipped if its `status` is `submitted` or `complete` |
-| 6 | Collect chunk results | `collect_results(..., service_name=…)`; inline for `service="local"` | `chunk_{nc}` key in `<run>/raw_results/results_counts.json` + `results_fidelity.json` | chunk skipped if `status == complete` **and** both keys present (IQM also skips a chunk marked `failed`) |
+| 6 | Collect chunk results | `collect_results(..., service_name=…)`; inline for `service="local"` | `chunk_{nc}` key in `<run>/raw_results/results_counts.json` + `results_fidelity.json` | chunk skipped if `status == complete` **and** both keys present (any service also skips a chunk marked `failed`) |
 
 `<shared>` = `datafiles/circuits/<topology>_Nt<steps>/` (`all_to_all` or
 `linear_nearest_neighbor`, chosen by `circuit_transpilation_LNN`; `<steps>` from the depth list)
@@ -805,7 +818,7 @@ Remove the artifact, and for hardware also clear the chunk's status guard.
 | **3c — exact observables** | delete `datafiles/circuits/<topology>_Nt<steps>/exact_observables.json` |
 | **4 — transpile** | delete `datafiles/<run_folder>/transpiled_circuits/chunk_{nc}_transpiled.qpy` (and `spam_transpiled.qpy` if the SPAM layout changed), **and** set `"status": "built"` in `job_records/job_record_chunk_{nc}.json`. Transpilation only runs inside submit, so this re-submits the chunk as well. |
 | **5 — submit** | in `job_records/job_record_chunk_{nc}.json`, set `"status"` to anything other than `"submitted"` / `"complete"` (e.g. `"built"`), or delete the file. `submit()` then dispatches a fresh job for that chunk. |
-| **6 — collect** | delete the `chunk_{nc}` entry from `raw_results/results_counts.json` and `results_fidelity.json` — or delete both files to re-collect every chunk (note `spam_calibration_counts_per_chunk.json` and `results_*_merged.json` also live in `raw_results/`). For an IQM chunk stuck at `"failed"`, also reset its `"status"` to `"submitted"`. |
+| **6 — collect** | delete the `chunk_{nc}` entry from `raw_results/results_counts.json` and `results_fidelity.json` — or delete both files to re-collect every chunk (note `spam_calibration_counts_per_chunk.json` and `results_*_merged.json` also live in `raw_results/`). For a chunk stuck at `"failed"`, also reset its `"status"` to `"submitted"`. |
 | **local run** | no job records — delete `raw_results/results_counts.json` + `results_fidelity.json` (+ `spam_calibration_counts_per_chunk.json`), or just the `chunk_{nc}` keys. |
 
 Recognised `status` values in a job record are `submitted`, `complete`, `failed`.
@@ -832,32 +845,34 @@ not yet submitted.
 ## 7. Running on a real QPU
 
 The hardware workflow is **script-based**, not an inline API call. The scripts are in
-`source/benchmark_scripts/real_qpu_scripts/<QPU>/`, and each takes the benchmark size on the command
+`source/benchmark_scripts/real_qpu_scripts/<QPU>/`, and each submit, collect, status and simulate script takes the benchmark size on the command
 line, as in §4.3: `mini` runs the mini benchmark (8 chunks, Nt = 1, 3, 200 shots
 per circuit), `full` the full one (480 chunks, Nt = 1…19, 10 shots per circuit), and
-`nshots_per_circuit=… n_samples=… n_depths=…` a custom one. Every real-QPU script (submit, collect, simulate, status, health check) also requires the machine as
-`backend=NAME`, e.g. `backend=ibm_marrakesh` or `backend=emerald`; there is no default, and neither is there a default benchmark: it must be named too. Called without any argument (exit code 2) or with `--help` (exit code 0), every script — also the local simulation scripts and `source/analysis_scripts/run_post_process.py` — prints its usage, before any provider SDK is loaded, and does nothing; the usage has the same sections everywhere. The allowed names
+`nshots_per_circuit=… n_samples=… n_depths=…` a custom one. Every real-QPU script (submit, collect, simulate, status, health check) requires the machine as
+`backend=NAME`, e.g. `backend=ibm_marrakesh` or `backend=emerald`; there is no default, and neither is there a default benchmark for the scripts that take one: it must be named too (the standalone `health_check_real_*.py` scripts take only `backend=`). Called without any argument (exit code 2) or with `--help` (exit code 0), every script — also the local simulation scripts and `source/analysis_scripts/run_post_process.py` — prints its usage, before any provider SDK is loaded, and does nothing; the usage has the same sections everywhere. The allowed names
 are listed in the `backends.json` of each QPU folder, together with each machine's topology (`"lnn"`:
 linear-nearest-neighbour or all-to-all circuits), which sets `LNN` for the run. A collect or status script takes the
-same arguments as its submission, `backend=` included (`layout=` may be left out if only one run folder exists). The
-run folder names the benchmark, the QPU and the layout (§5.4),
-`datafiles/<benchmark>_real-data_<provider>-<backend>_lnn-<bool>_service-<svc>_spam-<bool>_layout-<mode>/` (e.g.
-`mini_real-data_ibm-fez_lnn-True_service-ibm-cloud_spam-True_layout-optimized`, `mini+nshots-100_…_layout-15-14-21`), so runs of
-different sizes and layouts stay apart. Analyze them with
+same arguments as its submission, `backend=` included (`layout=` is optional: without `layout=` and `date=` every run of that benchmark with something left to collect is collected (or reported) in turn, all layouts and dates; give `layout=` to pick one run, including an already finished one; `date=YYYY-MM-DD` alone takes each layout's latest run of that day, `date=YYYY-MM-DD_#N` each layout's run with that number),
+and with `layout=` or `date=` reads the latest run of that layout, or the one of `date=YYYY-MM-DD` or `date=YYYY-MM-DD_#N`. The
+run folder names the benchmark, the QPU, the layout and the date (§5.4),
+`datafiles/<benchmark>_real-data_<provider>-<backend>_lnn-<bool>_service-<svc>_spam-<bool>_layout-<mode>_<YYYY-MM-DD>_#<N>/` (e.g.
+`mini_real-data_ibm-fez_lnn-True_service-ibm-cloud_spam-True_layout-optimized_2026-10-11_#1`, `mini+nshots-100_…_layout-15-14-21_2026-10-11_#1`), so runs of
+different sizes, layouts and days stay apart. Rerunning a submit script continues the latest run of its settings while
+it is unfinished (`--force-new-run` starts a new one regardless), else starts a new dated one. Analyze them with
 `python source/analysis_scripts/run_post_process.py mini --include-real-data` (mini) or
 `python source/analysis_scripts/run_post_process.py full --include-real-data` (see §10).
 
 To add a new QPU provider, follow [GUIDE_FOR_ADDING_NEW_BACKENDS.md](GUIDE_FOR_ADDING_NEW_BACKENDS.md).
 
 1. **PRE health check** — submit + collect a 3-qubit reference circuit; abort if the QPU is degraded. It is skipped, together with the submission, if all chunks are already submitted. **Retries and exit codes** (`require_functional_health_check`, `source/core/health_check.py`): a submission or collection failure that looks like a network/DNS blip is retried a bounded number of times — each attempt gets its own numbered record in `health_checks/` (every attempt stays on disk; nothing is overwritten or discarded), while a verdict that comes back degraded is never retried, since that's a real signal, not a blip. No chunk is ever submitted unless a PRE check comes back functional. If it still can't confirm the QPU is healthy, the script exits with no chunks submitted, using one of three distinct codes: `10` QPU degraded, `11` a check was submitted but its result couldn't be collected (health unknown), `12` a check couldn't even be submitted (health unknown). The POST health check (below) only retries its own submission — see there for why. The standalone `health_check_real_*.py` scripts use the same two verdict codes, `0` functional and `10` degraded (AQT: also `13` when its circuit is not executed within the time limit). The IBM and IQM standalone scripts also exit `2` for a problem you can fix (no argument, a missing or unknown `backend=`, a missing token, for VLQ a missing or incomplete `tokens/iqm_vlq_project_info`, and, where the script has a `QUBIT_SET` (not IBM), a bad one) and `1` for any other error (a provider or SDK error, a failed submission, collection or job); they never exit `11` or `12`, which come only from the accompanying checks of the submit scripts. AQT's health check is one synchronous call with no separate submit/collect step and its own rule (see `readme_aqt.md` §4): the standalone script exits `0` functional, `10` degraded, `12` not submitted or `13` not executed in time (`2` for an unusable argument or a missing token, `1` for any other error), and the loop script's PRE and POST checks exit `13` when the check's task timed out and `12` when it could not be submitted; a timed-out check is saved as a `failed` health check (its wait as queue time, no QPU time), otherwise nothing is written to disk on failure. AQT's loop script also exits with `3` (pause after `AQT_PAUSE_AFTER_HOURS`), `4` (a `STOP` file in the run folder), and its retrying sbatch file with `14` when it gives up (readme_aqt.md §4.3).
-2. **Submit** — `qbcs.submit(..., service=<QPU>)`. Asynchronous for IBM and IQM (returns immediately). IQM Resonance and EQE1 jobs are packed: each job holds as many whole chunks, each with its own SPAM circuits, as fit under `max_circuits_per_job` (Resonance 100, EQE1 70) — for the full benchmark that is 1 chunk (68 circuits) per job, for the mini benchmark 5 chunks (Resonance) or 3 chunks (EQE1) of 20 circuits. IBM and IQM VLQ pack `CHUNKS_PER_JOB` chunks per job (48 / 12); synchronous for AQT (waits for each chunk and merges inline).
+2. **Submit** — `qbcs.submit(..., service=<QPU>)`. Asynchronous for IBM and IQM (returns immediately). IQM Resonance and EQE1 jobs are packed: each job holds as many whole chunks, each with its own SPAM circuits, as fit under `max_circuits_per_job` (Resonance 100, EQE1 70) — for the full benchmark that is 1 chunk (68 circuits) per job, for the mini benchmark 5 chunks (Resonance) or 3 chunks (EQE1) of 20 circuits. IBM and IQM VLQ pack `IBM_CHUNKS_PER_JOB` = 48 / `VLQ_CHUNKS_PER_JOB` = 12 chunks per job (the submit scripts' `CHUNKS_PER_JOB`); synchronous for AQT (waits for each chunk and merges inline).
 3. **Collect** — for IBM and IQM, a separate `qbcs_real_collect_*.py` retrieves results chunk-by-chunk and merges them (safe to re-run in a fresh session — see §5.5). AQT needs no collect step.
 4. **Analyze** — `qbcs.analyze_results()`.
 5. **POST health check** — confirm the QPU stayed healthy across the run. It is submitted right after the submission (for IBM/IQM it is collected by `qbcs_real_collect_*.py`; AQT does one after every chunk).
 
 **Rehearse without QPU time.** Each backend folder also has a `qbcs_real_simulate_*.py`.
 For IBM, IQM Resonance and IQM VLQ it downloads the device's calibration to
-`datafiles/<benchmark>_sim-qpu-noise_<provider>-<backend>_…_layout-<mode>/calibration_snapshot.json` (for VLQ the download is `vlq_calibration.json`, from which the snapshot is built; a rerun warns and reuses it; remove
+`datafiles/<benchmark>_sim-qpu-noise_<provider>-<backend>_…_layout-<mode>_<YYYY-MM-DD>_#<N>/calibration_snapshot.json` (for VLQ the download is `vlq_calibration.json`, from which the snapshot is built; a rerun warns and reuses it; remove
 the run folder to download fresh calibration), builds an Aer noise model from
 it, and runs the whole benchmark locally on the physical qubits a real submission would
 pick (`source/core/qpu/qpu_snapshot.py`; details in each backend readme). Its data type `sim-qpu-noise` means
@@ -880,9 +895,9 @@ provider's venv; everything that reads saved files runs in `local_sim.venv`:
 
 A simulated run is a synchronous `service="local"` run: its summary reports QPU and queue time as 0
 and all its time as CPU time. The calibration it used stays in the run folder
-(`calibration_snapshot.json`). Rerunning the simulate script reuses it — it prints a warning that it
-uses pre-saved calibration data — and resumes the run; to download fresh calibration and simulate with
-it, remove the run folder `datafiles/<benchmark>_sim-qpu-noise_<provider>-<backend>_…/` first. To post-process it, add its folder
+(`calibration_snapshot.json`). Rerunning the simulate script on an unfinished run reuses it — it prints a warning that it
+uses pre-saved calibration data — and resumes the run; once the run is finished, a rerun starts a new dated run folder
+with fresh calibration (to start over on an unfinished one, remove its folder `datafiles/<benchmark>_sim-qpu-noise_<provider>-<backend>_…/` first). To post-process it, add its folder
 name without the benchmark (`sim-qpu-noise_<provider>-<backend>_…_layout-<mode>`) to `RUN_THESE` in `source/analysis_scripts/run_post_process.py` and run it with
 `--include-simulations-real`, or run
 `python source/analysis_scripts/run_post_process.py nshots_per_circuit=<its shots> --include-simulations-real`.
@@ -916,7 +931,7 @@ failed).
 circuit is its own PCSS task), so a failed attempt counts only the circuits and shots that finished before the
 failure; an AQT health check that timed out adds nothing (PIAST-Q was unreachable). IBM, IQM Resonance, IQM EQE1 and
 IQM VLQ work at job level, so a failed job that reached the provider (it has a `job_id`) counts in full: all its
-chunks' circuits × `nshots`, and its billed QPU seconds; a job shared by several chunks counts once. A submission
+chunks' circuits × `nshots`, and its billed QPU seconds (EQE1: modelled); a job shared by several chunks counts once. A submission
 failure without a `job_id` is not counted. Submissions marked `may_exist_on_provider`, and jobs still `submitted` but
 never collected (chunks and health checks), are not counted either; `cost_explanation` names them with an unknown
 cost. The headline `QPU_time_s`, `Queue_time_s` and `Collect_time_s` (and so the `FT` fractions and the per-EMS
@@ -945,7 +960,7 @@ own per-circuit retry (`_aqt_retry` in `source/core/qpu/aqt.py`, connection erro
 `failed` record with `failure_stage` `"submission"` (a circuit could not be submitted) or
 `"execution"`. Collection marks provider-side failures with `failure_stage: "execution"`. Every
 chunk record is written with `chunk_id`, `status` and the failure fields first. Health checks keep
-their own retry rule and record a failed submission (`status="failed"`,
+their own retry rule (the PRE and POST checks' submission is retried on network errors only, up to 3 tries with 30 s, then 60 s waits, where a chunk submission gets 4 tries with 30 / 60 / 120 s) and record a failed submission (`status="failed"`,
 `health_checks/`). Every submission that submits anything is followed by a health check, whatever
 earlier checks covered. The analysis places a health check at the smallest chunk in its list
 (which health checks belong to a partial analysis). Legacy records hold
@@ -1024,7 +1039,7 @@ circuits are therefore always cached at QPY version 13 (§4.1):
 
 **Credentials** (`tokens/`): every backend reads a token from a plain-text
 `tokens/<provider>_token` file (git-ignored except `tokens/README.md`), always through
-`source/core/qpu/tokens.py: read_token()`, which exits with an explanation when the file is missing:
+`source/core/qpu/tokens.py: read_token()` (IQM VLQ locates its files with `token_path()`, see its rows), which exits with an explanation when the file is missing:
 
 | Backend | Token file |
 |---|---|
@@ -1036,7 +1051,7 @@ circuits are therefore always cached at QPY version 13 (§4.1):
 | IQM VLQ (access file) | `iqm_vlq_project_info` — the LEXIS project and resource (`tokens/README.md`) |
 
 Every submit, collect, status and health-check script of that QPU (and the IBM and IQM Resonance simulate scripts) reads its token from this file
-(through `source/core/qpu/tokens.py: read_token()`).
+(through `source/core/qpu/tokens.py: read_token()`; IQM VLQ: `token_path()`).
 
 Reading the token from its `tokens/<provider>_token` file and passing it explicitly into
 the service/client constructor is how every QPU's submission script authenticates
@@ -1126,17 +1141,17 @@ The numbered tests skip 02-06 and 09 (those numbers belong to retired tests).
 | `source/tests/test_07_full_pipeline_local_sim.py` | full local-sim pipeline + `run_post_process.py` integration (outputs, summary JSON, plots), AWAE decay with shots for all 6 roles — no coherent residual noise; a second test runs the pipeline with `do_SPAM=False` (no SPAM files or figures) |
 | `source/tests/test_08_mini_local_sim.py` | runs `source/benchmark_scripts/local_simulation_scripts/benchmark_noiseless_all_to_all.py` with the `mini` argument (the mini benchmark) (output folder renamed), checks its circuit drawings and analyzes its results through `source/analysis_scripts/run_post_process.py` — summary/plots must carry its own 200 shots / 8 samples / 2 depths; run with and without SPAM (the no-SPAM variant replaces the script's `do_spam=True` argument with `do_spam=False`) |
 | `source/tests/test_10_no_myqlm_on_qpu_path.py` | with myQLM imports blocked (as in the real-QPU venvs), `build()` from the cache, a local submission and the analysis all run without loading myQLM, and an uncached `build()` stops with the "build in local_sim.venv" message; every `source.core` module except `circuits/main.py`, `rc_functions.py`, `circuit_functions.py` imports with myQLM blocked |
-| `source/tests/test_11_circuit_check_and_timing.py` | unit tests, no simulation: the executed-vs-submitted circuit check on real IBM/IQM Resonance job data (`source/tests/circuit_check_data_executed_vs_submitted/`, all must match) and on altered synthetic circuits (all must mismatch; malformed server data gives `check_failed`, never an exception); the analysis summary incl. the qubit-consistency fallback; the figure warning line; Europe/Berlin → UTC incl. the repeated DST hour; durations from `timestamps_utc.csv` across a DST change, with fallback to the local-time log; append-only logs and skipping interrupted attempts; the build time as a sum of stages; refusing old AQT records without a timing block; reading old EQE1 runs, and records whose QPU time comes from their old fields, as legacy runs; `QPU_execution_time_s` per backend (summed over jobs, `N/A` when any job lacks it); the health check transpile time counted once per run (whole-run in a subset analysis); layout selection counting native single-qubit gates on the transpiled circuit; the shared UTC helpers (`parse_utc`, `iso_utc`, `now_utc_iso`) |
+| `source/tests/test_11_circuit_check_and_timing.py` | unit tests, no simulation: the executed-vs-submitted circuit check on real IBM/IQM Resonance job data (`source/tests/circuit_check_data_executed_vs_submitted/`, all must match except the fixture marked `mismatch`) and on altered synthetic circuits (all must mismatch; malformed server data gives `check_failed`, never an exception); the analysis summary incl. the qubit-consistency fallback; the figure warning line; Europe/Berlin → UTC incl. the repeated DST hour; durations from `timestamps_utc.csv` across a DST change, with fallback to the local-time log; append-only logs and skipping interrupted attempts; the build time as a sum of stages; refusing old AQT records without a timing block; reading old EQE1 runs, and records whose QPU time comes from their old fields, as legacy runs; `QPU_execution_time_s` per backend (summed over jobs, `N/A` when any job lacks it); the health check transpile time counted once per run (whole-run in a subset analysis); layout selection counting native single-qubit gates on the transpiled circuit; the shared UTC helpers (`parse_utc`, `iso_utc`, `now_utc_iso`) |
 | `source/tests/test_12_aqt_shot_split.py` | **runs in `aqt.venv`, not `local_sim.venv`** (Qiskit 1.4.6, as AQT runs it): `test_12` only launches `source/tests/aqt_venv_test_12_shot_split.py` with `venvs/aqt.venv`'s Python, and fails with instructions if `aqt.venv` (or `pytest` in it) is missing. Unit tests, no simulation: AQT's 200-shots-per-circuit limit — the even split of larger shot counts (`job_timing.aqt_shot_parts`), `_aqt_run` refusing more than 200 shots, per-batch QPU-time modelling, and `submit_chunk_aqt` against a stub backend: parts checkpointed and summed per circuit, an interrupted chunk leaving a `failed` record (archived on the retry) and resumed at the first missing part, each execution counted as circuits in `qpu_workload`, and a failure inside a batch keeping the circuits finished before it in the `failed` record (circuits, shots, QPU time; its wall time booked once as queue time); a circuit not executed within `AQT_TASK_TIMEOUT_S` raising `AQTTaskTimeout` and leaving a `failed` record; the shot parts' timestamps in `timestamps_*.csv`; the loop script's `STOP` file (honoured once, then deleted) and its `AQT_PAUSE_AFTER_HOURS` time limit, with their exit codes 4 and 3 |
 | `source/tests/test_13_iqm_vlq.py` | unit tests, no simulation or network: VLQ's qubit selection on a saved calibration set (`source/tests/iqm_vlq_check_data/`): each virtual qubit's prx / MOVE / CZ counts read from a transpiled star circuit, every ordered choice of qubits with complete metrics scored by those roles, the effective all-to-all snapshot for the local simulation (written beside the raw calibration by `save_vlq_calibration()`), MOVEs not counted as two-qubit gates, and the timing of a real VLQ job (Resonance-equivalent billed time, `remote_hw_runtime`, IT4I/IQM queue split), and the connection log (every call to IT4I / HEAppE logged and time-limited, a hung request reported with where it waited) |
 | `source/tests/test_14_incomplete_runs_and_collection.py` | unit tests, no simulation or network: runs with uncollected chunks in the middle — merging keeps each chunk's own number (the NEC input state depends on it), an analysis of n chunks covers the first n collected ones (timing, workload), a subset analysis corrects SPAM with every collected chunk's calibration (no `+nsamples-N` SPAM matrix by default), the `completeness` block and its warning; the collection time (`chunk{nc}_collect_*` labels, health checks' `collect_s`, N/A for older runs, `FT_collect`); non-blocking collection of chunk jobs and health checks (finished ones collected in any order, unfinished left pending, failed ones marked failed) against a faked provider; the chunks a submission covers (no `submitted` / `complete` record, gaps included), required by every accompanying health check as `chunks` (older `jobs` / `prior_chunks` records still read); the health check plot of an incomplete run (`+nsamples-N` files, uncollected checks and jobs); collecting a run while no job has finished analyzes nothing and does not fail, and collecting an aborted run (no chunk submitted) ends with one `❌` line (exit code 2); one reading of provider job-status texts (`job_state_of_status()`: a cancelled job counts as failed) shared by collection and the status report |
 | `source/tests/test_15_health_check_network_retries.py` | unit tests, no simulation or network (a fake backend/collect-service stands in for the provider): `_is_transient_network_error`'s classification of connection/DNS/timeout errors (incl. walking `__cause__`); `submit_health_check`'s async-service (`IBM_Cloud`/`MQSS_LRZ`/`IQM_Resonance`/`QAAS_IT4I`) submission-failure handling — writes a numbered `status="failed"` record with its transpile and submit timing and raises `HealthCheckSubmitError` — vs. AQT/local and the standalone path, which stay unwrapped (raw exception propagates, nothing written); `require_functional_health_check`'s bounded retry on transient errors only and its three distinct exit codes (`EXIT_HC_DEGRADED` / `EXIT_HC_NOT_COLLECTED` / `EXIT_HC_NOT_SUBMITTED`) — a degraded verdict is never retried, and a failed collection attempt submits a fresh check under a new number rather than re-polling the same job; `submit_post_health_check` never raising or exiting (chunks are already on the QPU by then); and `collect_health_check(number=None)` / `plot_health_checks.py` handling a run with a mix of failed, uncollected and complete health checks without error, with failed ones counted/labelled separately; and the one verdict rule for every QPU (`health_check_verdict`: P(011) above the threshold), the shared verdict lines, P011 + the verdict in a synchronous standalone record, and an async standalone check keeping its collected result (counts, P011, verdict) in its own record |
-| `source/tests/test_16_failed_job_attempts.py` | unit tests, no simulation or network (a temporary run folder): a failed chunk record archived to `job_records/failed_attempts/job_record_chunk_<nc>_failed_<k>.json` before a resubmission overwrites it (`k` counts up, the same failure never archived twice, other statuses left alone); readers of `job_record_chunk_<nc>.json` never taking an archived file for a chunk; `chunks_without_submission()` still listing failed and missing chunks; `failed_attempts_breakdown()` summing the failed jobs' QPU / queue / collection time (a batched job shared by several chunks counted once, each AQT attempt a job of its own, its executed circuits and shots summed and reported by `qpu_workload` as `n_failed_circuits` / `n_failed_shots`; IBM-style failed jobs shared by several chunks counted in full once, with string fields, plus a submission failure with `may_exist_on_provider` and an uncollected job reported as `n_may_exist_on_provider` / `n_uncollected`); the health check plot's jobs marking failed ones; chunk submission against fake IBM / IQM samplers — `_submit_error_kind` (provider never reached → retried; answer lost, the job may exist → not retried; other errors), retried submissions keeping `submit_attempts`, and a submission that gives up writing `"submission failed"` records for every chunk of the job (one `submission_id`, `may_exist_on_provider`, chunks already submitted left alone) and re-raising, archived on the rerun; records written with `status` near the top |
+| `source/tests/test_16_failed_job_attempts.py` | unit tests, no simulation or network (a temporary run folder): a failed chunk record archived to `job_records/failed_attempts/job_record_chunk_<nc>_failed_<k>.json` before a resubmission overwrites it (`k` counts up, the same failure never archived twice, other statuses left alone); readers of `job_record_chunk_<nc>.json` never taking an archived file for a chunk; `chunks_without_submission()` still listing failed and missing chunks; `failed_attempts_breakdown()` summing the failed jobs' QPU / queue / collection time (a batched job shared by several chunks counted once, each AQT attempt a job of its own, its executed circuits and shots summed and reported by `qpu_workload` as `n_failed_circuits` / `n_failed_shots`; IBM-style failed jobs shared by several chunks counted in full once, with string fields, plus a submission failure with `may_exist_on_provider` and an uncollected job reported as `n_may_exist_on_provider` / `n_uncollected`); the health check plot's jobs marking failed ones; chunk submission against fake IBM / IQM samplers — `_submit_error_kind` (provider never reached → retried; answer lost, the job may exist → not retried; other errors), retried submissions keeping `submit_attempts`, and a submission that gives up writing `"submission failed"` records for every chunk of the job (one `submission_id`, `may_exist_on_provider`, chunks already submitted left alone) and re-raising, archived on the rerun; records written with `status` near the top; the run window (`_job_intervals_for_window()`) spanning failed attempts and health checks, and its active length (`_active_seconds()`) without dead time (gaps between merged jobs over 30 min, 2 h on AQT, subtracted) |
 | `source/tests/test_17_local_job_records.py` | unit tests, Aer only (no myQLM build, no network, a temporary simulation run folder): a locally simulated chunk writes a real-QPU-style `job_records/job_record_chunk_<nc>.json` (`status: "complete"`, `service_name: "local"`, times, timing block, `circuit_check: not_available`, `CONFIG` without `folder_path`, no absolute path); a sampler error writes a `failed` record (`failure_stage: "execution"`) and re-raises, and the rerun archives it to `failed_attempts/` where the analysis counts it; `chunks_to_submit()` of a simulation run decides by its results; the health check plot's jobs from new records and old `chunk_times_UTC_time.json`, also mixed; the shared `submit.log` entry (`append_submit_log`: layout, run qubits and calibration in a fixed order), `health_check_log_line`, `print_run_config`; `snapshot_log_lines`' calibration summary |
-| `source/tests/test_18_layout_args.py` | unit tests, no simulation or network: the `layout=` / `calibration_file=` arguments and their errors (refused by the local simulation scripts), the four layout modes (optimized, random with a recorded seed, lowest, a given list and the errors for an impossible one) on synthetic targets incl. AQT's coupling-free one, the calibration formats (provider files vs snapshot) with automatic conversion, and the run-folder names |
+| `source/tests/test_18_layout_args.py` | unit tests, no simulation or network: the `layout=` / `calibration_file=` arguments and their errors (refused by the local simulation scripts), the four layout modes (optimized, random with a recorded seed, lowest, a given list and the errors for an impossible one) on synthetic targets incl. AQT's coupling-free one, the calibration formats (provider files vs snapshot) with automatic conversion, and the run-folder names (the latest dated folder of a collect script, or that of `date=`, which without `layout=` takes each layout's run) |
 | `source/tests/test_19_circuit_cache_and_venvs.py` | unit tests, no build or network: the circuit caches live in `datafiles/circuits/` (`datafiles/tests/circuits/` for the tests, which add nothing elsewhere), a cache built by another or no `CIRCUIT_CODE_VERSION` is refused, and `venv_python_path()` finds the interpreter on Windows and Linux; a missing token or LEXIS project file ends the script with one ❌ line and exit code 2 (`exit_with_error()`); `scrub_paths()` takes the project and home folders out of saved error texts |
-| `source/tests/test_20_run_names.py` | unit tests, no simulation or network: run, plot and summary names (`source/core/records/run_names.py`) round-trip for every QPU folder and data type, the `<benchmark>` field of every kind of benchmark arguments, subset/summary/collective names, the service name of every QPU and of each run-name service field (`service_name()`); the figure label of every data type (`figure_label`, simulations marked as such); the data type of a `RUN_THESE` entry (`entry_data_type()`); malformed names (and layouts of other than three qubits) refused |
-| `source/tests/test_21_docs_consistency.py` | unit tests, no simulation or network: the user docs (README.md, this manual, both QUICK_STARTs, the guide for new backends, `tokens/README.md`, the QPU readmes) have no TAB bytes, every `source/…` path they name exists, every relative link and in-page anchor resolves, no user doc names the maintainer-only folder, every `USER_MANUAL §N` reference (in the docs and the requirements files) names an existing section and none points to a `README §N`, every token file is named `tokens/<provider>_token` (never the reversed order), every QPU readme has the shared seven top-level sections (Prerequisites, Connecting, Config knobs, Workflow, Timing, Outputs & post-processing, Known issues) and the shared paragraphs in the same words, and every `readme_<qpu>.md §N` reference exists |
+| `source/tests/test_20_run_names.py` | unit tests, no simulation or network: run, plot and summary names (`source/core/records/run_names.py`) round-trip for every QPU folder and data type, the `<benchmark>` field of every kind of benchmark arguments, subset/summary/collective names, the service name of every QPU and of each run-name service field (`service_name()`); the figure label of every data type (`figure_label`, simulations marked as such); the run filters of `run_post_process.py` (`RunFilter`, `make_run_filter()`, `parse_date_filter()`) and the collective folder name of a filtered set; the date field (dated and undated names, `date_label`, `figure_label_full`, `dated_run_folder()` reusing only an unfinished run, `latest_run_folder()`) and the collective plots' run labels and order and time units (`_duration_fmt`: s, min, h, d), the run table CSV (`_write_run_table`, saved under `collective_table_path()`) and the linear bar plots (`_bar_plot`); the data type of a `RUN_THESE` entry (`entry_data_type()`); malformed names (and layouts of other than three qubits) refused |
+| `source/tests/test_21_docs_consistency.py` | unit tests, no simulation or network: the user docs (README.md, this manual, both QUICK_STARTs, the guide for new backends, `tokens/README.md`, the QPU readmes) have no TAB bytes, every `source/…` path they name exists, every relative link and in-page anchor resolves, no user doc names the maintainer-only folder, every `USER_MANUAL §N` reference (in the docs and the requirements files) names an existing section and none points to a `README §N`, every token file is named `tokens/<provider>_token` (never the reversed order), every QPU readme has the shared seven top-level sections (Prerequisites, Connecting, Config knobs, Workflow, Timing, billing and circuit check, Outputs & post-processing, Known issues) and the shared paragraphs in the same words, and every `readme_<qpu>.md §N` reference exists |
 | `source/tests/test_22_output_format.py` | unit tests, no simulation or network: the shared output helpers — `section()` headers, `print_done_block()` closing blocks, the one-line `print_chunk_saved()`, the two-line `format_retry()` notice (exception cut to 80 characters) and `top_counts()` for health-check counts |
 | `source/tests/test_23_no_absolute_paths_in_saved_files.py` | runs the mini local simulation and its post-processing in a test folder, then checks that no text file of the run folder or of its `analysis/tests/` output (job records, `run_info.json`, `submit.log`, health checks, `run_data*.json`, summaries) contains an absolute path (the project root or home folder, a drive-letter or UNC path, `/home/`, `/Users/`, ...); the patterns are checked against example paths and URLs too, and `saved_config()` is checked to keep JSON-writable values (like the `coherent_noise` dict) and drop arrays and machine-specific paths |
 | `source/tests/test_24_ibm_batch_and_optimized_layout.py` | `ibm_batch()` yields a sampler bound to the batch and closes it on success, on an error and with the default `max_time`; `layout=optimized` on a QPU with no SWAP-free placement exits with code 2 and one line without writing `physical_qubits.json`; an optimized or explicit layout that has a placement still resolves |
@@ -1176,10 +1191,10 @@ runs (`source/core/analysis/collective_plots.py`, see below). Without any argume
 
 | Command | Analyzes |
 |---|---|
-| `python source/analysis_scripts/run_post_process.py mini` | the mini benchmark: the runs `mini_<entry>…` of `RUN_THESE["mini"]` — real QPUs and simulations |
-| `python source/analysis_scripts/run_post_process.py full` | the full benchmark: the runs `full_<entry>…` of `RUN_THESE["full"]` — real QPUs and simulations |
-| `python source/analysis_scripts/run_post_process.py <benchmark arguments>` | any other arguments of the `source/benchmark_scripts/` (§4.3), e.g. `mini nshots_per_circuit=100` or `nshots_per_circuit=50 n_samples=8 n_depths=3`: every run folder in `datafiles/` with that `<benchmark>` field (`mini+nshots-100`, `custom+ndepths-3+nsamples-8+nshots-50`) |
-| `python source/analysis_scripts/run_post_process.py nshots_per_circuit=N` | every run folder in `datafiles/` with N shots per circuit (read from its `run_info.json`), whatever its size |
+| `python source/analysis_scripts/run_post_process.py mini --include-real-data` | the mini benchmark: the runs `mini_<entry>…` of `RUN_THESE["mini"]` — of the kinds the `--include-*` flags select |
+| `python source/analysis_scripts/run_post_process.py full --include-real-data` | the full benchmark: the runs `full_<entry>…` of `RUN_THESE["full"]` — of the kinds the `--include-*` flags select |
+| `python source/analysis_scripts/run_post_process.py <benchmark arguments> --include-real-data` | any other arguments of the `source/benchmark_scripts/` (§4.3; not `layout=` or `calibration_file=`), e.g. `mini nshots_per_circuit=100` or `nshots_per_circuit=50 n_samples=8 n_depths=3`: every run folder in `datafiles/` with that `<benchmark>` field (`mini+nshots-100`, `custom+ndepths-3+nsamples-8+nshots-50`) |
+| `python source/analysis_scripts/run_post_process.py nshots_per_circuit=N --include-real-data` | every run folder in `datafiles/` with N shots per circuit (read from its `run_info.json`), whatever its size |
 
 For `mini` and `full`, an entry that matches several run folders (e.g. one per layout) analyzes all of them, and an entry with no
 run folder is skipped silently. Only the entries of the selected kinds (the `--include-*` flags below) are looked up; the script lists
@@ -1205,7 +1220,25 @@ additionally analyzes each run on its first 8, 48, 120, 240 and 480 samples (`NS
 and `summary+nsamples-<N>.json` only, no per-N plots; only the RC samples vary, the SPAM correction uses the calibration of every collected chunk) and draws `analysis/plots/<run folder>/awae_best_ems_nsamples_comparison.png`
 (`source/analysis_scripts/plot_awae_nsamples_comparison.py`). It shows the AWAE of the run's best EMS at N_max (and at N_acc, if that one differs)
 for each sample count, with the run's own N_acc. Both come from the run's reference analysis: all its collected chunks, a curve that is always drawn.
-Sample counts above that are left out. This plot is per run only, so no collective plots are made, and with `--collective-only` nothing is done.
+Sample counts above that are left out. This plot is per run only: the collective plots are made as usual, from the full runs, and with `--collective-only` the flag is ignored.
+
+**Filters** narrow the selected runs further, for the per-run and the collective analysis alike. All are optional and combine
+freely (a run must pass every filter given; within one list any value matches); runs are matched on the fields of their folder
+name (§5.4):
+
+| Filter | Keeps the runs whose … |
+|---|---|
+| `--date=2026-09-01` | date is that day |
+| `--date=2026-09-01:2026-09-30` | date is in that range, ends included; `--date=2026-09-01:` and `--date=:2026-09-30` leave one end open (a name without a date never matches) |
+| `--backends=ibm-fez,iqm-garnet` | `<provider>-<backend>` is listed |
+| `--services=ibm-cloud,pcss` | service is listed (`local` for the local simulations) |
+| `--layouts=optimized,random` | qubit layout is listed (`optimized`, `random`, `lowest`, `legacy`, `none`, or three qubits such as `15-14-21`) |
+
+E.g. `python source/analysis_scripts/run_post_process.py mini --include-real-data --date=2026-09-01:2026-09-30 --layouts=optimized`.
+The script prints the active filters before the run list, and does nothing if no run matches. The collective plots and table of a
+filtered set go to their own folder and file, named like the unfiltered ones plus the filters
+(`mini_collective_real-data_dates-2026-09-01-to-2026-09-30_layouts-optimized/`; a long list of values is shortened to its count
+and a hash), so they never overwrite the unfiltered comparison. A date, service or layout that is not valid, or a backend not written as `<provider>-<backend>` (e.g. `ibm-fez`), prints the usage and exits with code 2; a well-formed name that no run has matches nothing (with `--backends`, the script then lists the backends that have runs).
 
 Anything else, or both flags together, prints the usage and exits with code 2. Each run's own
 settings (samples, depths, shots) still come from its run folder; the argument only selects which folders.
@@ -1221,16 +1254,21 @@ settings (samples, depths, shots) still come from its run folder; the argument o
 | `awae_best_ems_vs_Nt.png` | AWAE vs $N_t$ of each run's best EMS at $N_{max}$ (solid) and at $N_{acc}$ (dashed) — one line if they coincide — with the threshold ε = 0.05 (`derived_quantities.EPSILON`) |
 | `cumul_awae_best_ems_vs_Nt.png` | the same for the cumulative AWAE (Z_exact-weighted mean over the depths up to $N_t$, `derived_quantities.cumulative_awae()`), the quantity $N_{acc}$ is defined by |
 | `awae_and_cumul_awae_best_ems_vs_Nt.png` | both side by side |
-| `qpu_time.png` | `QPU_time_s` per run, log scale with plain-number labels |
-| `submission_time.png` | summed submission time per run (`timing_breakdown.cpu.submit_s` + `health_check_submit_s`, a part of `CPU_time_s`), log scale; runs without it (synchronous services, old runs) are left out |
-| `collection_time.png` | `Collect_time_s` per run (summed result-collection time, failed jobs included), log scale; runs collected before it was timed are left out |
-| `submission_to_results_duration.png` | `QPU_submission_to_results_duration_s` per run (earliest chunk submission to latest chunk result, wall clock), log scale; simulations are left out |
-| `effective_cost_EUR.png` | `effective_cost_EUR` per run, log scale with plain-number labels |
+| `qpu_time.png` | `QPU_time_s` per run, log scale; bar labels and ticks in seconds (up to 60 s), minutes (up to 60 min), hours (up to 24 h) or days |
+| `submission_time.png` | summed submission time per run (`timing_breakdown.cpu.submit_s` + `health_check_submit_s`, a part of `CPU_time_s`), log scale, units as above; runs without it (synchronous services, old runs) are left out |
+| `collection_time.png` | `Collect_time_s` per run (summed result-collection time, failed jobs included), log scale, units as above; runs collected before it was timed are left out |
+| `submission_to_results_duration.png` | `QPU_submission_to_results_duration_s` per run (earliest job submission to latest job result, wall clock, chunk, failed-attempt and health-check jobs), log scale, units as above; simulations are left out |
+| `submission_to_results_duration_without_dead_time.png` | `QPU_submission_to_results_duration_without_dead_time_s` per run (the window minus long idle gaps), log scale, units as above; simulations and runs summarized without it are left out |
+| `effective_cost_EUR.png` | `effective_cost_EUR` per run, log scale with € labels |
+| `n_acc.png` | $N_{acc}$ per run, linear scale (a run with $N_{acc}$ = 0 shows a bar at 0); runs whose summary lacks it are left out |
+| `e_min_nmax.png` | `E_min_Nmax` (the lowest AWAE over the schemes at $N_{max}$) per run, linear scale 0 to 1.05, with the threshold ε = 0.05 as a dashed line |
 
-Runs are labelled by QPU, kind of run and connectivity (`computer_name`, the label every figure of the run uses:
-e.g. `ibm-fez — real QPU, lnn-True`, or for a simulation `fake-fez — simulation (FakeFez noise), lnn-True`), extended by shots, analyzed subset (`n=…`) or
-layout only where two runs would otherwise share a label and that field tells them apart (e.g. two
-layouts of one QPU: `ibm-fez — real QPU, lnn-True, layout optimized`; the shot count is not added when both have the same). The plots read each run's
+The same runs in one table, `analysis/summaries/<benchmark>_collective_<data types>.csv` (next to the runs' summaries, not with the plots; e.g. `analysis/summaries/mini_collective_real-data+sim-noiseless.csv`): `;`-separated and padded with spaces so it also reads as a text table, UTF-8, one row per run, in the order of the plots; columns `run` (the plot label), `n_samples`, `N_acc`, `N_max`, `E_min_Nmax` (4 significant digits), `best_scheme_Nmax`, `QPU_time_s` (whole seconds), `QPU_time` (readable), `effective_cost_EUR` (2 decimals); a quantity the summary lacks is an empty cell.
+
+Each run is labelled `<device_label>, layout <mode>, DD/MM/YYYY #N` (`device_label`, a key of the saved summary; older summaries on disk carry `computer_name`; the per-run figures use `figure_label_full`, §5.4:
+e.g. `ibm-fez — real QPU, lnn-True`, or for a simulation `fake-fez — simulation (FakeFez noise), lnn-True`; a legacy summary without either uses the backend name).
+The shots (`<N> shots`), the analyzed subset (`n=…`) and finally the run folder are appended only where two runs would otherwise
+share a label and that field tells them apart (a field the duplicates share is not appended). The plots read each run's
 `summary*.json` and `run_data[_spam]*.json`, and also accept legacy summaries
 (`effective_cost_euros`, best EMS without a `+SPAM` suffix — then the no-SPAM data is used); a
 value a summary lacks is left out of that plot with a warning.
@@ -1279,10 +1317,11 @@ the `RUN_FOLDER` in their headers only names the run when one is run standalone.
 `<benchmark>_` (e.g. `real-data_ibm-fez`, `sim-noiseless_local-aer_lnn-True`; the real QPUs are listed once in
 `REAL_QPUS`, the local simulations in `LOCAL_SIMULATIONS`, and both lists go into `RUN_THESE`), cut off after any field, and
 matches the one folder `<benchmark>_<entry>…` on disk (`<benchmark>` = `mini` or `full`), whose settings then come
-from the run as above. If an entry matches several runs (e.g. two layouts), add fields or name one with
-`dict(run=…, layout="optimized")` (or `"random"`, `"lowest"`, `"legacy"`, `"15-14-21"`). A run of another benchmark is
+from the run as above. If an entry matches several runs (e.g. two layouts or two dates), all are analyzed, in the order
+QPU, layout, date, run number; to pick one, add fields or name it with
+`dict(run=…, layout="optimized")` (or `"random"`, `"lowest"`, `"legacy"`, `"15-14-21"`) and/or `date="2026-10-11"` (or `"2026-10-11_#1"`). A run of another benchmark is
 selected with `dict(run=…, benchmark=…)` (e.g. `benchmark="full+nshots-100"`), and an archived one with
-`dict(run_folder=…)` (e.g. `run_folder="old_runs_full/full_real-data_ibm-fez_lnn-True_service-ibm-cloud_spam-True_layout-lowest"`).
+`dict(run_folder=…)` (e.g. `run_folder="old_runs_full/full_real-data_ibm-fez_lnn-True_service-ibm-cloud_spam-True_layout-lowest_2026-09-21_#1"`).
 Runs without a layout argument carry `layout-optimized` (scored; `layout-random` for AQT PIAST-Q and IQM EQE1 runs without `layout=` and `calibration_file=`), `layout-lowest`
 (the lexicographically lowest SWAP-free placement) or `layout-legacy` (runs made before layouts were recorded; qiskit chose the qubits per circuit).
 
@@ -1342,8 +1381,10 @@ are included in all of them:
   all chunk jobs and health checks, failed jobs included. Synchronous services (AQT, the local simulator) run their jobs one after
   another, so there the waits are added up.
   `timing_breakdown.queue.sum_of_jobs_s` keeps the plain sums.
-- `QPU_submission_to_results_duration_s`: `date_qc_end − date_qc_start`, from the earliest chunk submission
-  to the latest chunk result.
+- `QPU_submission_to_results_duration_s`: `date_qc_end − date_qc_start`, from the earliest job submission
+  to the latest job result, over the chunk jobs, the failed attempts and the health checks.
+- `QPU_submission_to_results_duration_without_dead_time_s`: that window minus the gaps between the merged job
+  intervals that are longer than 30 minutes (2 hours on AQT), e.g. a failure noticed hours later and resubmitted.
 - `Collect_time_s`: collecting the results — from a finished job to its saved counts: downloading the
   result (the first chunk of a job shared by several chunks carries the download), downloading the executed
   circuits for the circuit check, saving counts and records. Waiting for unfinished jobs is not included.
@@ -1395,7 +1436,7 @@ were looked up (2026-09-27; the IQM Resonance credits, used for the VLQ/Sirius e
 | IBM | `QPU_time_s` (failed jobs included) × $96 per minute (IBM Quantum Pay-As-You-Go) | `effective_cost_USD`, `exchange_rate_EUR_per_USD`, `effective_cost_EUR` |
 | IQM Resonance Emerald, IQM EQE1 (the same model) | Amazon Braket, IQM Emerald: $0.30 per task + $0.0016 per shot. One IQM job (≤ 100 circuits on Resonance, ≤ 70 on EQE1) is one AWS program set, billed as one task. | as for IBM |
 | IQM Resonance Garnet | the same, with $0.00145 per shot | as for IBM |
-| IQM VLQ | a synthetic estimate combining the IQM Resonance and Amazon Braket billing schemes: $0.30 per task + $0.00064 per shot (Braket's Emerald price × Resonance's credits per second for Sirius, a Star 24 machine like VLQ, 0.3, over Emerald's, 0.75). A job holds up to 12 chunks (`CHUNKS_PER_JOB`), so it counts as the 100-circuit program sets its whole chunks fill (5 chunks of 20 circuits in the mini benchmark, 1 of 68 in the full one); a health check is one task; failed jobs count the same way. | as for IBM |
+| IQM VLQ | a synthetic estimate combining the IQM Resonance and Amazon Braket billing schemes: $0.30 per task + $0.00064 per shot (Braket's Emerald price × Resonance's credits per second for Sirius, a Star 24 machine like VLQ, 0.3, over Emerald's, 0.75). A job holds up to 12 chunks (`VLQ_CHUNKS_PER_JOB`), so it counts as the 100-circuit program sets its whole chunks fill (5 chunks of 20 circuits in the mini benchmark, 1 of 68 in the full one); a health check is one task; failed jobs count the same way. | as for IBM |
 | IQM Resonance Sirius | Braket does not offer Sirius, a Star 24 machine like VLQ: the same synthetic estimate as IQM VLQ | as for IBM |
 | AQT PIAST-Q | Scaleway, AQT IBEX-Q1: €0.30 per circuit + €0.021 per shot | `effective_cost_EUR` only |
 | simulations (`sim-*` data types) | no QPU | `effective_cost_EUR` = 0 |

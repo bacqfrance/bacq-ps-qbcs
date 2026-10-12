@@ -2,7 +2,8 @@
 health_check.py
 The QPU health check (USER_MANUAL §7): build its circuit, submit it on any service, collect it, and the
 checks the scripts run around a benchmark (require_functional_health_check() before submitting,
-submit_post_health_check() after). Records live in <run>/health_checks/ (records/health_check_records.py).
+submit_post_health_check() after). A standalone check's record is <run>/job_records/health_check[_<suffix>].json; the checks that accompany
+a run live in <run>/health_checks/ (records/health_check_records.py).
 myQLM is never needed here.
 """
 
@@ -485,7 +486,7 @@ def require_functional_health_check(run_folder, backend, service_name, collect_s
     attempts = []   # (number-or-None, outcome-str)
     last_exc = None
     backoff_s = SUBMIT_RETRY_BACKOFF_S if backoff_s is None else backoff_s   # read at call time
-    max_attempts = len(backoff_s) if max_attempts is None else max_attempts
+    max_attempts = len(backoff_s) if max_attempts is None else max_attempts   # 3 tries: waits 30 s and 60 s only
     for attempt in range(1, max_attempts + 1):
         try:
             _, number = submit_health_check(
@@ -524,14 +525,14 @@ def require_functional_health_check(run_folder, backend, service_name, collect_s
             print(f"  ✅ QPU functional — check #{number}, P(011)={record['P011']:.3f} — proceeding.")
             return record
 
-        print(f"  ❌ QPU degraded — check #{number}, P(011)={record['P011']:.3f} — aborting!")
+        print(f"  ❌ QPU degraded — check #{number}, P(011)={record['P011']:.3f} — aborting!", file=sys.stderr)
         sys.exit(EXIT_HC_DEGRADED)
 
     summary = ", ".join(f"#{n} {o}" if n is not None else o for n, o in attempts)
     exit_code = EXIT_HC_NOT_COLLECTED if attempts and attempts[-1][1] == "not collected" else EXIT_HC_NOT_SUBMITTED
     print(f"  ❌ QPU health UNKNOWN after {len(attempts)} attempt(s): {summary} (last error: {last_exc}).\n"
           f"     No chunks were submitted. Rerun this script (safe) or, for an uncollected check, run "
-          f"qbcs_real_collect_*.py later to record it.")
+          f"qbcs_real_collect_*.py later to record it.", file=sys.stderr)
     sys.exit(exit_code)
 
 

@@ -25,6 +25,7 @@ Unit tests (no simulator, no QPU, no network) for
     remote_hw_runtime, IQM Resonance execution_seconds or the execution interval, IBM
     circuits_execution_seconds, none for AQT), summed over the run's jobs by
     qpu_queue_breakdown and None ("N/A") when any job lacks it; qpu_workload's chunks per job;
+  - the queue total is the longest wait except on AQT; the AQT transpile rate comes from the runs that measured it;
   - layout selection (source/core/qpu/layout_selection.py): the native single-qubit gates are counted on
     the circuit transpiled onto one SWAP-free probe placement (the same on every placement).
 """
@@ -478,8 +479,6 @@ def test_build_log_split_into_myqlm_and_conversion(tmp_path):
 
 
 def test_layout_selection_counts_native_single_qubit_gates_on_the_transpiled_circuit():
-    from qiskit import QuantumCircuit
-    from qiskit.providers.fake_provider import GenericBackendV2
     from source.core.qpu.layout_selection import probe_placement, transpiled_1q_counts, select_physical_qubits
     backend = GenericBackendV2(num_qubits=5, basis_gates=["cz", "rz", "sx", "x"],
                                coupling_map=[[0, 1], [1, 0], [1, 2], [2, 1], [2, 3], [3, 2], [3, 4], [4, 3]], seed=1)

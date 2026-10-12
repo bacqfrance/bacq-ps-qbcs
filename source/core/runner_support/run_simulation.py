@@ -21,7 +21,7 @@ def simulate_run(*, run_folder, bench, layout, lnn, snapshot_path, cal_source, d
     """Simulate run_folder's chunks with the noise of the calibration snapshot at snapshot_path.
 
     bench / layout: BenchmarkArgs / LayoutArgs (source/core/runner_support/benchmark_args.py); lnn: the QPU's topology
-    (backends.json); cal_source: the calibration file the layout was scored on (None: the snapshot);
+    (backends.json); cal_source: the calibration_file= the noise (and, for an optimized layout, the layout scoring) comes from (None: the snapshot);
     seed: Aer sampling seed (None: fresh randomness per chunk); customize_backend(snapshot_backend):
     an optional hook run before the qubits are chosen (VLQ attaches its raw calibration there)."""
     from source.core.qpu.calibration_input import layout_summary, resolve_layout_or_exit

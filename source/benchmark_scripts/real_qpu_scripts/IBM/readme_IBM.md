@@ -37,7 +37,7 @@ from qiskit_ibm_runtime import QiskitRuntimeService
 
 token   = read_token("ibm_token")   # tokens/ibm_token
 service = QiskitRuntimeService(channel="ibm_quantum_platform", token=token)
-real_backend = service.backend("ibm_marrakesh")   # or any backend name your account can see
+real_backend = service.backend("ibm_marrakesh")   # or another name listed in `backends.json`
 ```
 
 Every script in this folder that connects to IBM authenticates this way,
@@ -49,10 +49,10 @@ reading `tokens/ibm_token`.
 |---|---|
 | `BACKEND_NAME` | `backend=NAME` on the command line — **required** by `qbcs_real_submit_ibm.py`, `qbcs_real_collect_ibm.py`, `qbcs_real_simulate_ibm.py` and `check_real_qpu_job_status_ibm.py` (they stop with a usage line without it), e.g. `backend=ibm_marrakesh`. The name must be listed in [`backends.json`](backends.json) (and be visible under your account/instance); add a line there to use another device. Pass the same `backend=` to submit/collect/status for a given run — the run folder name is derived from it, which is how they find the run on disk. `health_check_real_ibm.py` requires it too — there is no default. |
 | run size (shots, RC samples, evolution times) | the preset or sizes given on the command line (below), not edited in the script |
-| `LNN` | `True` = linear-nearest-neighbour transpilation, matching the real device's 1-D chain. Taken from the chosen backend's `"lnn"` entry in `backends.json`. IBM's own backends are all heavy-hex (locally connected), so `true` is right for every one listed; a device with different connectivity needs its own `"lnn"` value there (see `readme_iqm_resonance.md` §3 for why it matters). |
+| `LNN` | `True` = linear-nearest-neighbour transpilation, matching the device's local coupling. Taken from the chosen backend's `"lnn"` entry in `backends.json`. IBM's own backends are all heavy-hex (locally connected), so `true` is right for every one listed; a device with different connectivity needs its own `"lnn"` value there (see `readme_iqm_resonance.md` §3 for why it matters). |
 | `DO_SPAM` | also run SPAM calibration |
 | `CHUNKS_TO_SUBMIT` | submit only the first N chunks (useful for a test run before committing the whole run) |
-| `CHUNKS_PER_JOB` | packs N chunks into one IBM `Batch` job — reduces per-job overhead. `min(48, SAMPLE_SIZE)`: the full run goes out as 10 jobs of 48 chunks, the mini run as one job of 8 |
+| `CHUNKS_PER_JOB` | packs N chunks into one IBM `Batch` job — reduces per-job overhead. `min(IBM_CHUNKS_PER_JOB, SAMPLE_SIZE)` (`IBM_CHUNKS_PER_JOB` = 48 in `source/core/qbcs.py`): the full run goes out as 10 jobs of 48 chunks, the mini run as one job of 8 |
 
 ### Benchmark size and run folders (command-line arguments)
 
@@ -70,8 +70,7 @@ lexicographically lowest valid one, or exactly the given qubits — the script s
 The submit script always scores with the live calibration and refuses `calibration_file=` (exit code 2, with an
 explanation). The run folder
 ends in `_layout-optimized`, `_layout-random`, `_layout-lowest` or `_layout-15-14-21`, so runs with different
-layouts never collide; the collect and status scripts take `layout=` too (optional when the benchmark has one run
-folder). The simulate script takes the same arguments plus `calibration_file=PATH`: a snapshot (e.g. an old run's
+layouts never collide; the collect and status scripts take `layout=` too (optional). After the layout comes the UTC date the run started and its number that day (`_2026-10-11_#1`). Rerunning the submit script continues the latest run of its settings while it is unfinished (some chunk not yet submitted), whatever its date, else starts a new folder dated today with the next run number; `--force-new-run` starts a new folder even while the latest is unfinished. Without `layout=` and `date=`, the collect and status scripts take every run of that benchmark with something left to collect in turn, all layouts and dates (each is reported, and a failure in one does not stop the others); `layout=` picks one run (its latest, or the one of `date=`), also a finished one; `date=YYYY-MM-DD` alone takes each layout's latest run of that day, and `date=YYYY-MM-DD_#N` each layout's run with that number (layouts without one are skipped). The simulate script takes the same arguments plus `calibration_file=PATH`: a snapshot (e.g. an old run's
 `calibration_snapshot.json`) as the simulated QPU's noise data instead of the download, to re-simulate that calibration.
 A submission also saves the QPU's current calibration in the run folder (`calibration_snapshot.json`), once per run — what the layout was chosen on. A layout the QPU cannot run ends the script with a one-line message (exit code 2) before anything is submitted; so does `layout=optimized` when the QPU has no placement of the circuits without SWAPs, like `random` and `lowest`.
 
@@ -132,10 +131,11 @@ script) on the local Aer simulator, with a noise model built from this QPU's
 calibration, and costs no QPU time:
 
 1. downloads the calibration once into
-   `datafiles/<benchmark>_sim-qpu-noise_<provider>-<backend>_…/calibration_snapshot.json`. A rerun reuses that
-   file (same calibration, no connection needed) and prints a warning that it uses
-   pre-saved calibration data; to download fresh calibration and run with it,
-   remove the run folder `datafiles/<benchmark>_sim-qpu-noise_<provider>-<backend>_…/`;
+   `datafiles/<benchmark>_sim-qpu-noise_<provider>-<backend>_…/calibration_snapshot.json`. A rerun of an unfinished run
+   reuses that file (same calibration, no connection needed) and prints a warning that it uses
+   pre-saved calibration data (a finished run is followed by a new dated folder, which
+   downloads fresh calibration); to start over, remove the run folder
+   `datafiles/<benchmark>_sim-qpu-noise_<provider>-<backend>_…/`;
 2. builds an offline backend + Aer noise model from it (depolarizing gate
    errors, T1/T2 relaxation over gate durations, readout errors —
    `source/core/qpu/qpu_snapshot.py`);
@@ -143,7 +143,7 @@ calibration, and costs no QPU time:
    would, runs every chunk (SPAM on the same qubits), and analyzes the results.
 
 Run it from the project root in `ibm.venv`. Post-process by adding the
-`…_sim-qpu-noise_…` folder name to `RUN_THESE` in `source/analysis_scripts/run_post_process.py` and
+`sim-qpu-noise_…` folder name (without the benchmark) to `RUN_THESE` in `source/analysis_scripts/run_post_process.py` and
 running it with `--include-simulations-real`; its
 summary JSON names the backend and snapshot date, so the result is never
 mistaken for a hardware run. Like the submit script, it runs a health check

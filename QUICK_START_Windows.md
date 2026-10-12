@@ -184,7 +184,7 @@ the QPU is healthy**. This also confirms that the token, the venv and the connec
 
 ## 4. See the workflow with the mini benchmark on the local simulator (no cost)
 
-The mini benchmark (8 samples, Nt = 1, 3, 200 shots per circuit) is what every script in
+The mini benchmark (8 samples, Nt = 1, 3, 200 shots per circuit) is what every benchmark script in
 `source/benchmark_scripts/` runs with the `mini` argument. On the local Aer simulator it shows the whole
 pipeline — build the circuits, health check, submit, analyze — in about a minute. Run these in this order,
 from the project root (the scripts are in `source/benchmark_scripts/local_simulation_scripts/`):
@@ -207,11 +207,11 @@ deactivate
 ```
 
 Each script prints its build, execution, analysis and total wall times. Results land in
-`datafiles/mini_sim-noiseless_local-aer_lnn-False_service-local_spam-True_layout-none/`, the same with
+`datafiles/mini_sim-noiseless_local-aer_lnn-False_service-local_spam-True_layout-none_<YYYY-MM-DD>_#1/` (the UTC date of the run and its number that day), the same with
 `lnn-True`, and `mini_sim-fake-fez_local-aer_lnn-True_…` (USER_MANUAL §5.4 explains the names);
 the first circuit of every error-mitigation role (before transpilation; also after it in the noisy fake-Fez run), is saved as PDFs in
-their `circuit_drawings/` subfolder. A rerun into an existing run folder skips every stage; delete the
-folder to run again.
+their `circuit_drawings/` subfolder. A rerun continues the latest run folder of the same settings while it is unfinished;
+once it is finished, the next run starts a new folder dated today (UTC) with the next run number of the day.
 
 ---
 
@@ -237,11 +237,11 @@ benchmark; without arguments they only print their usage (USER_MANUAL §4.3 list
 > | QPU | Calculation | Expected cost |
 > |---|---|---|
 > | IBM | 15 s billed (measured) × $96/min = $24 | ≈ €21 (free on the Open Plan) |
-> | IQM EQE1 | 5 tasks × $0.30 + 32,200 shots × $0.0016 = $53.02 | ≈ €46.5 |
+> | IQM EQE1 | 5 tasks × $0.30 + 32,200 shots × $0.0016 = $53.02 | ≈ €47 |
 > | IQM Resonance (Emerald, Garnet) | 4 tasks × $0.30 + 32,200 shots × $0.0016 = $52.72 (Emerald; Garnet: $0.00145 per shot, $47.89) | ≈ €46 (Emerald), €42 (Garnet) |
 > | IQM Resonance Sirius | 4 tasks × $0.30 + 32,200 shots × $0.00064 (synthetic price, as for VLQ) = $21.81 | ≈ €19 |
 > | IQM VLQ | 4 tasks (2 for the job's 8 chunks at 5 chunks per task, 2 health checks) × $0.30 + 32,200 shots × $0.00064 = $21.81 | ≈ €19 |
-> | AQT PIAST-Q | 169 executions × €0.30 + 32,900 shots × €0.021 | ≈ €742 |
+> | AQT PIAST-Q | 169 executions × €0.30 + 32,900 shots × €0.021 | ≈ €740 |
 >
 > 🆓 **IBM Quantum Open Plan.** The mini benchmark takes 15 s of the Open Plan's 10 free minutes per month
 > on any IBM machine (Fez, Kingston, Marrakesh), so it costs nothing there.
@@ -261,7 +261,9 @@ Every submit/collect/simulate/status script needs the QPU named on the command l
 or all-to-all circuits (`"lnn"`), so `LNN` follows the backend automatically; to use another device, add
 it there with its real topology. Submit/collect/status must use the same `backend=` for a given run —
 the run folder name on disk is derived from it.
-Collect with the same arguments as the submission (here: `backend=` and `mini`). Each submit
+Collect with the same arguments as the submission (here: `backend=` and `mini`); with `layout=` or `date=` given, collect reads the latest run of
+that layout, or the one of `date=YYYY-MM-DD` or `date=YYYY-MM-DD_#N` (the run folder's name ends in the UTC day of its submission and the run number of that day). Rerunning
+a submit script continues the latest run of its settings while it is unfinished, else starts a new dated one (`--force-new-run` starts a new one regardless). Each submit
 script runs a PRE health check, aborts if the QPU is degraded, submits, and submits a POST health check.
 
 | QPU | venv | Commands | Jobs | Circuits (executions) | Shots | QPU time |
@@ -279,7 +281,7 @@ It then stays up for the whole run and takes **1.5–2.5 times longer** per circ
 
 **Qubit layout.** Every submit and simulate command also takes `layout=` — `optimized` (the default for IBM, IQM Resonance and
 IQM VLQ), `random`, `lowest`, or the qubits themselves, e.g. `layout=15,14,21` (USER_MANUAL §5.4) — and the run folder name ends
-in it (`mini_…_layout-optimized`). **IQM EQE1 and AQT PIAST-Q report no calibration data, so without a calibration file they run on a
+in it, followed by the date (`mini_…_layout-optimized_2026-10-11_#1`). **IQM EQE1 and AQT PIAST-Q report no calibration data, so without a calibration file they run on a
 random layout** (a notice is printed). To optimize their layout instead, pass the latest provider calibration from the `calibration_input_files/` folder:
 
 ```
@@ -289,8 +291,7 @@ layout=optimized calibration_file=calibration_input_files/PIAST-Q/piastq_charact
 
 `layout=optimized` for these two without `calibration_file=` is an error. Their **simulate** scripts (§6.2) require `layout=` to be
 named — they take the same calibration file as noise data and have to be told which real-submission behaviour to mimic
-(`layout=random` is what a submission without a file does). Collect commands take `layout=` too; it can be left out when the
-benchmark has only one run folder.
+(`layout=random` is what a submission without a file does). Collect commands take `layout=` too; it is optional: without `layout=` and `date=` every run of that benchmark with something left to collect is collected (or reported) in turn, all layouts and dates; give `layout=` to pick one run (including an already finished one); `date=YYYY-MM-DD` alone takes each layout's latest run of that day, `date=YYYY-MM-DD_#N` each layout's run with that number (layouts without one are skipped).
 
 **Wall time of the whole mini run** (circuit loading and transpiling, submission, queue, execution and collection; measured 2026-10-02, health checks included):
 
@@ -310,7 +311,8 @@ directly on a local computer (see \* above), but that is 1.5–2.5 times slower 
 `source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/readme_aqt.md` §4.3.
 
 1. Connect to PCSS through OpenVPN, then to the login node `quantum-ui` over SSH (PCSS provides the
-   instructions), and clone this repository there.
+   instructions), and clone this repository there to `~/Quantum_Benchmarking_project` (the sbatch files
+   expect it there; if you clone elsewhere, edit the `PROJECT` line of each of them).
 2. Once on a worker node (`srun --pty /bin/bash`), install [uv](https://astral.sh/uv)
    (`curl -LsSf https://astral.sh/uv/install.sh | sh`) and create the two Linux venvs from the project root,
    then `exit` the session:
@@ -361,7 +363,8 @@ Plots land in `analysis/plots/<run_folder>/`, the summary (timings, cost estimat
 Plots comparing all the runs — AWAE and cumulative AWAE of each run's best EMS vs $N_t$,
 QPU time and effective cost per QPU — land in `analysis/plots/mini_collective_real-data/` (the folder name says which kinds of runs it compares). Add
 `--include-simulations-real` / `--include-simulations-noiseless` to compare the QPUs with
-simulations too, or `--individual-only` / `--collective-only` to make only one kind of plot; e.g.
+simulations too, `--date=FROM:TO`, `--backends=…`, `--services=…` or `--layouts=…` to analyze only some runs (USER_MANUAL §10), or
+`--individual-only` / `--collective-only` to make only one kind of plot; e.g.
 `python source\analysis_scripts\run_post_process.py mini --include-real-data --collective-only` redraws the comparison without
 re-analyzing anything. USER_MANUAL §10 has the details.
 
@@ -407,12 +410,12 @@ device's current calibration and simulate the whole run locally with it: ~1 h CP
 > | QPU | Calculation | Expected cost |
 > |---|---|---|
 > | IBM | ~120 s billed (+ a few s of health checks) × $96/min ≈ $200 | ≈ €170–180 (free on the Open Plan) |
-> | IQM EQE1 | 482 tasks × $0.30 + 326,600 shots × $0.0016 = $667 | ≈ €586 |
-> | IQM Resonance (Emerald) | 482 tasks × $0.30 + 326,600 shots × $0.0016 = $667 | ≈ €586 |
+> | IQM EQE1 | 482 tasks × $0.30 + 326,600 shots × $0.0016 = $667 | ≈ €590 |
+> | IQM Resonance (Emerald) | 482 tasks × $0.30 + 326,600 shots × $0.0016 = $667 | ≈ €590 |
 > | IQM Resonance Garnet | 482 tasks × $0.30 + 326,600 shots × $0.00145 = $618 | ≈ €540 |
 > | IQM VLQ | 482 tasks (1 chunk of 68 circuits per task, + 2 health checks) × $0.30 + 326,600 shots × $0.00064 = $354 | ≈ €310 |
 > | IQM Resonance Sirius | 482 tasks × $0.30 + 326,600 shots × $0.00064 (synthetic price, as for VLQ) = $354 | ≈ €310 |
-> | AQT PIAST-Q | 33,121 circuits × €0.30 + 374,500 shots × €0.021 | ≈ **€17,800** |
+> | AQT PIAST-Q | 33,121 circuits × €0.30 + 374,500 shots × €0.021 | ≈ **€18,000** |
 
 Same scripts and commands as in §5.2 (AQT: `qbcs_real_submit_aqt_loop.py`), with **`full`** in place of `mini` — the collect scripts
 too, e.g. `python ...\IBM\qbcs_real_submit_ibm.py backend=ibm_marrakesh full`, later `python ...\IBM\qbcs_real_collect_ibm.py backend=ibm_marrakesh full`. Before
@@ -435,7 +438,7 @@ pauses and requeues itself between chunks (`readme_aqt.md` §4.3).
 
 The layout arguments of §5.2 apply to the full run too: IBM, IQM Resonance and IQM VLQ default to `layout=optimized`; IQM EQE1
 and AQT PIAST-Q run on a random layout unless you pass `layout=optimized calibration_file=calibration_input_files/<provider>/<file>.json`, `layout=lowest`
-or the qubits (`layout=15,14,21`). The run folder ends in `_layout-<mode>`.
+or the qubits (`layout=15,14,21` for IQM EQE1; AQT PIAST-Q has ions 0…19, e.g. `layout=15,14,12`). The run folder ends in `_layout-<mode>_<YYYY-MM-DD>_#<N>`.
 
 ### 6.4 Analyze (`local_sim.venv`)
 

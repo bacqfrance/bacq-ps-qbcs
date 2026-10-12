@@ -37,7 +37,7 @@ from collections import Counter
 from pathlib import Path
 
 from source.core.common import read_json_or_none as _read_json, scrub_paths
-from source.core.records.job_records import chunk_of_record_file
+from source.core.records.job_records import chunk_record_files
 from source.core.records.job_timing import now_utc_iso
 
 MATCH, MISMATCH, CHECK_FAILED, NOT_AVAILABLE = "match", "mismatch", "check_failed", "not_available"
@@ -204,7 +204,7 @@ def check_ibm(submitted_circuits, pubs, shots):
 
 def check_iqm(submitted_circuits, payload, qubit_name, shots, circuit_slice=None):
     """submitted_circuits: the ISA circuits we sent; payload: raw GET jobs/{id}/payload
-    (or {'payload': ...} as saved by the probes); qubit_name: index -> 'QB<n>'. Never raises."""
+    (or {'payload': ...}); qubit_name: index -> 'QB<n>'. Never raises."""
     method = "IQM GET jobs/{id}/payload vs submitted ISA circuits"
     try:
         body     = payload.get("payload", payload)
@@ -301,8 +301,8 @@ def _hc_layout(rec):
 def run_health_check_records(run_path):
     """All health check records of a run: the numbered accompanying ones
     (health_checks/) and the old standalone ones (job_records/health_check*.json).
-    Each is returned with a 'label': its number ('3'), or '0 (standalone)' for
-    job_records/health_check_0.json."""
+    Each is returned with a 'label': its number ('3'), or '<suffix> (standalone)' for
+    job_records/health_check_<suffix>.json ('0 (standalone)' for health_check_0.json, 'check (standalone)' for health_check.json)."""
     run_path = Path(run_path)
     out = []
     d = run_path / "health_checks"
@@ -380,7 +380,7 @@ def _old_records(run_path):
     from source.core.records.job_timing import service_of_record, LEGACY_SERVICES
     recs = []
     jr = Path(run_path) / "job_records"
-    for p in jr.glob("job_record_chunk_*.json") if jr.is_dir() else []:
+    for p in chunk_record_files(jr).values():
         rec = _read_json(p)
         if isinstance(rec, dict):
             recs.append((p.name, rec))
@@ -419,9 +419,7 @@ def summarize_circuit_checks(run_path, n_samples=None):
 
     records = []
     jr = run_path / "job_records"
-    chunk_files = {chunk_of_record_file(p): p for p in jr.glob("job_record_chunk_*.json")} if jr.is_dir() else {}
-    chunk_files.pop(None, None)                    # not a current chunk record
-    for nc, p in sorted(chunk_files.items()):
+    for nc, p in chunk_record_files(jr).items():
         if not in_scope(nc, n_samples):
             continue
         rec = _read_json(p)

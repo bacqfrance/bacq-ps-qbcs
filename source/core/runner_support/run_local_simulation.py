@@ -28,6 +28,7 @@ def run_local_simulation(*, run_folder, bench, lnn, backend_label, do_spam=True,
     health check only warns when degraded, and submit.log records the qubits and the snapshot."""
     from source.core.qpu.providers import ACCOMPANYING_HEALTH_CHECK_NSHOTS
     from source.core.qbcs import bacq_ps_qbcs
+    from source.core.common import print_done_block
     from source.core.qpu.calibration_input import layout_summary, resolve_layout_or_exit
     from source.core.runner_support.benchmark_args import LayoutArgs
     from source.core.health_check import submit_health_check
@@ -44,6 +45,7 @@ def run_local_simulation(*, run_folder, bench, lnn, backend_label, do_spam=True,
         **(extra_qbcs_kwargs or {}),
         sample_size                 = bench.sample_size,
         list_circuit_times          = bench.list_times,
+        chunk_size                  = int(len(bench.list_times) * 6),   # 6 circuits per depth
         error_mitigation_strategies = ["SPAM", "NEC", "RC+NEC", "cRC+NEC"] if do_spam else ["NEC", "RC+NEC", "cRC+NEC"],
         do_SPAM                     = do_spam,
         nshots                      = bench.nshots,
@@ -51,7 +53,7 @@ def run_local_simulation(*, run_folder, bench, lnn, backend_label, do_spam=True,
         rng_seed                    = 0,         # change this to get a different set of twirled circuits
     )
 
-    qbcs.build(circuit_transpilation_LNN=lnn)   # compile + interleave chunks (see §5.4); the cached circuits when noisy
+    qbcs.build(circuit_transpilation_LNN=lnn)   # compile + interleave chunks (see USER_MANUAL §5.4); the cached circuits when noisy
     run_qubits = resolve_layout_or_exit(qbcs, snapshot_backend, run_folder=run_folder) if noisy else None
     t1 = time.perf_counter()
     print(f"build time:   {t1 - t0:.1f} s")
@@ -113,8 +115,7 @@ def run_local_simulation(*, run_folder, bench, lnn, backend_label, do_spam=True,
     print(f"analysis time: {t3 - t2:.1f} s")
     print(f"total wall time:   {t3 - t0:.1f} s")
 
-    print(f"\n✅ {len(todo_chunks)} chunk(s) simulated: {format_chunk_range(todo_chunks) or 'none'}")
-    print(f"   Run folder:  datafiles/{run_folder}")
-    print(f"   Job records: datafiles/{run_folder}/job_records/")
-    if todo_chunks:
-        print(f"   Log saved → datafiles/{run_folder}/{log_path.name}")
+    print_done_block(f"{len(todo_chunks)} chunk(s) simulated: {format_chunk_range(todo_chunks) or 'none'}",
+                     [("Run folder", f"datafiles/{run_folder}"),
+                      ("Job records", f"datafiles/{run_folder}/job_records/"),
+                      ("Log saved", f"datafiles/{run_folder}/{log_path.name}" if todo_chunks else None)])

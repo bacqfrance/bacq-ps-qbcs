@@ -5,9 +5,11 @@ Which chunks an analysis covers, and what a run is still missing.
 Results are collected as their jobs finish, not in chunk order, so a run can have gaps:
 chunks 0-40 and 45 collected, 41-44 still running. An analysis of n chunks covers the
 first n *collected* chunks (numerically) — for a run without gaps that is chunks
-[0, n). Everything that scopes an analysis (timing, workload, circuit
-checks, SPAM matrix, run window) takes such a scope: None (every chunk), an int n
-(the first n collected chunks) or an explicit collection of chunk numbers.
+[0, n). chunk_scope() resolves n against the collected chunks into a set of chunk numbers.
+Everything that scopes an analysis (timing, workload, circuit checks, SPAM matrix, run
+window) takes such a scope: None (every chunk), an int n (as_chunk_set() reads it as
+chunks [0, n); chunk_scope() as the first n collected chunks) or an explicit collection
+of chunk numbers.
 
 Light module: no qat / qiskit imports.
 """
@@ -92,7 +94,7 @@ def completeness(run_path, sample_size, n_samples=None):
 
 def completeness_warning(block):
     """One line for a figure or the terminal, or None when nothing is missing:
-    '⚠ Incomplete run (40 of 44 chunks analyzed): chunks 41-44 are uncollected; health check 3 is uncollected.'"""
+    '⚠ Incomplete run (40 of 44 chunks analyzed): chunks 40-43 are uncollected; health check 3 is uncollected.'"""
     if not block or block.get("complete", True):
         return None
     parts = []

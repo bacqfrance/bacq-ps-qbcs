@@ -28,7 +28,7 @@ from source.core.records.chunk_scope import completeness, completeness_warning
 
 
 # ── Config for extracting the runs ────────────────────────────────────────────────────────────────────
-RUN_FOLDER    = "full_real-data_iqm-emerald_lnn-True_service-iqm-resonance_spam-True_layout-legacy"   # standalone: the run (datafiles/<RUN_FOLDER>)
+RUN_FOLDER    = "old_runs_full/full_real-data_iqm-emerald_lnn-True_service-iqm-resonance_spam-True_layout-legacy_2026-09-07_#1"   # standalone: the run (datafiles/<RUN_FOLDER>)
 
 N_SAMPLES     = None # None = full run (unchanged behaviour); int = read that
                        # subset's run_data+nsamples-N.json instead and derive N_acc/AWAE
@@ -51,9 +51,10 @@ if IS_SIM and not glob.glob(os.path.join("datafiles", RUN_FOLDER, "job_records",
                                                                   "job_record_chunk_*.json")):
     # simulations made before local job records existed have no job_records/ to derive the
     # simulation window from (newer ones do; no simulation has QPU or queue time).
-    DATE_START, DATE_END, SUBMISSION_TO_RESULTS = "N/A", "N/A", None
+    DATE_START, DATE_END, SUBMISSION_TO_RESULTS, ACTIVE_DURATION = "N/A", "N/A", None, None
 else:
-    DATE_START, DATE_END, SUBMISSION_TO_RESULTS = derive_date_time_from_data(run_folder=RUN_FOLDER, n_samples=N_SAMPLES)
+    DATE_START, DATE_END, SUBMISSION_TO_RESULTS, ACTIVE_DURATION = derive_date_time_from_data(
+        run_folder=RUN_FOLDER, n_samples=N_SAMPLES, service=None if IS_SIM else service_name_of_run_service(NAME.service))
 
 # ── Runtimes: CPU (build + conversion + transpilation + submission), QPU, queue — health checks
 # included (source/core/analysis/run_timing.py: aggregate_run_timing, definitions in source/core/records/job_timing.py) ──
@@ -107,7 +108,7 @@ if IS_SIM:
     # Not a real QPU — no provider/service/cost to report, N/A placeholders throughout.
     QPU_PROVIDER  = "N/A"
     ARCHITECTURE  = "N/A"
-    COMPUTER_NAME = f"{NAME.figure_label}, lnn-{NAME.lnn}"   # short label for the collective plots
+    DEVICE_LABEL = f"{NAME.figure_label}, lnn-{NAME.lnn}"   # short label for the collective plots
     QPU_SERVICE   = {"sim-noiseless": "Local noiseless simulator",
                      "sim-coherent":  "Local simulator (coherent CNOT noise)"}.get(NAME.data_type, "Local simulator")
     PRICING       = None
@@ -165,7 +166,7 @@ elif BACKEND_NAME == "aqt-piast-q":
 else:
     exit_with_error(f"{RUN_FOLDER}: no QPU metadata for {BACKEND_NAME} — add it to bacq_ps_qbcs_summary_json.py")
 if not IS_SIM:
-    COMPUTER_NAME = f"{NAME.figure_label}, lnn-{NAME.lnn}"   # same short label as a simulation (run_names.py)
+    DEVICE_LABEL = f"{NAME.figure_label}, lnn-{NAME.lnn}"   # same short label as a simulation (run_names.py)
 CONNECTIVITY = "Linear nearest neighbor" if LNN else "All to all"
 EXTRA_INFO   = PROTOCOLS
 
@@ -349,12 +350,13 @@ derived = compute_derived_quantities(
 summary = {
     "QPU_provider":          QPU_PROVIDER,
     "Architecture":          ARCHITECTURE,
-    "computer_name":         COMPUTER_NAME,
+    "device_label":          DEVICE_LABEL,
     "QPU_service":           QPU_SERVICE,
     "connectivity":          CONNECTIVITY,
     "date_qc_start":         DATE_START,
     "date_qc_end":           DATE_END,
     "QPU_submission_to_results_duration_s": SUBMISSION_TO_RESULTS,   # date_qc_end - date_qc_start (to the second)
+    "QPU_submission_to_results_duration_without_dead_time_s": None if ACTIVE_DURATION is None else round(ACTIVE_DURATION),
     "extra_info":            EXTRA_INFO,
     "shots_per_circuit":     NSHOTS,
     **COST_FIELDS,
@@ -379,8 +381,11 @@ summary = {
                         "IQM VLQ and IQM EQE1 queue many jobs at once, so the waits overlap: the longest single wait over all "
                         "chunk jobs and health checks, failed jobs included. Synchronous services (AQT, local) run their jobs one after "
                         "another: the sum of the waits.",
-        "QPU_submission_to_results_duration_s": "date_qc_end - date_qc_start: earliest chunk submission to the "
-                                                "latest chunk result",
+        "QPU_submission_to_results_duration_s": "date_qc_end - date_qc_start: earliest submission to the latest "
+                                                "result over the chunk, failed-attempt and health-check jobs",
+        "QPU_submission_to_results_duration_without_dead_time_s": "the same window minus the dead time: the gaps "
+                                                "between the jobs' merged intervals longer than 30 min (2 h for AQT), "
+                                                "e.g. a failure noticed hours later",
         "Collect_time_s": "result collection: from a finished job to its saved counts — downloading the result, "
                           "downloading the executed circuits for the circuit check, saving counts and records — "
                           "for every chunk and health check, failed jobs included; waiting for unfinished jobs is not included. AQT and "

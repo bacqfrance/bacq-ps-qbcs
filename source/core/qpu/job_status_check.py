@@ -10,6 +10,7 @@ No qiskit, no myQLM and no provider SDK import here: every venv imports it.
 """
 
 import json
+import sys
 
 from source.core.common import PROJECT_ROOT, exit_with_error, section
 from source.core.qpu.providers import job_state_of_status
@@ -107,3 +108,27 @@ def run_status_check(provider, run_folder, health_check_folder, health_check, re
                 print(f"  {line}")
         except Exception as e:
             print(f"  unavailable ({type(e).__name__}: {e})")
+
+
+def run_status_checks(provider, run_folders, health_check_folder, health_check, remote_status,
+                      overview=None, recent_jobs=None, n_recent=10):
+    """run_status_check() for each run folder of `run_folders` in turn (a header line when there are several;
+    one report for the standalone health check). A failure in one (an exception or an exit) prints its ❌
+    line and the next one still runs; exit code 2 at the end when any failed. Same arguments otherwise."""
+    folders = [None] if health_check or not run_folders else list(run_folders)
+    failed = []
+    label = lambda f: f"datafiles/{f}" if f is not None else (
+        f"datafiles/{health_check_folder}" if health_check_folder else "the health check")
+    for i, folder in enumerate(folders, 1):
+        if len(folders) > 1:
+            print(f"\n[run {i}/{len(folders)}] {label(folder)}")
+        try:
+            run_status_check(provider, folder, health_check_folder, health_check, remote_status,
+                             overview=overview, recent_jobs=recent_jobs, n_recent=n_recent)
+        except (Exception, SystemExit) as e:
+            if not isinstance(e, SystemExit):
+                print(f"❌ {label(folder)}: {type(e).__name__}: {e}", file=sys.stderr)
+            failed.append(folder)
+    if failed:
+        exit_with_error(f"Status check failed for {len(failed)} of {len(folders)} run folder(s): "
+                        f"{', '.join(label(f) for f in failed)}")

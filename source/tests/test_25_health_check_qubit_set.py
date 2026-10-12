@@ -4,7 +4,7 @@ test_25_health_check_qubit_set.py
 Unit tests (no QPU, a fake linear-chain backend) for the check submit_health_check() makes of an explicit
 qubit_set before transpiling: a set that is not usable or not coupled as the circuit needs ends the script
 with one ❌ line and exit code 2 (exit_with_error), instead of an AssertionError after routing. A run's own
-qubits (qubit_set=None) are not checked. IQM VLQ is checked like the rest: the qaas backend's target is an effective
+qubits (qubit_set=None) are checked the same way when the run has a physical_qubits.json. IQM VLQ is checked like the rest: the qaas backend's target is an effective
 all-to-all CZ graph over its 24 circuit qubits (the resonator is not in it).
 """
 
@@ -111,7 +111,7 @@ def test_a_chain_target_is_checked_whatever_the_service_name(run_folder, chain, 
     _exits_with_one_line(run_folder, chain, [0, 2, 4], capsys, service_name="QAAS_IT4I")
 
 
-def test_a_local_run_is_checked_against_an_unrestricted_target(run_folder):
+def test_a_local_run_without_a_layout_backend_ignores_the_qubit_set(run_folder):
     with pytest.raises(_Reached):
         HC.submit_health_check(run_folder=run_folder, backend=AerSimulator(), nshots=10, service_name="local",
                                reps=1, qubit_set=[0, 2, 4])

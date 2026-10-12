@@ -19,8 +19,8 @@ with a one-line message naming the file (exit code 2).
 ## Token files
 
 Unless specified, the user should create the token files.
-A token file should hold the token alone: plain token without quotes, a `KEY =` prefix, or anything else. Spaces and
-a newline around it are ignored. To create one (here for IBM; use the file name from the table):
+A token file should hold the token alone, without quotes, a `KEY =` prefix or anything else; only spaces and newlines
+around it are ignored. To create one (here for IBM; use the file name from the table):
 
 Windows (PowerShell):
 

@@ -18,7 +18,11 @@ layouts in source/core/qpu/iqm_vlq.py):
     converted automatically, a snapshot is used as it is, anything else is refused — and saved as the run's
     calibration_snapshot.json (a rerun reuses it, a different calibration is refused); recorded sources are never
     absolute paths;
-  - find_collect_run_folder: the one folder of a benchmark, or an error if there is none or several;
+  - find_collect_run_folder: the latest dated folder of a benchmark's layout (or that of date=), the one layout
+    on disk when none is named, or an error if there is none or several; find_collect_run_folders: without layout=
+    and date= every run of the benchmark with something left to collect (run_has_uncollected), oldest first, or
+    an error when nothing is left, and with date= alone that day's run (or #N) of every layout that has one;
+    parse_date_arg validates date=YYYY-MM-DD[_#N], parse_run_folder_arg and pop_force_new_run_flag;
   - VLQ: the resonator is always part of the layout — lowest / random / forced choose among the usable qubits.
 """
 
@@ -40,7 +44,7 @@ from qiskit.transpiler import InstructionProperties, Target
 
 from source.core.runner_support import benchmark_args as BA
 from source.core.qpu import iqm_vlq as V
-from source.core.records.run_names import qpu_run_prefix
+from source.core.records.run_names import health_check_run_name, qpu_run_name, qpu_run_prefix
 from source.core.qpu.calibration_input import (detect_format, load_calibration, newest_provider_file, source_name,
                                       use_calibration_file)
 from source.core.qpu.layout_selection import (all_placements, check_forced_layout, choose_layout, placement_filter,
@@ -106,11 +110,11 @@ def test_no_live_calibration_default_is_random_with_notice():
 
 def test_argument_errors(capsys):
     assert _exits(["layout=optimized"], calibration_required=True) == 2   # nothing to score with
-    assert "calibration_file" in capsys.readouterr().out
+    assert "calibration_file" in capsys.readouterr().err
     assert _exits(["layout=random", "calibration_file=x.json"]) == 2      # a file only goes with optimized
     assert _exits(["layout=1,1,2"]) == 2                                  # a qubit twice
     assert _exits(["layout=1,2"]) == 2                                    # the circuits use exactly three qubits
-    assert "exactly 3" in capsys.readouterr().out
+    assert "exactly 3" in capsys.readouterr().err
     assert _exits(["layout=1,2,3,4"]) == 2
     assert _exits(["layout=middle"]) == 2
     assert _exits(["layout=random", "layout=lowest"]) == 2
@@ -118,7 +122,7 @@ def test_argument_errors(capsys):
 
 def test_simulation_requires_layout_with_explanation(capsys):
     assert _exits([], calibration_required=True, layout_required=True, calibration_any_layout=True) == 2
-    out = capsys.readouterr().out
+    out = capsys.readouterr().err
     assert "layout is required" in out and "RANDOM layout" in out and "calibration_file" in out
     # in a simulation the file is the noise data, so it goes with any layout; optimized needs none (default file)
     la = BA.parse_layout_args(["layout=random", "calibration_file=x.json"], calibration_required=True,
@@ -147,7 +151,7 @@ def test_local_simulation_scripts_refuse_layout_arguments():
 
 
 def test_usage_texts_mention_layout():
-    for form in ("submit", "submit_live", "submit_no_live", "simulate", "simulate_required", "collect"):
+    for form in ("submit_live", "submit_no_live", "simulate", "simulate_required", "collect"):
         text = BA.make_usage(PROJECT / "source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/qbcs_real_submit_iqm_eqe1.py", "x", layout=form)
         assert "layout" in text.lower()
     required = BA.make_usage(PROJECT / "source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/qbcs_real_submit_iqm_eqe1.py", "x", layout="simulate_required")
@@ -160,7 +164,7 @@ def test_live_calibration_submissions_refuse_a_calibration_file(capsys):
     """IBM, IQM Resonance and IQM VLQ report live calibration: their submit scripts refuse calibration_file=,
     explaining why; the simulate scripts (calibration_any_layout) and AQT / EQE1 submissions still take it."""
     assert _exits(["layout=optimized", "calibration_file=x.json"], live_calibration="IBM") == 2
-    out = capsys.readouterr().out
+    out = capsys.readouterr().err
     assert "IBM reports live calibration data" in out and "simulate script" in out
     assert BA.parse_layout_args(["layout=random"], live_calibration="IBM").mode == "random"
     assert BA.parse_layout_args(["layout=random", "calibration_file=x.json"], calibration_any_layout=True).calibration_file == "x.json"
@@ -297,21 +301,153 @@ def test_layout_on_a_calibration_files_target():
 
 # ── run folders ───────────────────────────────────────────────────────────────
 
-def test_collect_finds_the_one_run_folder(tmp_path, monkeypatch, capsys):
+def test_collect_finds_the_latest_dated_run_folder(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(BA, "PROJECT_ROOT", tmp_path)
     base = qpu_run_prefix("IQM_EQE1", "EQE1", "mini", True, True)
-    (tmp_path / "datafiles").mkdir()
-    assert BA.find_collect_run_folder(base, BA.parse_layout_args(["layout=random"], collect=True)) == f"{base}_layout-random"
+    data = tmp_path / "datafiles"
+    data.mkdir()
+    random = BA.parse_layout_args(["layout=random"], collect=True)
     with pytest.raises(SystemExit):
-        BA.find_collect_run_folder(base, None)                      # none yet
-    (tmp_path / "datafiles" / f"{base}_layout-lowest").mkdir()
-    assert BA.find_collect_run_folder(base, None) == f"{base}_layout-lowest"
-    (tmp_path / "datafiles" / f"{base}_layout-15-14-21").mkdir()
+        BA.find_collect_run_folder(base, random)                    # no folder of that layout yet
     with pytest.raises(SystemExit):
-        BA.find_collect_run_folder(base, None)                      # several: name the layout
+        BA.find_collect_run_folder(base, None)                      # none at all
+    for d in ("2026-10-01_#1", "2026-10-05_#2", "2026-10-05_#10"):
+        (data / f"{base}_layout-lowest_{d}").mkdir()
+    assert BA.find_collect_run_folder(base, None) == f"{base}_layout-lowest_2026-10-05_#10"        # the highest number wins
+    assert BA.find_collect_run_folder(base, None, "2026-10-01") == f"{base}_layout-lowest_2026-10-01_#1"  # date= picks a day
+    assert BA.find_collect_run_folder(base, None, "2026-10-05") == f"{base}_layout-lowest_2026-10-05_#10"  # its latest run
+    assert BA.find_collect_run_folder(base, None, "2026-10-05_#2") == f"{base}_layout-lowest_2026-10-05_#2"  # that run
+    with pytest.raises(SystemExit):
+        BA.find_collect_run_folder(base, None, "2026-10-02")        # no run of that date
+    with pytest.raises(SystemExit):
+        BA.find_collect_run_folder(base, None, "2026-10-05_#3")     # no such number
+    (data / f"{base}_layout-15-14-21_2026-10-03_#1").mkdir()
+    with pytest.raises(SystemExit):
+        BA.find_collect_run_folder(base, None)                      # several layouts: name the layout
     assert "name the one with layout=" in capsys.readouterr().err
     la = BA.parse_layout_args(["layout=15,14,21"], collect=True)
-    assert BA.find_collect_run_folder(base, la) == f"{base}_layout-15-14-21"
+    assert BA.find_collect_run_folder(base, la) == f"{base}_layout-15-14-21_2026-10-03_#1"
+    lowest = BA.parse_layout_args(["layout=lowest"], collect=True)
+    assert BA.find_collect_run_folder(base, lowest, "2026-10-01") == f"{base}_layout-lowest_2026-10-01_#1"
+
+
+def _fake_run(data, name, statuses=(), health=None, standalone=None):
+    """A run folder with chunk job records of the given statuses (and a failed_attempts/ record, which is ignored),
+    an accompanying health check of status `health` and a standalone health check record of status `standalone`."""
+    jr = data / name / "job_records"
+    jr.mkdir(parents=True)
+    for i, st in enumerate(statuses):
+        (jr / f"job_record_chunk_{i}.json").write_text(json.dumps({"chunk_id": i, "status": st}), encoding="utf-8")
+    (jr / "failed_attempts").mkdir()
+    (jr / "failed_attempts" / "job_record_chunk_0_failed_1.json").write_text(json.dumps({"status": "submitted"}), encoding="utf-8")
+    if health:
+        hc = data / name / "health_checks"
+        hc.mkdir()
+        (hc / "health_check_1.json").write_text(json.dumps({"schema": 2, "number": 1, "status": health}), encoding="utf-8")
+    if standalone:
+        (jr / "health_check.json").write_text(json.dumps({"status": standalone}), encoding="utf-8")
+
+
+def test_run_has_uncollected(tmp_path):
+    from source.core.records.run_names import run_has_uncollected
+    base = qpu_run_prefix("IQM_EQE1", "EQE1", "mini", True, True)
+    _fake_run(tmp_path, f"{base}_layout-lowest_2026-10-01_#1", ["complete", "failed"])
+    _fake_run(tmp_path, f"{base}_layout-lowest_2026-10-01_#2", ["complete", "submitted"])
+    _fake_run(tmp_path, f"{base}_layout-lowest_2026-10-01_#3", ["complete"], health="submitted")
+    _fake_run(tmp_path, f"{base}_layout-lowest_2026-10-01_#4", ["complete"], health="failed")
+    (tmp_path / f"{base}_layout-lowest_2026-10-01_#5").mkdir()
+    assert not run_has_uncollected(f"{base}_layout-lowest_2026-10-01_#1", tmp_path)   # collected / failed only
+    assert run_has_uncollected(f"{base}_layout-lowest_2026-10-01_#2", tmp_path)       # a submitted job
+    assert run_has_uncollected(f"{base}_layout-lowest_2026-10-01_#3", tmp_path)       # a submitted health check
+    assert not run_has_uncollected(f"{base}_layout-lowest_2026-10-01_#4", tmp_path)
+    assert not run_has_uncollected(f"{base}_layout-lowest_2026-10-01_#5", tmp_path)   # no records at all
+    hc = f"{health_check_run_name('IQM_EQE1', 'EQE1', 1, 100)}_2026-10-01_#1"   # a standalone health check
+    _fake_run(tmp_path, hc, standalone="submitted")
+    assert run_has_uncollected(hc, tmp_path)
+    (tmp_path / hc / "job_records" / "health_check.json").write_text(json.dumps({"status": "complete"}), encoding="utf-8")
+    assert not run_has_uncollected(hc, tmp_path)
+
+
+def test_collect_folders_without_layout_and_date(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(BA, "PROJECT_ROOT", tmp_path)
+    base = qpu_run_prefix("IQM_EQE1", "EQE1", "mini", True, True)
+    data = tmp_path / "datafiles"
+    data.mkdir()
+    with pytest.raises(SystemExit) as e:
+        BA.find_collect_run_folders(base, None)                     # no folder at all
+    assert e.value.code == 2 and "no run folder datafiles/" in capsys.readouterr().err
+    low1, low2 = f"{base}_layout-lowest_2026-10-01_#1", f"{base}_layout-lowest_2026-10-05_#10"
+    lst, rnd = f"{base}_layout-15-14-21_2026-10-03_#1", f"{base}_layout-random_2026-10-05_#2"
+    _fake_run(data, low1, ["complete"])
+    _fake_run(data, low2, ["submitted"])
+    _fake_run(data, lst, ["submitted", "complete"])
+    _fake_run(data, rnd, ["failed"])
+    lowest = BA.parse_layout_args(["layout=lowest"], collect=True)
+    assert BA.find_collect_run_folders(base, lowest) == [low2]               # layout= : the latest of that layout
+    assert BA.find_collect_run_folders(base, lowest, "2026-10-01") == [low1]   # layout= and date=: finished, still named
+    assert BA.find_collect_run_folders(base, None) == [lst, low2]            # every unfinished run, oldest first
+    _fake_run(data, f"{base}_layout-lowest_2026-10-02_#1", ["submitted"])
+    assert BA.find_collect_run_folders(base, None) == [f"{base}_layout-lowest_2026-10-02_#1", lst, low2]
+    (data / low2 / "job_records" / "job_record_chunk_0.json").write_text(json.dumps({"status": "complete"}), encoding="utf-8")
+    (data / lst / "job_records" / "job_record_chunk_0.json").write_text(json.dumps({"status": "complete"}), encoding="utf-8")
+    (data / f"{base}_layout-lowest_2026-10-02_#1" / "job_records" / "job_record_chunk_0.json").write_text(
+        json.dumps({"status": "failed"}), encoding="utf-8")
+    capsys.readouterr()
+    with pytest.raises(SystemExit) as e:
+        BA.find_collect_run_folders(base, None)                     # nothing left
+    assert e.value.code == 2
+    err = capsys.readouterr().err
+    assert "nothing left to collect" in err and low1 in err and "date=YYYY-MM-DD_#N" in err
+
+
+def test_collect_folders_with_date_only(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(BA, "PROJECT_ROOT", tmp_path)
+    base = qpu_run_prefix("IQM_EQE1", "EQE1", "mini", True, True)
+    data = tmp_path / "datafiles"
+    data.mkdir()
+    low1, low2 = f"{base}_layout-lowest_2026-10-05_#1", f"{base}_layout-lowest_2026-10-05_#2"
+    rnd, lst = f"{base}_layout-random_2026-10-05_#1", f"{base}_layout-15-14-21_2026-10-03_#1"
+    for n in (low1, low2, rnd, lst):
+        _fake_run(data, n, ["complete"])
+    # date=YYYY-MM-DD: that day's latest run of every layout, oldest first by (date, number)
+    assert BA.find_collect_run_folders(base, None, "2026-10-05") == [rnd, low2]
+    assert BA.find_collect_run_folders(base, None, "2026-10-03") == [lst]           # only one layout has that date
+    assert BA.find_collect_run_folders(base, None, "2026-10-05_#1") == [low1, rnd]   # that number, per layout
+    assert BA.find_collect_run_folders(base, None, "2026-10-05_#2") == [low2]        # only one layout has #2
+    capsys.readouterr()
+    with pytest.raises(SystemExit) as e:
+        BA.find_collect_run_folders(base, None, "2026-10-04")
+    assert e.value.code == 2
+    assert "2026-10-04" in capsys.readouterr().err
+
+
+def test_date_argument():
+    assert BA.parse_date_arg(["mini", "layout=random"]) is None
+    assert BA.parse_date_arg(["mini", "date=2026-10-11"]) == "2026-10-11"
+    assert BA.parse_date_arg(["mini", "date=2026-10-11_#3"]) == "2026-10-11_#3"
+    for bad in (["date=11/10/2026"], ["date=2026-10"], ["date=2026-10-11", "date=2026-10-12"],
+                ["date=2026-10-11_#0"], ["date=2026-10-11_3"], ["date=2026-10-11_#x"]):
+        with pytest.raises(SystemExit):
+            BA.parse_date_arg(bad)
+
+
+def test_force_new_run_flag():
+    assert BA.pop_force_new_run_flag(["mini", "--force-new-run", "layout=random"]) == (True, ["mini", "layout=random"])
+    assert BA.pop_force_new_run_flag(["mini"]) == (False, ["mini"])
+
+
+def test_run_folder_argument():
+    undated = qpu_run_name("AQT_PIAST-Q", "PIAST-Q", "mini", True, True, "layout-optimized")
+    good = f"{undated}_2026-10-11_#2"
+    assert BA.parse_run_folder_arg(["mini", f"run_folder={good}"], undated) == good
+    assert BA.parse_run_folder_arg(["mini"], undated) is None
+    other = qpu_run_name("AQT_PIAST-Q", "PIAST-Q", "mini", True, True, "layout-random")
+    for bad in (f"run_folder={other}_2026-10-11_#1", f"run_folder={undated}", f"run_folder={undated}_2026-10-11",
+                "run_folder=nonsense"):
+        with pytest.raises(SystemExit):
+            BA.parse_run_folder_arg(["mini", bad], undated)
+    with pytest.raises(SystemExit):
+        BA.parse_run_folder_arg([f"run_folder={good}", f"run_folder={good}"], undated)
 
 
 # ── VLQ ───────────────────────────────────────────────────────────────────────

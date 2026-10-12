@@ -28,6 +28,9 @@ count in the analysis:
     "submission", may_exist_on_provider, one submission_id per job, counted once), keeps
     chunks already on the QPU untouched, and re-raises; a rerun archives those records.
   - Written records show status near the top (ordered_record).
+  - The run window (run_timing._job_intervals_for_window) includes failed attempts and health checks, and the
+    active duration (_active_seconds) subtracts only the gaps between the jobs longer than the dead-time
+    threshold (30 min; 2 h for AQT), a gap bridged by a failed attempt not at all.
 """
 
 import sys, os
@@ -50,7 +53,8 @@ from source.core.records.job_records import (
 )
 from source.core.records.health_check_records import collect_chunk_jobs
 from source.core.analysis import run_timing as RT
-from source.core.analysis.run_timing import _record_files, failed_attempts_breakdown
+from source.core.analysis.run_timing import _record_files, failed_attempts_breakdown, _job_intervals_for_window, _active_seconds
+from source.core.records.job_timing import DEAD_TIME_MIN_GAP_S, DEAD_TIME_MIN_GAP_S_SYNC
 
 
 def _rec(nc, status, job_id, submitted_at, service="IBM_Cloud", **timing):
@@ -336,3 +340,67 @@ def test_iqm_submission_failure_records_every_chunk(tmp_path, monkeypatch):
 def test_ordered_record_keeps_other_keys():
     rec = {"timing": {}, "backend_name": "b", "status": "complete", "chunk_id": 3, "zzz": 1}
     assert list(ordered_record(rec)) == ["chunk_id", "status", "backend_name", "timing", "zzz"]
+
+
+def _at(t):
+    return f"2026-09-01T{t}Z"
+
+
+def _window_run(tmp_path, chunks, failed=(), health=()):
+    """A run folder: chunks/failed as (start, end) times of 2026-09-01, health checks likewise."""
+    jr = tmp_path / "job_records"
+    for nc, (a, b) in enumerate(chunks):
+        _write(jr, nc, _rec(nc, "complete", f"J{nc}", _at(a), end=_at(b)))
+    for i, (a, b) in enumerate(failed):
+        _write(jr, 90 + i, _rec(90 + i, "failed", f"F{i}", _at(a), end=_at(b)))
+        archive_failed_record(jr, 90 + i)
+        (jr / f"job_record_chunk_{90 + i}.json").unlink()
+    (tmp_path / "health_checks").mkdir(exist_ok=True)
+    for i, (a, b) in enumerate(health):
+        rec = {"number": i, "submitted_at": _at(a), "finished_at": _at(b), "status": "failed", "chunks": [0]}
+        (tmp_path / "health_checks" / f"health_check_{i}.json").write_text(json.dumps(rec), encoding="utf-8")
+
+
+def _active(tmp_path, min_gap_s=DEAD_TIME_MIN_GAP_S):
+    ivs, _ = _job_intervals_for_window(tmp_path, None)
+    return (max(b for _, b in ivs) - min(a for a, _ in ivs)).total_seconds(), _active_seconds(ivs, min_gap_s)
+
+
+def test_window_includes_failed_attempts_and_health_checks(tmp_path):
+    _window_run(tmp_path, [("10:00:00", "10:10:00")], failed=[("09:00:00", "09:05:00")], health=[("10:20:00", "10:30:00")])
+    ivs, n = _job_intervals_for_window(tmp_path, None)
+    assert n == 1 and len(ivs) == 3
+    window, _ = _active(tmp_path)
+    assert window == 5400.0                          # 09:00 -> 10:30
+
+
+def test_health_check_without_finish_contributes_its_start(tmp_path):
+    _window_run(tmp_path, [("10:00:00", "10:10:00")])
+    rec = {"number": 0, "submitted_at": _at("10:15:00"), "status": "submitted", "chunks": [0]}
+    (tmp_path / "health_checks" / "health_check_0.json").write_text(json.dumps(rec), encoding="utf-8")
+    assert _active(tmp_path)[0] == 900.0
+
+
+def test_long_gap_is_dead_time_short_gap_is_kept(tmp_path):
+    _window_run(tmp_path, [("10:00:00", "10:10:00"), ("13:10:00", "13:20:00")])      # 3 h gap
+    window, active = _active(tmp_path)
+    assert window == 12000.0 and active == 1200.0
+    other = tmp_path / "b"
+    _window_run(other, [("10:00:00", "10:10:00"), ("10:30:00", "10:40:00")])         # 20 min gap
+    window, active = _active(other)
+    assert window == active == 2400.0
+
+
+def test_sync_threshold_is_two_hours(tmp_path):
+    _window_run(tmp_path, [("10:00:00", "10:10:00"), ("11:10:00", "11:20:00")])      # 1 h gap: kept
+    window, active = _active(tmp_path, DEAD_TIME_MIN_GAP_S_SYNC)
+    assert window == active == 4800.0
+    other = tmp_path / "b"
+    _window_run(other, [("10:00:00", "10:10:00"), ("13:10:00", "13:20:00")])         # 3 h gap: subtracted
+    assert _active(other, DEAD_TIME_MIN_GAP_S_SYNC)[1] == 1200.0
+
+
+def test_gap_bridged_by_failed_attempt_is_kept(tmp_path):
+    _window_run(tmp_path, [("10:00:00", "10:10:00"), ("13:10:00", "13:20:00")], failed=[("10:05:00", "13:00:00")])
+    window, active = _active(tmp_path)
+    assert active == window                          # the 10-minute gap 13:00 -> 13:10 is short; the 3 h one is bridged

@@ -50,7 +50,7 @@ from source.core.records.health_check_records import (
 )
 
 # ── Config (same defaults / env overrides as plot_awae.py) ────────────────────
-RUN_FOLDER    = "full_real-data_iqm-emerald_lnn-True_service-iqm-resonance_spam-True_layout-legacy"   # standalone: the run (datafiles/<RUN_FOLDER>)
+RUN_FOLDER    = "old_runs_full/full_real-data_iqm-emerald_lnn-True_service-iqm-resonance_spam-True_layout-legacy_2026-09-07_#1"   # standalone: the run (datafiles/<RUN_FOLDER>)
 ZOOM_X       = None    # e.g. (100, 160): show only items with index in this range on the x axis
 
 N_SAMPLES    = None    # None = full run; int = the analysis of that many chunks (file names +nsamples-N)
@@ -60,7 +60,6 @@ if "QPU_N_SAMPLES" in os.environ:
     N_SAMPLES = None if _v in ("", "None") else int(_v)
 RUN_FOLDER, INFO = resolve_run(RUN_FOLDER)   # QPU_RUN_FOLDER wins; the run's own settings win over the constants above
 NAME         = parse_run_name(RUN_FOLDER)
-NSHOTS, LNN = INFO.nshots, INFO.lnn
 RUN_PATH   = Path("datafiles") / RUN_FOLDER
 PLOTS_DIR  = plots_dir_of(RUN_FOLDER)
 SUFFIX     = subset_suffix(N_SAMPLES)
@@ -137,7 +136,7 @@ def main():
         f"{n_failed} failed" if n_failed else None,
         f"{n_failed_jobs} failed QPU job(s)" if n_failed_jobs else None,
     ) if s) + ")" if (n_pending or n_failed or n_failed_jobs) else ""
-    ax_top.set_title(f"Health checks — {NAME.figure_label}" + title_suffix, fontweight="bold")
+    ax_top.set_title(f"Health checks — {NAME.figure_label_full}" + title_suffix, fontweight="bold")
     ax_top.grid(True, alpha=0.3)
     ax_top.legend(loc="lower right", fontsize=8)
     ck = _thin([it["x"] for it in hcs])

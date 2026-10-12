@@ -147,8 +147,9 @@ def test_connection_retries_are_announced_and_confirmed(monkeypatch, capsys):
         raise httpx.ConnectError("down")
     with pytest.raises(httpx.ConnectError):
         AQ._aqt_retry("result query", dead)
-    out = capsys.readouterr().out
-    assert out.count("connection error — retry") == 7 and "❌ [AQT] result query: still no connection after 7 retries" in out
+    cap = capsys.readouterr()
+    out, err = cap.out, cap.err
+    assert out.count("connection error — retry") == 7 and "❌ [AQT] result query: still no connection after 7 retries" in err
 
 
 def test_stop_file_is_taken_once(tmp_path):

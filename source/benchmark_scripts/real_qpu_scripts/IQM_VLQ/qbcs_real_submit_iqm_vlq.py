@@ -24,24 +24,25 @@ sys.stderr.reconfigure(encoding="utf-8")
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../..")))   # the project root, for the source.* imports
 os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../..")))   # datafiles/ paths are relative to the project root
 from source.core.runner_support.benchmark_args import make_usage, usage_if_requested   # light (numpy only): the usage is printed before anything else loads
-from source.core.records.run_names import qpu_run_name, service_name
+from source.core.records.run_names import qpu_run_name, service_name, dated_run_folder
 usage_if_requested(sys.argv[1:], make_usage(__file__, "Submit a BACQ benchmark run to IQM VLQ (LEXIS/HEAppE). Async: returns once every chunk is uploaded; collect the results with qbcs_real_collect_iqm_vlq.py (same arguments).", layout="submit_live"))   # no arguments or --help: print the usage and do nothing
 
 from pathlib import Path
 from source.core.qpu import iqm_vlq as VLQ
-from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args
+from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args, pop_force_new_run_flag
 from source.core.runner_support.run_submission import submit_async_run
 from source.core.qbcs import VLQ_CHUNKS_PER_JOB
 
 # ── Config ────────────────────────────────────────────────────────────────────
-BACKEND_NAME, BACKEND_CFG = parse_backend_config(sys.argv[1:], Path(__file__).parent)   # required backend=NAME, checked against backends.json
+FORCE_NEW_RUN, ARGV = pop_force_new_run_flag(sys.argv[1:])   # --force-new-run: start a new run folder even if the latest run of these settings is unfinished
+BACKEND_NAME, BACKEND_CFG = parse_backend_config(ARGV, Path(__file__).parent)   # required backend=NAME, checked against backends.json
 SERVICE_NAME = service_name("IQM_VLQ")   # the access platform, as records and qbcs call it (source/core/records/run_names.py)
-BENCH            = parse_benchmark_args(sys.argv[1:], extra_keys=("backend",))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
-LAYOUT           = parse_layout_args(sys.argv[1:], live_calibration="IQM VLQ")   # layout=optimized | random | lowest | 15,14,21 — see source/core/runner_support/benchmark_args.py
+BENCH            = parse_benchmark_args(ARGV, extra_keys=("backend",))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
+LAYOUT           = parse_layout_args(ARGV, live_calibration="IQM VLQ")   # layout=optimized | random | lowest | 15,14,21 — see source/core/runner_support/benchmark_args.py
 SAMPLE_SIZE      = BENCH.sample_size
 LNN              = BACKEND_CFG["lnn"]   # the backend's topology, from backends.json
 DO_SPAM          = True
-RUN_FOLDER       = qpu_run_name("IQM_VLQ", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag)
+RUN_FOLDER       = dated_run_folder(qpu_run_name("IQM_VLQ", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag), new_run=FORCE_NEW_RUN)
 CHUNKS_TO_SUBMIT = SAMPLE_SIZE   # the whole run; lower it to submit only the first N chunks
 CHUNKS_PER_JOB   = min(VLQ_CHUNKS_PER_JOB, SAMPLE_SIZE)   # full: 816 circuits, ~4 min upload each (48-chunk jobs failed at IT4I → IQM; see readme §3)
 

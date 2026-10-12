@@ -340,7 +340,7 @@ def choose_layout(mode, circuit, target, qubits=None, singles=None, seed=None, p
     elif mode in ("random", "lowest"):
         cands = all_placements(circuit, target, placement_ok)
         if not cands:
-            raise ValueError(f"no SWAP-free layout of the circuits exists on this QPU's connectivity")
+            raise ValueError("no SWAP-free layout of the circuits exists on this QPU's connectivity")
         rec = dict(log_success=None, top_candidates=[], n_candidates=len(cands), gates=None)
         if mode == "lowest":
             rec.update(physical_qubits=list(cands[0]), method="lowest")

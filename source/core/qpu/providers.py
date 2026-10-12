@@ -24,7 +24,8 @@ STANDALONE_HEALTH_CHECK_NSHOTS = 100
 def job_state_of_status(status):
     """"done" | "failed" | "pending" from a provider's job-status text (an enum's repr or value). A cancelled
     job counts as failed, like an errored one; anything not final (queued, running, validating, …) is pending.
-    The one place the status texts are read: collection, the IBM health-check wait and the status report."""
+    Collection, the IBM health-check wait and the status report map a status to its job state here;
+    job_status_check.classify() only refines the failed states into ERROR vs CANCELLED."""
     s = str(status).upper()
     if "DONE" in s or "COMPLETED" in s:
         return "done"

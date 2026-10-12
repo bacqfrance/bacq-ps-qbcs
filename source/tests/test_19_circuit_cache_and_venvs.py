@@ -16,6 +16,7 @@ are reused, and for finding a venv's interpreter:
   - A missing token (read_token), a missing or incomplete LEXIS project file (iqm_vlq.read_project_info)
     end the script the same way (common.exit_with_error): one ❌ line on stderr, exit code 2
     (an unusable layout does too; test_18_layout_args.py covers that).
+  - scrub_paths() drops the project folder and writes the home folder as ~ in saved error texts.
 """
 
 import sys, os

@@ -14,7 +14,7 @@ sys.stderr.reconfigure(encoding="utf-8")
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../..")))   # the project root, for the source.* imports
 os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../..")))   # datafiles/ paths are relative to the project root
 from source.core.runner_support.benchmark_args import make_usage, usage_if_requested   # light (numpy only): the usage is printed before anything else loads
-from source.core.records.run_names import health_check_run_name, service_name
+from source.core.records.run_names import health_check_run_name, service_name, dated_run_folder
 from source.core.qpu.providers import STANDALONE_HEALTH_CHECK_REPS, STANDALONE_HEALTH_CHECK_NSHOTS
 usage_if_requested(sys.argv[1:], make_usage(__file__, "Health check of IQM VLQ (LEXIS/HEAppE): submit and collect in one go. Standalone, unrelated to any benchmark run.", benchmark=False))   # no arguments or --help: print the usage and do nothing
 
@@ -29,7 +29,7 @@ SERVICE_NAME = service_name("IQM_VLQ")   # the access platform, as records and q
 NSHOTS      = STANDALONE_HEALTH_CHECK_NSHOTS
 REPS         = STANDALONE_HEALTH_CHECK_REPS
 QUBIT_SET    = None           # physical qubit indices (0 = QB1) for the 3-qubit health check, e.g. [0, 1, 2]; None = let the transpiler choose
-RUN_FOLDER   = health_check_run_name("IQM_VLQ", BACKEND_NAME, REPS, NSHOTS)
+RUN_FOLDER   = dated_run_folder(health_check_run_name("IQM_VLQ", BACKEND_NAME, REPS, NSHOTS))
 
 shutil.rmtree(f"datafiles/{RUN_FOLDER}", ignore_errors=True)   # fresh submission every run
 

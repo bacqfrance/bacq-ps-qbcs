@@ -25,7 +25,7 @@ from source.core.records.circuit_check import load_run_verification, add_circuit
 from source.core.records.chunk_scope import load_run_completeness, add_completeness_banner, completeness
 
 # ── Config ────────────────────────────────────────────────────────────────────
-RUN_FOLDER    = "full_real-data_iqm-emerald_lnn-True_service-iqm-resonance_spam-True_layout-legacy"   # standalone: the run (datafiles/<RUN_FOLDER>)
+RUN_FOLDER    = "old_runs_full/full_real-data_iqm-emerald_lnn-True_service-iqm-resonance_spam-True_layout-legacy_2026-09-07_#1"   # standalone: the run (datafiles/<RUN_FOLDER>)
 ems_list     = BASE_EMS_LIST
 
 N_SAMPLES    = None # None = full run (unchanged behaviour); int = plot that
@@ -63,7 +63,7 @@ VERIFICATION = load_run_verification(Path("datafiles") / RUN_FOLDER, SUFFIX)
 COMPLETENESS = load_run_completeness(Path("datafiles") / RUN_FOLDER, SUFFIX) or completeness(Path("datafiles") / RUN_FOLDER, INFO.sample_size, N_SAMPLES)   # uncollected chunks / health checks: red line on every figure
 
 # ── Output suptitle suffix ────────────────────────────────────────────────────
-suffix = f"{NAME.figure_label}, LNN={LNN}, shots={NSHOTS}"
+suffix = f"{NAME.figure_label_full}, LNN={LNN}, shots={NSHOTS}"
 if N_SAMPLES is not None:
     suffix += f", n_samples={N_SAMPLES}"
 

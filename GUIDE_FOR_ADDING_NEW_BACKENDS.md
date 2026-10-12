@@ -95,19 +95,21 @@ Every script must:
 - start with `sys.stdout/stderr.reconfigure(encoding="utf-8")`, then the `sys.path.insert` + `os.chdir` to the project root (`"../../../.."` from these folders), as the sibling scripts do;
 - take the benchmark size from the command line: `BENCH = parse_benchmark_args(sys.argv[1:])`
   (`source/core/runner_support/benchmark_args.py`; `mini`, `full` or custom — there is no default, a call without arguments prints
-  the usage), and `NSHOTS`, `SAMPLE_SIZE`, `LIST_TIMES` from it;
+  the usage), and whichever of `NSHOTS`, `SAMPLE_SIZE`, `LIST_TIMES` the script needs from it;
 - take the qubit layout from `LAYOUT = parse_layout_args(sys.argv[1:])` (`layout=optimized|random|lowest|15,14,21`,
   `calibration_file=`): submit scripts call `resolve_run_layout(qbcs, backend, RUN_FOLDER, LAYOUT, label=BACKEND_NAME)`
-  (`source/core/qpu/calibration_input.py`) right after `build()`; pass `calibration_required=True` if the SDK reports no
-  calibration (random layout without a file, `optimized` only with one), and `layout_required=True` in a simulate
-  script of such a QPU; collect and status scripts use `parse_layout_args(..., collect=True)` and
-  `find_collect_run_folder()`;
+  (`source/core/qpu/calibration_input.py`) right after `build()`; a QPU whose SDK reports its calibration passes
+  `live_calibration="<QPU>"` in its submit script (the live calibration is always used, so `calibration_file=` is
+  refused); a QPU that reports none passes `calibration_required=True` (random layout without a file, `optimized` only
+  with one), and its simulate script `layout_required=True` and `calibration_any_layout=True` (the file is the simulated
+  noise data, allowed with any layout); collect and status scripts use `parse_layout_args(..., collect=True)`, `parse_date_arg()` and
+  `find_collect_run_folder()` (one run) / `find_collect_run_folders()` (without `layout=` and `date=`: every run with something left to collect, in turn);
 - take the machine from the required `backend=NAME` argument, checked against the folder's `backends.json`:
   `BACKEND_NAME, BACKEND_CFG = parse_backend_config(sys.argv[1:], Path(__file__).parent)` and
   `LNN = BACKEND_CFG["lnn"]` (`source/core/runner_support/benchmark_args.py`; there is no default, and an unknown name stops
   the script before it connects). Pass `extra_keys=("backend",)` to `parse_benchmark_args`. A health check
   or other script without benchmark arguments passes `others_ok=False`;
-- take the run folder name from `source/core/records/run_names.py`: `qpu_run_name("<QPU folder>", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag)` in the submit and simulate scripts (`data_type="sim-qpu-noise"`), `find_collect_run_folder(qpu_run_prefix(...), LAYOUT)` (in `source/core/runner_support/benchmark_args.py`) in collect / status scripts, `health_check_run_name(...)` in the health check. Add the provider, its run-name service field and its service name to `QPUS` in `run_names.py` (the scripts then use `SERVICE_NAME = service_name("<QPU folder>")`) and a constant for the service name next to `IBM_CLOUD` & co. there, which the library code (`qbcs.py`, `health_check.py`, `job_timing.py`) compares against, the backend's metadata to `bacq_ps_qbcs_summary_json.py`, and a case in `source/tests/test_20_run_names.py`;
+- take the run folder name from `source/core/records/run_names.py`: `RUN_FOLDER = dated_run_folder(qpu_run_name("<QPU folder>", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag))` in the submit and simulate scripts (`data_type="sim-qpu-noise"`; `dated_run_folder()` adds the date and run number (`_<YYYY-MM-DD>_#<N>`): the latest unfinished folder of those settings, else a new one for today; submit scripts pass `new_run=` from `pop_force_new_run_flag()`, the `--force-new-run` option), `find_collect_run_folder(qpu_run_prefix(...), LAYOUT, parse_date_arg(sys.argv[1:]))` (in `source/core/runner_support/benchmark_args.py`; pass `"date"` in `parse_benchmark_args(extra_keys=...)`) in collect / status scripts, `dated_run_folder(health_check_run_name(...))` in the health check. Add the provider, its run-name service field and its service name to `QPUS` in `run_names.py` (the scripts then use `SERVICE_NAME = service_name("<QPU folder>")`) and a constant for the service name next to `IBM_CLOUD` & co. there, which the library code (`qbcs.py`, `health_check.py`, `job_timing.py`) compares against, the backend's metadata to `bacq_ps_qbcs_summary_json.py`, and a case in `source/tests/test_20_run_names.py`;
 - use the same config block (`backend=`, `DO_SPAM`, the benchmark arguments) in submit and collect.
 - reuse the shared steps: a simulate script gets the calibration snapshot (the provider-specific part) and
   calls `simulate_run()` (`source/core/runner_support/run_simulation.py`); a collect script connects and calls `collect_run()`
@@ -179,7 +181,7 @@ check records get the same timing block (with `collect_s`, labels `health_check_
 
 In `source/analysis_scripts/bacq_ps_qbcs_summary_json.py`:
 - `SERVICE`: comes from the run name's service field (`service_name_of_run_service()`); nothing to add;
-- the metadata block: `QPU_PROVIDER`, `ARCHITECTURE`, `COMPUTER_NAME`, `QPU_SERVICE`, `PRICING`,
+- the metadata block: `QPU_PROVIDER`, `ARCHITECTURE`, `DEVICE_LABEL`, `QPU_SERVICE`, `PRICING`,
   `FREE_BECAUSE`;
 - a pricing branch if none of the existing models (IBM per minute, Braket per task + shot,
   Scaleway per circuit + shot, VLQ's synthetic one) fits. Price from `qpu_workload()` — jobs,
@@ -281,7 +283,7 @@ Usually nothing: `aggregate_run_timing`, `qpu_queue_breakdown`, `qpu_workload` a
 
 ### `source/analysis_scripts/bacq_ps_qbcs_summary_json.py`
 
-- `SERVICE`, the metadata block, `PRICING` and its cost branch (step 8).
+- the metadata block, `PRICING` and its cost branch (step 8).
 
 ### `source/analysis_scripts/run_post_process.py`
 

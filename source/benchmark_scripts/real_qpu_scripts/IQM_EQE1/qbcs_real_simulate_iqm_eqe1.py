@@ -7,8 +7,9 @@ same circuits and settings as qbcs_real_submit_iqm_eqe1.py, but no QPU time.
      (the operators' calibration_data_Euro-Q-Exa_<date>_active_qubits.json, converted
      automatically, or an already converted snapshot), by default the newest file in
      calibration_input_files/Euro-Q-Exa/. It is saved as datafiles/<RUN_FOLDER>/calibration_snapshot.json,
-     with a warning. A rerun reuses that copy (it must be the same calibration) — remove the
-     run folder to start over.
+     with a warning. A rerun reuses that copy (it must be the same calibration) and resumes
+     an unfinished run (a finished one is followed by a new dated folder); remove the run
+     folder to start over.
   2. Build an offline backend + Aer noise model from the snapshot: depolarizing gate
      errors and readout errors. The file has no gate durations, so there is no T1/T2
      relaxation term. The file's own topology is used — couplers die and revive over
@@ -40,7 +41,7 @@ sys.stderr.reconfigure(encoding="utf-8")
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../..")))   # the project root, for the source.* imports
 os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../..")))   # datafiles/ paths are relative to the project root
 from source.core.runner_support.benchmark_args import make_usage, usage_if_requested   # light (numpy only): the usage is printed before anything else loads
-from source.core.records.run_names import qpu_run_name
+from source.core.records.run_names import qpu_run_name, dated_run_folder
 usage_if_requested(sys.argv[1:], make_usage(__file__, "Run the BACQ benchmark on the local Aer simulator with IQM EQE1's calibration: same circuits and settings as qbcs_real_submit_iqm_eqe1.py, but no QPU time.", layout="simulate_required"))   # no arguments or --help: print the usage and do nothing
 from pathlib import Path
 
@@ -57,7 +58,7 @@ LAYOUT           = parse_layout_args(sys.argv[1:], calibration_required=True, la
 LNN              = BACKEND_CFG["lnn"]   # the backend's topology, from backends.json
 DO_SPAM          = True
 DT               = 0.2
-RUN_FOLDER       = qpu_run_name("IQM_EQE1", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag, data_type="sim-qpu-noise")
+RUN_FOLDER       = dated_run_folder(qpu_run_name("IQM_EQE1", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag, data_type="sim-qpu-noise"))
 SEED             = None   # Aer sampling seed; None = fresh randomness per chunk
 
 # ── Calibration snapshot (newest local file, then reuse) ──────────────────────

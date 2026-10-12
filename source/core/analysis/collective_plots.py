@@ -8,16 +8,23 @@ Plots comparing all runs analyzed by source/analysis_scripts/run_post_process.py
   qpu_time.png              QPU time per run (log scale)
   submission_time.png       submission time per run, summed over jobs (log scale)
   collection_time.png       result collection time per run, summed over jobs (log scale)
-  submission_to_results_duration.png  earliest chunk submission to latest chunk result per run (log scale)
+  submission_to_results_duration.png  earliest job submission to latest job result per run (log scale)
+  submission_to_results_duration_without_dead_time.png  the same window minus long idle gaps (log scale)
   effective_cost_EUR.png    effective cost in EUR per run (log scale)
+  n_acc.png                 N_acc per run (linear scale)
+  e_min_nmax.png            E_min at N_max per run (linear scale, with the threshold epsilon)
+and, in analysis/summaries/ (not with the plots), <benchmark>_collective_<data types>.csv: one row per run with
+  run, n_samples, N_acc, N_max, E_min_Nmax, best_scheme_Nmax, QPU_time_s, QPU_time, effective_cost_EUR
 
 Reads each run's processed_results/summary.json (a subset: summary+nsamples-N.json) and
 run_data[_spam][+nsamples-N].json. Works with both the current summary format and the
-legacy one (effective_cost_euros instead of effective_cost_EUR, no computer_name, ...);
+legacy one (effective_cost_euros instead of effective_cost_EUR, computer_name instead of device_label, ...);
 a quantity a run's summary lacks is left out of that plot with a warning.
 """
 
+import csv
 import json
+import math
 from pathlib import Path
 
 from source.core.common import PROJECT_ROOT, rel_path
@@ -77,26 +84,38 @@ def _load_run(run_folder, n_samples):
 
     return dict(
         run_folder = run_folder,
-        name       = summary.get("computer_name") or backend,
+        name       = summary.get("device_label") or summary.get("computer_name") or backend,   # computer_name: summaries saved before the rename
         shots      = summary.get("shots_per_circuit"),
         n_samples  = n_samples,
         layout     = parse_run_name(run_folder).layout,
+        date       = parse_run_name(run_folder).date,         # YYYY-MM-DD (None: an undated test run)
+        run_number = parse_run_name(run_folder).run_number,   # N of _#N (None: an undated test run)
+        date_label = parse_run_name(run_folder).date_label,   # DD/MM/YYYY #N
         qpu_time_s = summary.get("QPU_time_s"),
         submit_s   = submit_s,   # summed submission time (chunks + health checks), part of CPU_time_s
         collect_s  = summary.get("Collect_time_s"),   # "N/A" for runs collected before it was timed
-        window_s   = summary.get("QPU_submission_to_results_duration_s"),   # None for simulations
+        window_s   = summary.get("QPU_submission_to_results_duration_s"),   # None for simulations without job records
+        window_active_s = summary.get("QPU_submission_to_results_duration_without_dead_time_s"),   # None for simulations without job records and older summaries
+        n_acc      = summary.get("N_acc"),
+        n_max      = summary.get("N_max"),
+        emin_nmax  = summary.get("E_min_Nmax"),
+        best_ems_nmax = summary.get("best_ems_Nmax"),
         cost_eur   = summary.get("effective_cost_EUR", summary.get("effective_cost_euros")),   # legacy key: effective_cost_euros
         curves     = curves,
     )
 
 
+def run_order(run):
+    """Sort key of the runs in the collective plots: by QPU, then layout, then date and run number (oldest first)."""
+    return (run["name"], run["layout"] or "", run["date"] or "", run["run_number"] or 0)
+
+
 def _labels(runs):
-    """QPU name per run, extended by shots / subset / layout only where it tells runs with the same label apart
-    (a field the duplicates share is not appended)."""
-    labels = [r["name"] for r in runs]
+    """QPU name, layout and date (DD/MM/YYYY #N) per run, extended by shots / subset only where it tells runs with
+    the same label apart (a field the duplicates share is not appended)."""
+    labels = [f"{r['name']}, layout {r['layout']}, {r['date_label']}" for r in runs]
     for extra in (lambda r: f"{r['shots']} shots" if r["shots"] is not None else None,
                   lambda r: f"n={r['n_samples']}" if r["n_samples"] is not None else None,
-                  lambda r: f"layout {r['layout']}" if r["layout"] else None,
                   lambda r: r["run_folder"]):
         dups = {l for l in labels if labels.count(l) > 1}
         if not dups:
@@ -106,10 +125,22 @@ def _labels(runs):
     return labels
 
 
-def _plain_log_axis(ax):
-    """Log-scale y axis labelled with ordinary numbers (1, 10, 100, 0.5, ...) instead of 10^k."""
+def _duration_fmt(v):
+    """A time in seconds as text: up to 60 s in seconds, up to 3600 s in minutes, up to 86400 s in hours, above in days."""
+    if v <= 60:
+        return f"{v:.4g} s"
+    if v <= 3600:
+        return f"{v / 60:.1f} min"
+    if v <= 86400:
+        return f"{v / 3600:.1f} h"
+    return f"{v / 86400:.1f} d"
+
+
+def _plain_log_axis(ax, tick_fmt=None):
+    """Log-scale y axis labelled with ordinary numbers (1, 10, 100, 0.5, ...) instead of 10^k;
+    tick_fmt (value -> text) replaces the number format (the time plots use _duration_fmt)."""
     ax.set_yscale("log")
-    fmt = FuncFormatter(lambda v, _: f"{v:,.10g}")
+    fmt = FuncFormatter(lambda v, _: tick_fmt(v) if tick_fmt else f"{v:,.10g}")
     ax.yaxis.set_major_locator(LogLocator(base=10))
     ax.yaxis.set_major_formatter(fmt)
     lo, hi = ax.get_ylim()
@@ -120,15 +151,15 @@ def _plain_log_axis(ax):
         ax.yaxis.set_minor_formatter(NullFormatter())
 
 
-def _seconds_fmt(v):
-    return f"{v:,.0f} s" if v >= 1000 else f"{v:.4g} s"
-
-
-def _bar_plot(runs, labels, key, ylabel, title, value_fmt, path):
-    pts = [(l, r[key]) for l, r in zip(labels, runs) if isinstance(r[key], (int, float)) and r[key] > 0]
+def _bar_plot(runs, labels, key, ylabel, title, value_fmt, path, tick_fmt=None, log=True):
+    """Bar plot of r[key] per run; log=True: log scale, positive values only; log=False: linear axis from 0
+    (zero kept), with the threshold line epsilon for E_min."""
+    def usable(v):
+        return isinstance(v, (int, float)) and not math.isnan(v) and (v > 0 or (not log and v >= 0))
+    pts = [(l, r[key]) for l, r in zip(labels, runs) if usable(r[key])]
     for l, r in zip(labels, runs):
-        if not (isinstance(r[key], (int, float)) and r[key] > 0):
-            print(f"⚠️  {l}: no positive {key} in its summary — left out of {path.name}")
+        if not usable(r[key]):
+            print(f"⚠️  {l}: no {'positive ' if log else ''}{key} in its summary — left out of {path.name}")
     if not pts:
         print(f"⏭  {path.name}: no data — skipped")
         return
@@ -140,8 +171,15 @@ def _bar_plot(runs, labels, key, ylabel, title, value_fmt, path):
                     textcoords="offset points", ha="center", va="bottom", fontsize=8)
     ax.set_xticks(range(len(vals)))
     ax.set_xticklabels(names, rotation=30, ha="right")
-    ax.set_ylim(min(vals) / 2, max(vals) * 2.5)
-    _plain_log_axis(ax)
+    if log:
+        ax.set_ylim(min(vals) / 2, max(vals) * 2.5)
+        _plain_log_axis(ax, tick_fmt)
+    elif key == "emin_nmax":
+        ax.set_ylim(0, 1.05)
+        ax.axhline(EPSILON, color="black", ls="--", lw=1, alpha=0.6, label=rf"accuracy threshold $\varepsilon$={EPSILON}")
+        ax.legend(fontsize=8)
+    else:
+        ax.set_ylim(0, max(max(vals), 1) * 1.15)
     ax.set_ylabel(ylabel)
     ax.set_title(title, fontweight="bold")
     ax.grid(True, axis="y", which="both", alpha=0.3)
@@ -186,9 +224,35 @@ def _awae_plot(runs, labels, kinds, path):
     print(f"✅ Saved → {rel_path(path)}")
 
 
-def make_collective_plots(analyzed, out_dir):
-    """analyzed: [(run_folder, n_samples or None)]; the plots are written to out_dir."""
-    runs = [r for r in (_load_run(f, n) for f, n in analyzed) if r is not None]
+def _write_run_table(runs, labels, path):
+    """The collective run table: one row per run, ";"-separated, each column padded with spaces to a common width
+    so the file also reads as a text table (a missing value, None / NaN / "N/A", is an empty cell)."""
+    def num(v, fmt):
+        return fmt.format(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and not math.isnan(v) else ""
+    def text(v):
+        return v if isinstance(v, str) and v != "N/A" else ""
+    rows = [["run", "n_samples", "N_acc", "N_max", "E_min_Nmax", "best_scheme_Nmax",
+             "QPU_time_s", "QPU_time", "effective_cost_EUR"]]
+    for l, r in zip(labels, runs):
+        q = r["qpu_time_s"]
+        q_ok = isinstance(q, (int, float)) and not math.isnan(q)
+        rows.append([l, "" if r["n_samples"] is None else str(r["n_samples"]),
+                     num(r.get("n_acc"), "{:.0f}"), num(r.get("n_max"), "{:.0f}"),
+                     num(r.get("emin_nmax"), "{:.4g}"), text(r.get("best_ems_nmax")),
+                     num(q, "{:.0f}"), _duration_fmt(round(q)) if q_ok else "",
+                     num(r["cost_eur"], "{:.2f}")])
+    widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f, delimiter=";")
+        for row in rows:                        # "a   ; b   ; c": a space on each side of ";", no trailing padding
+            cells = [c.ljust(n) for c, n in zip(row, widths)]
+            w.writerow([cells[0] + " "] + [" " + c + " " for c in cells[1:-1]] + [" " + row[-1]])
+    print(f"✅ Saved → {rel_path(path)}")
+
+
+def make_collective_plots(analyzed, out_dir, table_path):
+    """analyzed: [(run_folder, n_samples or None)]; the plots are written to out_dir, the run table to table_path."""
+    runs = sorted((r for r in (_load_run(f, n) for f, n in analyzed) if r is not None), key=run_order)
     if not runs:
         print("⏭  no analyzed runs — no collective plots")
         return
@@ -198,13 +262,22 @@ def make_collective_plots(analyzed, out_dir):
     _awae_plot(runs, labels, ["awae"], out_dir / "awae_best_ems_vs_Nt.png")
     _awae_plot(runs, labels, ["cumul"], out_dir / "cumul_awae_best_ems_vs_Nt.png")
     _awae_plot(runs, labels, ["awae", "cumul"], out_dir / "awae_and_cumul_awae_best_ems_vs_Nt.png")
-    _bar_plot(runs, labels, "qpu_time_s", "QPU time (s)", "QPU time per run",
-              _seconds_fmt, out_dir / "qpu_time.png")
-    _bar_plot(runs, labels, "submit_s", "Submission time (s)", "Submission time per run (summed over jobs)",
-              _seconds_fmt, out_dir / "submission_time.png")
-    _bar_plot(runs, labels, "collect_s", "Collection time (s)", "Result collection time per run (summed over jobs)",
-              _seconds_fmt, out_dir / "collection_time.png")
-    _bar_plot(runs, labels, "window_s", "Duration (s)", "Submission-to-results window per run",
-              lambda v: f"{v / 3600:.1f} h" if v >= 3600 else _seconds_fmt(v), out_dir / "submission_to_results_duration.png")
+    _bar_plot(runs, labels, "qpu_time_s", "QPU time", "QPU time per run",
+              _duration_fmt, out_dir / "qpu_time.png", _duration_fmt)
+    _bar_plot(runs, labels, "submit_s", "Submission time", "Submission time per run (summed over jobs)",
+              _duration_fmt, out_dir / "submission_time.png", _duration_fmt)
+    _bar_plot(runs, labels, "collect_s", "Collection time", "Result collection time per run (summed over jobs)",
+              _duration_fmt, out_dir / "collection_time.png", _duration_fmt)
+    _bar_plot(runs, labels, "window_s", "Duration", "Submission-to-results window per run",
+              _duration_fmt, out_dir / "submission_to_results_duration.png", _duration_fmt)
+    _bar_plot(runs, labels, "window_active_s", "Duration", "Submission-to-results window per run, without dead time",
+              _duration_fmt, out_dir / "submission_to_results_duration_without_dead_time.png", _duration_fmt)
     _bar_plot(runs, labels, "cost_eur", "Effective cost (EUR)", "Effective cost per run (excl. VAT)",
               lambda v: f"€{v:,.2f}", out_dir / "effective_cost_EUR.png")
+    _bar_plot(runs, labels, "n_acc", "$N_{acc}$", "$N_{acc}$ per run",
+              lambda v: f"{v:.0f}", out_dir / "n_acc.png", log=False)
+    _bar_plot(runs, labels, "emin_nmax", "$E_{min}$ at $N_{max}$", "$E_{min}$ at $N_{max}$ per run",
+              lambda v: f"{v:.3g}", out_dir / "e_min_nmax.png", log=False)
+    table_path = Path(table_path)
+    table_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_run_table(runs, labels, table_path)

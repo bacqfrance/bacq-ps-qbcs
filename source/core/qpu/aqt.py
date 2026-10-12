@@ -8,6 +8,7 @@ and the loop script's own ends: the STOP file and the time limit.
 """
 
 import os
+import sys
 import threading
 import time
 from pathlib import Path
@@ -42,7 +43,7 @@ def _aqt_run(backend, circuits, shots):
     return _AQTResilientJob(backend.run(circuits, shots=int(shots)), backend)
 
 # Waits (s) before each retry of one PCSS API call after a connection error; about 19 min
-# in all, then the error goes up and ends the loop script.
+# in all, then the error goes up and ends the script.
 _AQT_RETRY_DELAYS_S = (5, 15, 30, 60, 120, 300, 600)
 
 def _aqt_retry(what, fn):
@@ -57,7 +58,7 @@ def _aqt_retry(what, fn):
             return out
         except httpx.TransportError as e:
             if delay is None:
-                print(f"  ❌ [AQT] {what}: still no connection after {i} retries — giving up, the loop script ends.", flush=True)
+                print(f"  ❌ [AQT] {what}: still no connection after {i} retries — giving up, the script ends.", file=sys.stderr, flush=True)
                 raise
             print(format_retry("AQT", what, e, i + 1, len(_AQT_RETRY_DELAYS_S), delay), flush=True)
             time.sleep(delay)

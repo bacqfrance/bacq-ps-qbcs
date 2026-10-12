@@ -2,9 +2,11 @@
 run_collection.py
 The steps every qbcs_real_collect_*.py script shares, after it has connected to its provider:
 collect the run's health checks (warn only), collect the finished chunks (non-blocking), then
-merge and analyze. A collect script only parses its arguments, connects, and calls these.
+merge and analyze. A collect script only parses its arguments, connects, and calls these
+(collect_runs() for every run folder it found).
 """
 
+import sys
 from pathlib import Path
 
 from source.core.qbcs import bacq_ps_qbcs
@@ -75,3 +77,21 @@ def collect_run(path, service, service_name, backend_name, bench, lnn, do_spam=T
         exit_with_error(f"No chunk was submitted for {path} (a degraded pre-submission health check, or the submit script "
                         f"stopped before it got that far) — nothing to collect. Rerun the submit script.")
     collect_and_analyze(path, service, service_name, bench, lnn, do_spam, backend_name, **collect_kw)
+
+
+def collect_runs(paths, service, service_name, backend_name, bench, lnn, do_spam=True, **collect_kw):
+    """collect_run() for each run folder of `paths` in turn (a header line when there are several). A failure
+    in one (an exception or an exit) prints its ❌ line and the next one still runs; exit code 2 at the end
+    when any failed."""
+    failed = []
+    for i, path in enumerate(paths, 1):
+        if len(paths) > 1:
+            print(f"\n[run {i}/{len(paths)}] {path}")
+        try:
+            collect_run(path, service, service_name, backend_name, bench, lnn, do_spam, **collect_kw)
+        except (Exception, SystemExit) as e:
+            if not isinstance(e, SystemExit):
+                print(f"❌ {path}: {type(e).__name__}: {e}", file=sys.stderr)
+            failed.append(path)
+    if failed:
+        exit_with_error(f"Collection failed for {len(failed)} of {len(paths)} run folder(s): {', '.join(failed)}")

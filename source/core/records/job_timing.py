@@ -36,6 +36,7 @@ import math
 import re
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
+from source.core.common import scrub_paths
 from source.core.records.run_names import IBM_CLOUD, IQM_RESONANCE, QAAS_IT4I, MQSS_LRZ, PCSS
 
 # Services whose submission call blocks until the results are back, so their jobs run one
@@ -84,7 +85,13 @@ QPU_S_SOURCES = {
     "legacy_interval_ibm":     "legacy run: scheduled_at -> finished_at interval (the billed time was not recorded)",
     "legacy_interval_iqm":     "legacy run: execution_started -> execution_ended interval (the billed time was not recorded)",
     "unavailable":             "no QPU time available",
+    "not executed":            "chunk was never executed (its submission failed): no QPU time",
 }
+
+# Dead time of a run: a gap between its merged job intervals (chunk, failed-attempt and health-check jobs) longer
+# than this is idle time (a failure noticed hours later, a pause), not the pipeline's own transpile/submit work.
+DEAD_TIME_MIN_GAP_S      = 30 * 60
+DEAD_TIME_MIN_GAP_S_SYNC = 2 * 3600   # PCSS (AQT, synchronous): its own work between jobs is longer (up to ~6400 s seen)
 
 TIMING_NOTES = {
     IBM_CLOUD: ("QPU time is IBM's billed time (usage.qpu_charge_time_seconds, whole seconds per job). "
@@ -266,7 +273,7 @@ def ibm_collect_timing(job, result=None):
     try:
         m = job.metrics() or {}
     except Exception as e:
-        out["metrics_error"] = f"{type(e).__name__}: {e}"
+        out["metrics_error"] = scrub_paths(f"{type(e).__name__}: {e}")
         m = {}
     ts    = m.get("timestamps", {}) or {}
     usage = m.get("usage", {}) or {}
@@ -335,7 +342,7 @@ def iqm_resonance_collect_timing(backend, job, job_id):
         cal  = getattr(comp, "calibration_set_id", None) if comp is not None else None
         out["calibration_set_id"] = str(cal) if cal else None
     except Exception as e:
-        out["timeline_error"] = f"{type(e).__name__}: {e}"
+        out["timeline_error"] = scrub_paths(f"{type(e).__name__}: {e}")
 
     try:
         raw     = iqm_raw_job(backend, job_id)
@@ -351,7 +358,7 @@ def iqm_resonance_collect_timing(backend, job, job_id):
             if t.get("status") and t.get("timestamp"):
                 timeline.setdefault(t["status"], iso_utc(parse_utc(t["timestamp"])))
     except Exception as e:
-        out["raw_job_error"] = f"{type(e).__name__}: {e}"
+        out["raw_job_error"] = scrub_paths(f"{type(e).__name__}: {e}")
 
     out["created_at"]      = timeline.get("created")
     out["execution_start"] = timeline.get("execution_started")

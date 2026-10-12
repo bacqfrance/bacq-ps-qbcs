@@ -98,7 +98,7 @@ file. Therefore:
 - `layout=lowest` is the lexicographically lowest valid layout, and `layout=15,14,21` forces exactly those qubits
   (a layout the QPU cannot run ends the script with a one-line message, exit code 2).
 
-The run folder ends in `_layout-optimized`, `_layout-random`, `_layout-lowest` or `_layout-15-14-21`.
+The run folder ends in `_layout-optimized`, `_layout-random`, `_layout-lowest` or `_layout-15-14-21`. After the layout comes the UTC date the run started and its number that day (`_2026-10-11_#1`). Rerunning the loop script continues the latest run of its settings while it is unfinished (some chunk not yet submitted), whatever its date, else starts a new folder dated today with the next run number; `--force-new-run` starts a new folder even while the latest is unfinished. The loop script also accepts `run_folder=` to pin the folder (the sbatch files use it).
 The **simulate script requires `layout=`** (it stops with an explanation otherwise): the live backend provides no calibration,
 a real submission without a file is random, so the simulation must be told which of these to mimic. It takes its noise
 data from `calibration_file=` (default: the newest file in `calibration_input_files/PIAST-Q/`), under any layout.
@@ -112,6 +112,7 @@ inline** — there is no separate collect script.
 qbcs_real_submit_aqt_loop.py           (synchronous — one submit() call per chunk)
   load the cached circuits (once)
   STOP file in the run folder → exit 4, before the PRE check
+  choose the layout (once per run)     → recorded in transpiled_circuits/physical_qubits.json
   record the run (run_info.json)       → an aborted run stays analyzable (health checks only)
   PRE health check (once, before the loop; exit 10 degraded, 12 not submitted, 13 task timed out)
   for nc in CHUNK_START..CHUNK_STOP:
@@ -138,7 +139,7 @@ qbcs_real_submit_aqt_loop.py           (synchronous — one submit() call per ch
   unlike the other backends, where a failed attempt stays recorded), or **13** if the cause is a circuit
   PIAST-Q did not execute in time (time limit below; that attempt is recorded as a `failed` health check); if it
   ran and found the QPU degraded, exit code **10**. The standalone `health_check_real_aqt.py` exits
-  `0` (functional), `10` (degraded), `12` (the health check could not be submitted) or `13` (its circuit hits the time limit); an unusable argument or a missing token ends it with `2`.
+  `0` (functional), `10` (degraded), `12` (the health check could not be submitted) or `13` (its circuit hits the time limit); an unusable argument or a missing token ends it with `2`, and any other error with `1`.
 - PIAST-Q runs each
   circuit as its own task, and `source/core/qpu/aqt.py: _aqt_retry` retries a failed API call on
   its own: a failed result query polls the same task again, a failed submit
@@ -171,7 +172,7 @@ qbcs_real_submit_aqt_loop.py           (synchronous — one submit() call per ch
 - **`health_check_real_aqt.py`** — a standalone submit-and-collect health check in one script,
   unrelated to any benchmark run (its own run folder, wiped before every submission); it blocks until the job finishes, like the other QPUs' health-check
   scripts. `backend=NAME` is required. Its own folder is
-  `datafiles/health-check+reps-<N>+nshots-<shots>_real-data_aqt-<backend>_lnn-none_service-pcss_spam-none_layout-none/`. Use it to see
+  `datafiles/health-check+reps-<N>+nshots-<shots>_real-data_aqt-<backend>_lnn-none_service-pcss_spam-none_layout-none_<YYYY-MM-DD>_#<N>/`. Use it to see
   whether PIAST-Q is worth a run before starting one. Not a benchmark run, so it
   writes no `run_info.json` and `source/analysis_scripts/run_post_process.py` doesn't analyze it.
 
@@ -200,8 +201,8 @@ already converted snapshot — and by default the newest file in `calibration_in
 backend and gives its measurement date. `layout=` is **required** (see **Qubit layout** above): with
 `layout=optimized` the same file also scores the ions. Otherwise it works like
 `qbcs_real_simulate_iqm_resonance.py`. The calibration is saved as
-`datafiles/<benchmark>_sim-qpu-noise_aqt-piast-q_…_layout-<mode>/calibration_snapshot.json`. A rerun reuses that copy
-(it must be the same calibration), prints that it is reusing the run's saved calibration, and resumes; remove the run folder to start over. It then builds
+`datafiles/<benchmark>_sim-qpu-noise_aqt-piast-q_…_layout-<mode>_<YYYY-MM-DD>_#<N>/calibration_snapshot.json`. A rerun reuses that copy
+(it must be the same calibration), prints that it is reusing the run's saved calibration, and resumes an unfinished run (a finished one is followed by a new dated folder); remove the run folder to start over. It then builds
 an Aer noise model, runs health checks and every chunk locally, and analyzes the
 results. To post-process it, add its folder name without the benchmark
 (`sim-qpu-noise_…_layout-<mode>`) to `RUN_THESE` in `source/analysis_scripts/run_post_process.py` and run that
@@ -294,6 +295,7 @@ log `<job-name>_<jobid>.out` into the folder you submit from, so into the projec
 sbatch source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/PCSS_Quantum_UI/run_noiseless_all_to_all.sbatch full           # once, before the first full run (`mini` for the mini one)
 sbatch source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/PCSS_Quantum_UI/run_aqt_loop.sbatch backend=PIAST-Q mini       # the mini benchmark (`full`: the full one); backend= and the benchmark are required
 # add layout=... and calibration_file=... (below): without them the run uses a RANDOM layout
+# add --force-new-run to start a new run folder even if the latest run of these settings is unfinished
 squeue -u $USER                                       # its state; scancel <jobid> stops it
 ```
 
@@ -315,6 +317,8 @@ without progress (a chunk completed, or an end with `0` or `3`, starts the week 
 with exit code `14`. The cluster cannot send e-mail, so that block and `sacct -j <jobid>` are the notification.
 `PAUSE_AFTER_HOURS`, `RETRY_WAIT_S` and `RETRY_LIMIT_DAYS` are at the top of the file.
 
+**One run folder per job (both loop sbatch files).** The sbatch file resolves the run folder once, at the start of the job (`aqt_run_folder.py`, which applies `--force-new-run`). Every retry then calls the loop script without `--force-new-run` and with `run_folder=<that folder>`, so the job keeps one folder through all retries; after a pause the requeued job drops `--force-new-run` and continues the folder it started.
+
 **Pause and requeue (both loop sbatch files).** The time limit is `PAUSE_AFTER_HOURS` (10), set inside the sbatch file:
 
 1. The sbatch file passes it to the loop script as `AQT_PAUSE_AFTER_HOURS`.
@@ -329,7 +333,7 @@ with exit code `14`. The cluster cannot send e-mail, so that block and `sacct -j
 The loop script's output, and a start and end line for every requeue, are appended to
 `output.log` in the run folder (found with `aqt_run_folder.py`). To test the chain on the
 mini benchmark, submit a copy of the sbatch file with a smaller `PAUSE_AFTER_HOURS`, e.g.
-`0.25` with `backend=PIAST-Q mini nshots_per_circuit=100` pauses after every chunk. A requeue reruns the
+`0.25` with `backend=PIAST-Q mini nshots_per_circuit=100` pauses at the first chunk boundary after 15 minutes (a value shorter than one chunk's run time pauses after every chunk). A requeue reruns the
 copy of the sbatch file Slurm stored at submission, so edits to the file don't reach a
 running job.
 
@@ -339,6 +343,28 @@ instead of starting the next chunk; Slurm shows the job as `FAILED 4:0`, and `ru
 retries nor requeues after it. If the file is already there when the job (re)starts, it ends before the PRE health check. To
 cancel a stop that has not happened yet, remove the file before the chunk ends. Unlike `scancel`, no running chunk is lost, and
 finished chunks are kept: submit the same command again to resume.
+
+**Changing the code or the sbatch settings in the middle of a run.** The STOP file and a dependent job do it without losing
+a chunk. Edit the code (or the settings at the top of the sbatch file), then, from the project root on the login node:
+
+```bash
+sbatch --dependency=afterany:<jobid> source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/PCSS_Quantum_UI/run_aqt_loop_with_retries.sbatch backend=PIAST-Q full
+squeue -u $USER                                       # the new job waits as PD (Dependency)
+touch datafiles/<run folder>/STOP                     # the running job ends after its chunk, with exit code 4
+```
+
+`<jobid>` is the running job, and the command is the one it was submitted with, with the same arguments (`layout=`,
+`calibration_file=`, `nshots_per_circuit=` and so on): other arguments make another run name, so another run folder. When the
+running job ends, the waiting one starts and resumes the run folder at the first chunk without a record, with the code and the
+sbatch file as they are then (a running job keeps the copy of the sbatch file it was submitted with). Notes:
+
+- Use `afterany`: the STOP exit code 4 counts as a failure for Slurm, so `afterok` would never start the job.
+- Submit the waiting job before the run ends. A job that finds its run finished starts a new run folder, so if the run
+  finished first, `scancel` the new job.
+- A pause and requeue (above) keeps the job ID, so the dependency waits through it.
+- `scancel` of the running job instead of the STOP file starts the waiting job too, but loses the chunk in progress.
+- The chunks before and after the stop come from different code versions, so keep the change compatible with the records
+  already saved in the run folder.
 
 **Found on PCSS:**
 
@@ -416,7 +442,7 @@ plots them next to the per-chunk time bars into
 
 `submit.log` (appended, never overwritten) holds one entry per submission, the same in every QPU folder
 (`append_submit_log()`): the time, backend, run folder, chunks and shots, the layout, the run qubits with the
-calibration summary of `calibration_snapshot.json`, and the run's health-check numbers, plus the loop's chunk range.
+calibration summary of `calibration_snapshot.json`, and the run's health-check numbers, plus the loop's chunk range, total wallclock, QPU-time estimate and mean time per chunk.
 
 **Logs of unattended runs** (all appended, never overwritten):
 

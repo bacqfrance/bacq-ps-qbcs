@@ -15,7 +15,7 @@ Separate virtual environment: **iqm_vlq.venv** (created at `venvs/iqm_vlq.venv` 
 
 | Package | Version (this project's `iqm_vlq.venv`) | Provides |
 |---|---|---|
-| `qaas` | 0.5.2 | IT4I's QaaS client: LEXIS authentication and submission to VLQ (`source/core/qpu/iqm_vlq.py`) |
+| `qaas` | 0.5.3 | IT4I's QaaS client: LEXIS authentication and submission to VLQ (`source/core/qpu/iqm_vlq.py`) |
 | `py4lexis` | 7.1.1 | LEXIS login (MyAccessID) used by `lexis_backend()`; its refresh token is saved to `tokens/iqm_vlq_token` |
 | `qiskit-qasm3-import` | 0.6.0 | OpenQASM 3 import, not imported by this project's code; listed so a rebuild gets the same version |
 | `dill` | 0.4.1 | object serialisation, not imported by this project's code; listed so a rebuild gets the same version |
@@ -58,7 +58,7 @@ approval is needed. The saved token then keeps working for some time (it is rene
 so later runs log in without the browser until LEXIS asks again.
 
 py4lexis logs every login to `datafiles/<run folder>/iqm_vlq_authentication_lexis_logs.log`
-(git-ignored). It creates the file at each login but writes to it only for a browser login, so after
+(the project root when the script has no run folder, as the status script without one; git-ignored). It creates the file at each login but writes to it only for a browser login, so after
 token logins it is empty. It never contains the tokens.
 
 ### Connection log
@@ -66,7 +66,7 @@ token logins it is empty. It never contains the tokens.
 Every call to IT4I / HEAppE (public status, LEXIS login, `get_backend`, job submission, job status,
 result and executed-circuit downloads, calibration downloads) is logged with its UTC time and duration —
 `START`, then `OK`, `FAIL` (with the error) or `TIMEOUT` — in the terminal and in
-`datafiles/<run>/iqm_vlq_connection.log`. The qaas client sets no time limits, and a HEAppE request can go
+`datafiles/<run>/iqm_vlq_connection.log` (the project root when the script has no run folder, as the status script without one). The qaas client sets no time limits, and a HEAppE request can go
 unanswered (seen for `JobManagement/CurrentInfoForJob` while the public status page showed VLQ up),
 so each call has a limit (`TIMEOUTS` in `source/core/qpu/iqm_vlq.py`, e.g. 300 s for
 `get_backend`, which itself submits and polls a short HEAppE `backend_init` job); after it the script stops
@@ -100,9 +100,7 @@ chooses the physical qubits (main USER_MANUAL §5.4). The resonator is always pa
 three qubits (the script stops with a one-line message if one is not usable). `optimized` grades the qubits per role from IT4I's public
 calibration (§4.1); the submit script refuses `calibration_file=` (it always uses the live calibration). The simulate
 script takes `calibration_file=PATH` pointing at a `vlq_calibration.json` a VLQ run saved, to re-simulate that
-calibration. The run folder ends in `_layout-optimized`,
-`_layout-random`, `_layout-lowest` or `_layout-15-14-21`; the collect and status scripts take `layout=` too (optional when
-the benchmark has one run folder), and so does the simulate script.
+calibration. The run folder ends in `_layout-optimized`, `_layout-random`, `_layout-lowest` or `_layout-15-14-21`; the collect and status scripts take `layout=` too (optional), and so does the simulate script. After the layout comes the UTC date the run started and its number that day (`_2026-10-11_#1`). Rerunning the submit script continues the latest run of its settings while it is unfinished (some chunk not yet submitted), whatever its date, else starts a new folder dated today with the next run number; `--force-new-run` starts a new folder even while the latest is unfinished. Without `layout=` and `date=`, the collect and status scripts take every run of that benchmark with something left to collect in turn, all layouts and dates (each is reported, and a failure in one does not stop the others); `layout=` picks one run (its latest, or the one of `date=`), also a finished one; `date=YYYY-MM-DD` alone takes each layout's latest run of that day, and `date=YYYY-MM-DD_#N` each layout's run with that number (layouts without one are skipped).
 A submission also saves the QPU's current calibration in the run folder (`calibration_snapshot.json`, `vlq_calibration.json`), once per run — what the layout was chosen on. A layout the QPU cannot run ends the script with a one-line message (exit code 2) before anything is submitted.
 
 ## 4. Workflow
@@ -190,9 +188,9 @@ the current calibration set (public API, no login) once into
 (`calibration_snapshot.json`: the resonator folded into a CZ with error 1 − F_cz · F_move and duration
 2 · MOVE + CZ, the prx error from the per-gate fidelity above, readout and T1/T2 as measured) and picks the qubits exactly as the submit script does (transpiling onto an offline target built
 from the downloaded architecture, with iqm-client).
-A rerun reuses the files and prints a warning that it uses pre-saved calibration data; remove the run folder to download fresh calibration data. It runs in
+A rerun of an unfinished run reuses the files and prints a warning that it uses pre-saved calibration data (a finished run is followed by a new dated folder, which downloads fresh calibration); remove the run folder to start over. It runs in
 `iqm_vlq.venv` (iqm-client builds the offline target); it needs no login. Post-process by adding the
-`…_sim-qpu-noise_…` folder name to `RUN_THESE` in `source/analysis_scripts/run_post_process.py` and
+`sim-qpu-noise_…` folder name (without the benchmark) to `RUN_THESE` in `source/analysis_scripts/run_post_process.py` and
 running it with `--include-simulations-real`; its
 summary JSON names the backend and snapshot date, so the result is never
 mistaken for a hardware run. Like the submit script, it runs a health check
@@ -218,7 +216,7 @@ time only (≈ 0.2 s per job + 0.3 ms per shot + 3 ms per circuit). The summary'
 synthetic estimate combining the IQM Resonance and Amazon Braket billing schemes (VLQ is not sold
 commercially): $0.30 per task and Braket's Emerald shot price scaled by IQM Resonance's credits per
 second for Sirius (a Star 24 machine, 0.3) over Emerald (0.75), $0.00064 per shot; each job counts
-as the 100-circuit program sets its whole chunks fill.
+as the program sets of up to 100 circuits that its whole chunks fill, each billed as one task.
 
 The full comparison of all QPUs is the timing table in main USER_MANUAL §7; the code is in `source/core/records/job_timing.py` (timing) and `source/core/records/circuit_check.py` (circuit check).
 

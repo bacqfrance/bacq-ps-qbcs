@@ -15,6 +15,8 @@
 #   sbatch source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/PCSS_Quantum_UI/run_aqt_loop.sbatch backend=PIAST-Q full    full benchmark
 #   Layout: PIAST-Q reports no calibration, so without layout= / calibration_file= the run uses a RANDOM layout. Add
 #   layout=optimized calibration_file=calibration_input_files/PIAST-Q/<file>.json to optimize it, or layout=lowest / layout=15,14,21.
+#   Add --force-new-run to start a new run folder even if the latest run of these settings is unfinished (the whole job,
+#   with its retries and requeues, then works in that one folder).
 # (the arguments go to qbcs_real_submit_aqt_loop.py; without them the job prints that script's usage into its log and ends with exit code 2)
 # To test with a shorter limit, submit a copy with a smaller PAUSE_AFTER_HOURS
 # (Slurm keeps the submitted copy, also across requeues).
@@ -64,8 +66,16 @@ case " $* " in
         exit $? ;;
 esac
 
-# Run folder for these arguments, read from the loop script's Config block
-RUN_FOLDER=$("$PYTHON" "$AQT_DIR/PCSS_Quantum_UI/aqt_run_folder.py" "$@") || exit 1
+# Run folder for these arguments, read from the loop script's Config block, once per job: every run of the loop script
+# below (and every requeue) works in it, so the loop script gets it as run_folder= and never --force-new-run.
+# A requeued job (restart count > 0) starts with the same arguments: without --force-new-run the default rule picks
+# the latest unfinished folder, which is the one this job made at its first start (mkdir -p below; a folder without
+# run_info.json counts as unfinished).
+LOOP_ARGS=()
+for a in "$@"; do [ "$a" != "--force-new-run" ] && LOOP_ARGS+=("$a"); done
+if [ "${SLURM_RESTART_COUNT:-0}" -gt 0 ]; then RESOLVE_ARGS=("${LOOP_ARGS[@]}"); else RESOLVE_ARGS=("$@"); fi
+RUN_FOLDER=$("$PYTHON" "$AQT_DIR/PCSS_Quantum_UI/aqt_run_folder.py" "${RESOLVE_ARGS[@]}") || exit 1
+LOOP_ARGS+=("run_folder=$RUN_FOLDER")
 OUTPUT_LOG=datafiles/$RUN_FOLDER/output.log
 mkdir -p "datafiles/$RUN_FOLDER"
 
@@ -78,7 +88,7 @@ mkdir -p "datafiles/$RUN_FOLDER"
     row Arguments "$*"
     row "Pause after" "$PAUSE_AFTER_HOURS h"
 } | tee -a "$OUTPUT_LOG"
-AQT_PAUSE_AFTER_HOURS=$PAUSE_AFTER_HOURS "$PYTHON" -u "$AQT_DIR/qbcs_real_submit_aqt_loop.py" "$@" 2>&1 \
+AQT_PAUSE_AFTER_HOURS=$PAUSE_AFTER_HOURS "$PYTHON" -u "$AQT_DIR/qbcs_real_submit_aqt_loop.py" "${LOOP_ARGS[@]}" 2>&1 \
     | tee -a "$OUTPUT_LOG"
 rc=${PIPESTATUS[0]}                      # the loop script's exit code, not tee's
 { echo; row Ended "$(stamp)"; row "Exit code" "$rc — $(describe_exit $rc)"; } | tee -a "$OUTPUT_LOG"

@@ -120,4 +120,6 @@ def test_00_zero_noise_no_shot_noise():
 
 
 if __name__ == "__main__":
-    test_00_zero_noise_no_shot_noise()
+    # Through pytest, so conftest.py sends the circuit caches to datafiles/tests/circuits/.
+    import pytest
+    sys.exit(pytest.main([__file__, "-q"]))

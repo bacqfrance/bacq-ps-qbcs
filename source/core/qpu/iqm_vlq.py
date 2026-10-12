@@ -369,6 +369,13 @@ def prx_fidelity(f_clifford):
     return None if f_clifford is None else 1 - (1 - f_clifford) / PRX_PER_CLIFFORD
 
 
+def _qubit_logs(m):
+    """{ro, prx, move, cz: log fidelity} of one qubit's qubit_metrics() entry, or None if any is missing or outside
+    (0, 1]: such a qubit is used in no role (the one test select_vlq_qubits() and usable_vlq_qubits() share)."""
+    logs = {"ro": _log(m["readout"]), "prx": _log(prx_fidelity(m["f1q"])), "move": _log(m["move"]), "cz": _log(m["cz"])}
+    return None if None in logs.values() else logs
+
+
 def gate_roles(isa, layout):
     """Per virtual qubit v (on physical qubit layout[v]) of a circuit transpiled onto VLQ:
     {'n_prx': [...], 'n_move': [...] (MOVE pairs, in + out), 'n_cz': [...]}."""
@@ -409,7 +416,7 @@ def offline_backend(cal):
 
 
 def representative_roles(circuit, cal, backend=None):
-    """gate_roles() of `circuit` (raw) transpiled for VLQ on the first usable qubits (the roles
+    """gate_roles() of `circuit` (raw) transpiled for VLQ on the first qubits with MOVE and CZ data (the roles
     don't depend on which: every qubit reaches the resonator). backend: the live qaas backend,
     or None to build one from the calibration's architecture (offline_backend()). Nothing is
     submitted."""
@@ -433,8 +440,8 @@ def select_vlq_qubits(roles, cal, n_top=5):
 
     grades, excluded = {}, []         # (physical name, virtual) -> log P
     for q, m in metrics.items():
-        logs = {"ro": _log(m["readout"]), "prx": _log(prx_fidelity(m["f1q"])), "move": _log(m["move"]), "cz": _log(m["cz"])}
-        if None in logs.values():     # a calibration gap: the qubit is not used in any role
+        logs = _qubit_logs(m)
+        if logs is None:              # a calibration gap or an invalid fidelity: the qubit is not used in any role
             excluded.append(q)
             continue
         for v in range(n_virtual):
@@ -468,10 +475,11 @@ def select_vlq_qubits(roles, cal, n_top=5):
 
 def usable_vlq_qubits(cal):
     """Physical indices of the qubits a layout may use: every qubit of the architecture that has no calibration gap
-    (all of them reach the resonator, which every layout uses through CZ and MOVE), and the excluded ones' names."""
+    or invalid fidelity, as select_vlq_qubits() decides (all of them reach the resonator, which every layout uses
+    through CZ and MOVE), and the excluded ones' names."""
     ok, excluded = [], []
     for q, m in qubit_metrics(cal).items():
-        (excluded if None in (m["readout"], m["f1q"], m["move"], m["cz"]) else ok).append(q)
+        (excluded if _qubit_logs(m) is None else ok).append(q)
     key = lambda n: int(n[2:])
     return sorted(physical_index(q) for q in ok), sorted(excluded, key=key)
 
@@ -517,8 +525,8 @@ def snapshot_from_calibration(cal):
     folded into an effective all-to-all CZ: CZ(a, b) on the device is MOVE(a), CZ(b, COMPR1),
     MOVE back, so its error is 1 - F_cz(b) · F_move(a) (F_move: the MOVE pair), taking the
     better of the two directions, and its duration 2 · MOVE + CZ. Single-qubit gates use the
-    Clifford RB fidelity converted to one native prx gate (prx_fidelity()), readout the SSRO fidelity, and T1/T2 give the relaxation. Pairs where
-    neither qubit has MOVE data get no CZ entry. Qubit index i is QB(i+1)."""
+    Clifford RB fidelity converted to one native prx gate (prx_fidelity()), readout the SSRO fidelity, and T1/T2 give the relaxation. A pair gets
+    no CZ entry when neither direction has both MOVE and CZ data (a direction lacking either is dropped, the other kept). Qubit index i is QB(i+1)."""
     metrics = qubit_metrics(cal)
     names   = qubit_names(cal)
     err     = lambda f: None if f is None else max(0.0, 1.0 - f)

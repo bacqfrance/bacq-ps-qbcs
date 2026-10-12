@@ -10,7 +10,7 @@
 # this venv's Qiskit 2.1 can read. Do NOT install qiskit-iqm: it conflicts with qaas.
 
 # IT4I VLQ access (LEXIS/HEAppE)
-qaas==0.5.2            # IT4I's QaaS client (extra index above); pins qiskit<2.2 and the iqm-* packages below
+qaas==0.5.3            # IT4I's QaaS client (extra index above); pins qiskit<2.2 and the iqm-* packages below
 py4lexis==7.1.1        # LEXIS login (MyAccessID); the refresh token is saved to <project root>/tokens/iqm_vlq_token
 
 # Qiskit simulation

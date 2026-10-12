@@ -26,6 +26,5 @@ matplotlib==3.10.9
 tqdm==4.67.3
 tzdata==2026.5; sys_platform == "win32"   # IANA time zones for zoneinfo (job_timing.py); Windows has none of its own
 pylatexenc==2.10              # Qiskit matplotlib circuit diagrams
-ipykernel==7.2.0             # optional — notebooks
-# CairoSVG is not installed in this venv (the circuit drawings use Qiskit + matplotlib, no SVG rendering)
-# — add it back if you need it in this environment too.
+# CairoSVG and ipykernel are not installed in this venv (no notebooks/SVG
+# rendering here) — add them back if you need those in this environment too.

@@ -77,7 +77,7 @@ file. Therefore:
   A layout the QPU cannot run ends the script with a one-line message (exit code 2) before anything is submitted;
   so does `layout=optimized` when the QPU has no placement of the circuits without SWAPs, like `random` and `lowest`.
 
-The run folder ends in `_layout-optimized`, `_layout-random`, `_layout-lowest` or `_layout-15-14-21`; the collect and status scripts take `layout=` too (optional when the benchmark has one run folder).
+The run folder ends in `_layout-optimized`, `_layout-random`, `_layout-lowest` or `_layout-15-14-21`; the collect and status scripts take `layout=` too (optional). After the layout comes the UTC date the run started and its number that day (`_2026-10-11_#1`). Rerunning the submit script continues the latest run of its settings while it is unfinished (some chunk not yet submitted), whatever its date, else starts a new folder dated today with the next run number; `--force-new-run` starts a new folder even while the latest is unfinished. Without `layout=` and `date=`, the collect and status scripts take every run of that benchmark with something left to collect in turn, all layouts and dates (each is reported, and a failure in one does not stop the others); `layout=` picks one run (its latest, or the one of `date=`), also a finished one; `date=YYYY-MM-DD` alone takes each layout's latest run of that day, and `date=YYYY-MM-DD_#N` each layout's run with that number (layouts without one are skipped).
 The **simulate script requires `layout=`** (it stops with an explanation otherwise): the live backend provides no calibration,
 a real submission without a file is random, so the simulation must be told which of these to mimic. It takes its noise
 data from `calibration_file=` (default: the newest file in `calibration_input_files/Euro-Q-Exa/`), under any layout.
@@ -136,8 +136,8 @@ snapshot — and by default the newest file in `calibration_input_files/Euro-Q-E
 backend, gives its measurement date, and lists the qubits it leaves out. `layout=` is **required** (see **Qubit
 layout** above): with `layout=optimized` the same file also scores the placements. Otherwise it
 works like `qbcs_real_simulate_iqm_resonance.py`. The calibration is saved as
-`datafiles/<benchmark>_sim-qpu-noise_iqm-eqe1_…_layout-<mode>/calibration_snapshot.json`. A rerun reuses that copy (it must be the same calibration), prints that it is reusing the run's saved calibration, and
-resumes; remove the run folder to start over. It then builds an
+`datafiles/<benchmark>_sim-qpu-noise_iqm-eqe1_…_layout-<mode>_<YYYY-MM-DD>_#<N>/calibration_snapshot.json`. A rerun reuses that copy (it must be the same calibration), prints that it is reusing the run's saved calibration, and
+resumes an unfinished run (a finished one is followed by a new dated folder); remove the run folder to start over. It then builds an
 Aer noise model, picks the physical qubits as `layout=` says, runs health
 checks and every chunk locally, and analyzes the results. To post-process it, add its folder name without the benchmark
 (`sim-qpu-noise_…_layout-<mode>`) to `RUN_THESE` in `source/analysis_scripts/run_post_process.py` and run that

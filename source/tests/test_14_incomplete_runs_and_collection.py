@@ -15,6 +15,7 @@ Unit tests (no simulator, no QPU, no network) for
   - the chunks a submission covers: the ones without a 'submitted' / 'complete' record (gaps
     included), required by every accompanying health check, which records them as `chunks`
     (older records: `jobs` / `prior_chunks`, still read);
+  - best_ems skips NaN and is None when no scheme beats 1; one reading of the job status texts (state and report);
   - the health check plot of an incomplete run: +nsamples-N file names, the uncollected health
     checks and chunk jobs listed.
 """

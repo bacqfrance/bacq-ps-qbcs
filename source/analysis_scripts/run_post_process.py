@@ -8,7 +8,8 @@ Run the full BACQ analysis pipeline for a chosen set of runs (real QPU or local 
   5. health checks     (source/analysis_scripts/plot_health_checks.py)
   6. collective plots  (source/core/analysis/collective_plots.py) — all analyzed runs together:
      AWAE vs N_t of each run's best EMS; QPU, submission and collection time, the
-     submission-to-results window and the effective cost per QPU
+     submission-to-results window and the effective cost per QPU; N_acc and E_min at N_max per
+     run; and a run table CSV (N_acc, N_max, E_min, best scheme, QPU time, effective cost) in analysis/summaries/
 
 Stages 2-5 reuse the existing scripts, driven per-run via the QPU_RUN_FOLDER /
 QPU_N_SAMPLES env vars; each run's summary json is also copied to analysis/summaries/. Each run's own settings (shots, samples,
@@ -30,6 +31,12 @@ is analyzed and the usage is printed); they combine:
   --include-simulations-real        simulations with a real backend's noise (sim-qpu-noise, sim-fake-fez)
   --include-simulations-noiseless   noiseless simulations (sim-noiseless)
   --include-simulations-coherent    simulations with coherent CNOT noise (sim-coherent)
+Optional filters narrow the selected runs, for the individual and the collective analysis alike, and combine freely:
+  --date=2026-09-01 | --date=2026-09-01:2026-09-30 | --date=2026-09-01: | --date=:2026-09-30   the run's date
+  --backends=ibm-fez,iqm-garnet     the run's <provider>-<backend>
+  --services=ibm-cloud,pcss         the run's service
+  --layouts=optimized,random        the run's qubit layout (optimized, random, lowest, legacy, none, 15-14-21)
+A filtered collective set goes to its own folder, e.g. mini_collective_real-data_dates-2026-09-01-to-2026-09-30_backends-ibm-fez.
 Add --individual-only (stages 1-5 only) or --collective-only (stage 6 only, from the
 runs' existing analysis results); without either flag both are done. The collective plots go to
 analysis/plots/<benchmark>_collective_<data types>/, e.g. mini_collective_real-data+sim-noiseless
@@ -38,7 +45,7 @@ Add --nsamples-comparison (full benchmark only) to also analyze each run on 8, 4
 480 samples (NSAMPLES_COMPARISON; JSONs only, no per-N plots; only the RC samples vary, the SPAM
 correction always uses every collected chunk's calibration) and plot the full run's best EMS for
 each in analysis/plots/<run folder>/awae_best_ems_nsamples_comparison.png. It is per-run only:
-no collective plots are made, and with --collective-only nothing is done.
+the collective plots are made as usual (from the full runs), and with --collective-only the flag is ignored.
 
 """
 
@@ -67,8 +74,8 @@ from source.core.records.timestamps import TIMESTAMP_FILENAME
 from source.core.records.health_check_records import format_chunk_range
 from source.core.runner_support.venvs import venv_python
 from source.core.common import exit_with_error, PROJECT_ROOT
-from source.core.records.run_names import (collective_folder_name, collective_plots_dir, entry_data_type, is_run_name, parse_run_name,
-                                   run_summary_name, subset_suffix, summary_name, summaries_dir)
+from source.core.records.run_names import (collective_folder_name, collective_plots_dir, collective_table_path, entry_data_type, is_run_name, make_run_filter,
+                                   parse_run_name, run_summary_name, subset_suffix, summary_name, summaries_dir)
 
 ANALYSIS_SCRIPTS = PROJECT_ROOT / "source" / "analysis_scripts"   # the post-processing scripts run_script() launches
 
@@ -79,10 +86,10 @@ ANALYSIS_SCRIPTS = PROJECT_ROOT / "source" / "analysis_scripts"   # the post-pro
 #   python source/analysis_scripts/run_post_process.py <benchmark arguments>    e.g. mini nshots_per_circuit=100
 #   python source/analysis_scripts/run_post_process.py nshots_per_circuit=N     every run with N shots per circuit
 # full / mini analyze the lists below. Every run folder is named
-#   <benchmark>_<data type>_<provider>-<backend>_lnn-…_service-…_spam-…_layout-…   (source/core/records/run_names.py)
+#   <benchmark>_<data type>_<provider>-<backend>_lnn-…_service-…_spam-…_layout-…_<YYYY-MM-DD>_#<N>   (source/core/records/run_names.py)
 # and a list entry is that name WITHOUT its "<benchmark>_" — the mode supplies the benchmark (full, mini) —
 # cut off after any field: "real-data_ibm-fez" matches every IBM Fez run of the benchmark, whatever its
-# LNN / SPAM / layout; add fields to pick one when there are several. Any other benchmark arguments (as the
+# LNN / SPAM / layout / date; add fields to pick one when there are several. Any other benchmark arguments (as the
 # source/benchmark_scripts/ take them — source/core/runner_support/benchmark_args.py) select every run folder whose
 # <benchmark> field they give (mini+nshots-100, custom+ndepths-3+nsamples-8+nshots-50, …).
 # nshots_per_circuit=N alone selects by shot count only (from each run's run_info.json), whatever the
@@ -102,8 +109,10 @@ ANALYSIS_SCRIPTS = PROJECT_ROOT / "source" / "analysis_scripts"   # the post-pro
 #   "benchmark"   another <benchmark> field than the mode's, e.g. "full+nshots-100".
 #   "layout"      the layout field (optimized, random, lowest, legacy, 15-14-21), when the
 #                 entry matches runs with several layouts and only one is wanted (without it, all are analyzed).
+#   "date"        the date (YYYY-MM-DD, or YYYY-MM-DD_#N for one run of that day), when only that day is wanted (without it, every
+#                 dated run of the entry is analyzed).
 #   "run_folder"  an explicit folder relative to datafiles/ (then "run" is not needed),
-#                 e.g. "old_runs_full/full_real-data_ibm-fez_lnn-True_service-ibm-cloud_spam-True_layout-lowest".
+#                 e.g. "old_runs_full/full_real-data_ibm-fez_lnn-True_service-ibm-cloud_spam-True_layout-lowest_2026-09-21_#1".
 # A run's topology (and every other setting) comes from the run folder itself —
 #                 source/core/records/run_info.py — so no per-QPU configuration is needed here.
 REAL_QPUS = [
@@ -139,8 +148,8 @@ RUN_THESE = {
         # The earlier local full runs, at 1000 shots per circuit:
         # dict(run="sim-noiseless_local-aer_lnn-True", benchmark="full+nshots-1000"),
         # Archived full runs (datafiles/old_runs_full/), located by an explicit run_folder:
-        # dict(run_folder="old_runs_full/full_real-data_ibm-fez_lnn-True_service-ibm-cloud_spam-True_layout-lowest"),
-        # dict(run_folder="old_runs_full/full_real-data_iqm-eqe1_lnn-True_service-mqss-lrz_spam-True_layout-legacy"),
+        # dict(run_folder="old_runs_full/full_real-data_ibm-fez_lnn-True_service-ibm-cloud_spam-True_layout-lowest_2026-09-21_#1"),
+        # dict(run_folder="old_runs_full/full_real-data_iqm-eqe1_lnn-True_service-mqss-lrz_spam-True_layout-legacy_2026-08-27_#1"),
     ],
     "mini": [
         *LOCAL_SIMULATIONS,
@@ -155,7 +164,7 @@ RUN_THESE = {
 
 NSAMPLES_COMPARISON = [8, 48, 120, 240, 480]   # sample counts of --nsamples-comparison
 
-USAGE = """usage: python source/analysis_scripts/run_post_process.py SELECTION INCLUDE... [--individual-only | --collective-only] [--nsamples-comparison]
+USAGE = """usage: python source/analysis_scripts/run_post_process.py SELECTION INCLUDE... [FILTER...] [--individual-only | --collective-only] [--nsamples-comparison]
 
   Run the BACQ analysis pipeline (merge + analyze, summary, plots, collective plots) for a chosen set of runs,
   real-QPU and/or simulated. Nothing is analyzed unless at least one INCLUDE flag is given.
@@ -163,8 +172,9 @@ USAGE = """usage: python source/analysis_scripts/run_post_process.py SELECTION I
   SELECTION — which runs (required):
   mini                   the mini benchmark (RUN_THESE["mini"])
   full                   the full benchmark (RUN_THESE["full"])
-  BENCHMARK ARGUMENTS    as the source/benchmark_scripts/ take them, e.g. mini nshots_per_circuit=100 or
-                         nshots_per_circuit=50 n_samples=8 n_depths=3: every run folder with that <benchmark> field
+  BENCHMARK ARGUMENTS    as the source/benchmark_scripts/ take them (without layout= / calibration_file=), e.g.
+                         mini nshots_per_circuit=100 or nshots_per_circuit=50 n_samples=8 n_depths=3:
+                         every run folder with that <benchmark> field
   nshots_per_circuit=N   every run in datafiles/ with N shots per circuit (N a positive integer)
 
   INCLUDE — which kinds of runs to analyze; at least one, they combine (none: nothing is analyzed):
@@ -172,6 +182,15 @@ USAGE = """usage: python source/analysis_scripts/run_post_process.py SELECTION I
   --include-simulations-real        simulations with a real backend's noise (sim-qpu-noise, sim-fake-fez)
   --include-simulations-noiseless   noiseless simulations (sim-noiseless)
   --include-simulations-coherent    simulations with coherent CNOT noise (sim-coherent)
+
+  FILTERS — optional; narrow the selected runs, for the individual and the collective analysis alike. They combine
+  (a run must pass every filter given; within one list any value matches):
+  --date=D               runs of that day (YYYY-MM-DD), or a range --date=FROM:TO (inclusive; FROM: or :TO leave
+                         one end open); runs of a name without a date never match
+  --backends=A,B         the <provider>-<backend> of the run's QPU, e.g. ibm-fez,iqm-garnet
+  --services=A,B         the service, e.g. ibm-cloud,pcss (local for the local simulations)
+  --layouts=A,B          the qubit layout: optimized, random, lowest, legacy, none or three qubits like 15-14-21
+  The collective plots of a filtered set go to their own folder (<benchmark>_collective_<data types>_dates-…_backends-…).
 
   ANALYSIS SCOPE — individual and/or collective analysis and plots:
   --individual-only      only the per-run analysis and plots (stages 1-5)
@@ -181,7 +200,7 @@ USAGE = """usage: python source/analysis_scripts/run_post_process.py SELECTION I
   --nsamples-comparison  full only: also analyze each run on 8, 48, 120, 240, 480 samples and plot its
                          best EMS per sample count (awae_best_ems_nsamples_comparison.png; only the RC samples vary,
                          the SPAM correction uses every collected chunk); 
-                         only for individual analysis; with --collective-only nothing is done
+                         only for individual analysis (collective plots are unaffected); ignored with --collective-only
 
   --help                 print this message and exit"""
 
@@ -192,6 +211,9 @@ INCLUDE_FLAGS = {
     "--include-simulations-noiseless": "sim_noiseless",
     "--include-simulations-coherent":  "sim_coherent",
 }
+
+
+FILTER_OPTIONS = ("--date", "--backends", "--services", "--layouts")   # the --<name>=<value> run filters
 
 
 KIND_DATA_TYPES = {   # run kind → the data types it covers; the first names it in the collective-plot folder
@@ -207,15 +229,18 @@ def parse_include(argv):
     prints the usage and exits: nothing is analyzed unless asked for."""
     kinds = {INCLUDE_FLAGS[a] for a in argv if a in INCLUDE_FLAGS}
     if not kinds:
-        print(USAGE)
+        print(USAGE, file=sys.stderr)
         exit_with_error("Nothing to analyze — pass at least one --include-* flag.")
     return [a for a in argv if a not in INCLUDE_FLAGS], kinds
 
 
+def _kind_of_data_type(dtype):
+    return next(k for k, types in KIND_DATA_TYPES.items() if dtype in types)
+
+
 def run_kind(run_folder):
     """"real", "sim_real", "sim_noiseless" or "sim_coherent" — the --include-* kind of a run folder."""
-    dtype = parse_run_name(run_folder).data_type
-    return next(k for k, types in KIND_DATA_TYPES.items() if dtype in types)
+    return _kind_of_data_type(parse_run_name(run_folder).data_type)
 
 
 def entry_kind(cfg):
@@ -225,7 +250,32 @@ def entry_kind(cfg):
         dtype = parse_run_name(Path(cfg["run_folder"]).name).data_type
     else:
         dtype = entry_data_type(cfg["run"])
-    return next(k for k, types in KIND_DATA_TYPES.items() if dtype in types)
+    return _kind_of_data_type(dtype)
+
+
+def parse_filters(argv):
+    """(remaining args, RunFilter) from the --date= / --backends= / --services= / --layouts= options. Prints the
+    usage and exits with code 2 on a repeated option or a value no run name can have."""
+    values, rest = {}, []
+    for a in argv:
+        key, eq, val = a.partition("=")
+        if eq and key in FILTER_OPTIONS:
+            if key in values:
+                print(USAGE, file=sys.stderr)
+                exit_with_error(f"{key} given twice.")
+            values[key] = val
+        else:
+            rest.append(a)
+    try:
+        lists = {k: [v for v in values[k].split(",") if v] if k in values else None
+                 for k in ("--backends", "--services", "--layouts")}
+        for k in ("--backends", "--services", "--layouts"):
+            if k in values and not lists[k]:
+                raise ValueError(f"{k}= needs at least one value")
+        return rest, make_run_filter(values.get("--date"), lists["--backends"], lists["--services"], lists["--layouts"])
+    except ValueError as e:
+        print(USAGE, file=sys.stderr)
+        exit_with_error(str(e))
 
 
 def parse_scope(argv):
@@ -233,7 +283,7 @@ def parse_scope(argv):
     --collective-only flags. Prints the usage and exits with code 2 if both are given."""
     flags = {a for a in argv if a in ("--individual-only", "--collective-only")}
     if len(flags) > 1:
-        print(USAGE)
+        print(USAGE, file=sys.stderr)
         exit_with_error("--individual-only and --collective-only exclude each other.")
     rest = [a for a in argv if a not in flags]
     return rest, "--collective-only" not in flags, "--individual-only" not in flags
@@ -249,7 +299,7 @@ def parse_mode(argv):
             return "nshots", int(m.group(1))
     unknown = [a for a in argv if not (a in RUN_THESE or re.fullmatch(r"(nshots_per_circuit|n_samples|n_depths|nt_list)=.+", a))]
     if unknown:
-        print(USAGE)
+        print(USAGE, file=sys.stderr)
         exit_with_error(f"unknown argument {unknown[0]!r}")
     bench = parse_benchmark_args(argv)
     if bench.tag in RUN_THESE:
@@ -291,20 +341,34 @@ def select_runs(mode, value):
     return [dict(run=e) if isinstance(e, str) else dict(e) for e in RUN_THESE[value]], value
 
 
-def find_run_folders(entry, benchmark, layout=None):
+def _date_matches(name, date):
+    """Whether the RunName `name` is of `date`: YYYY-MM-DD (any run of that day) or YYYY-MM-DD_#N."""
+    return date in (name.date, f"{name.date}_#{name.run_number}")
+
+
+def find_run_folders(entry, benchmark, layout=None, date=None):
     """The run folders of a RUN_THESE entry: every folder named <benchmark>_<entry>[_<more fields>], with
-    layout-<layout> if given (e.g. one per layout). Empty, silently, if the entry has not been run."""
+    layout-<layout> and the date if given (e.g. one per layout and day): YYYY-MM-DD (every run of that day) or
+    YYYY-MM-DD_#N (that run). Empty, silently, if the entry has not been run."""
     prefix = f"{benchmark}_{entry}"
     return [f for f in benchmark_runs()
             if (f == prefix or f.startswith(prefix + "_"))
-            and (layout is None or parse_run_name(f).layout == layout)]
+            and (layout is None or parse_run_name(f).layout == layout)
+            and (date is None or _date_matches(parse_run_name(f), date))]
 
 
 def resolve_cfg(cfg, benchmark):
     """The run folders (relative to datafiles/) of a run cfg: a list, empty if there are none."""
     if cfg.get("run_folder"):
         return [cfg["run_folder"]]
-    return find_run_folders(cfg["run"], cfg.get("benchmark", benchmark), cfg.get("layout"))
+    return find_run_folders(cfg["run"], cfg.get("benchmark", benchmark), cfg.get("layout"), cfg.get("date"))
+
+
+def folder_order(run_folder):
+    """Sort key of the runs: (data type, device, benchmark, lnn, layout, date, run number), the last two oldest first — the order
+    they are analyzed and listed in."""
+    n = parse_run_name(run_folder)
+    return (n.data_type, n.device, n.benchmark, n.lnn, n.layout, n.date or "", n.run_number or 0)
 
 
 def merge_and_analyze(run_folder, n_samples_override=None):
@@ -343,7 +407,7 @@ def merge_and_analyze(run_folder, n_samples_override=None):
     if n_samples_override is not None:
         if not (0 < n_samples_override <= n_collected):
             print(f"❌ {backend_name}: requested n_samples={n_samples_override}, but only "
-                  f"{n_collected} chunks are collected — skipping")
+                  f"{n_collected} chunks are collected — skipping", file=sys.stderr)
             return False, None
         target_n = n_samples_override
     else:
@@ -417,7 +481,7 @@ def run_script(script_name, run_folder, n_samples, extra_env=None):
         cwd=PROJECT_ROOT, env=env, encoding="utf-8", errors="replace",
     )
     if result.returncode != 0:
-        print(f"❌ {script_name} failed for {run_folder} (exit {result.returncode})")
+        print(f"❌ {script_name} failed for {run_folder} (exit {result.returncode})", file=sys.stderr)
         return False
     return True
 
@@ -502,26 +566,35 @@ def nsamples_comparison(run_folder, n_ref):
 def main():
     usage_if_requested(sys.argv[1:], USAGE)   # no arguments or --help: print the usage and do nothing
     args, kinds = parse_include(sys.argv[1:])
+    args, run_filter = parse_filters(args)
     args, do_individual, do_collective = parse_scope(args)
     do_nsamples = "--nsamples-comparison" in args
     args = [a for a in args if a != "--nsamples-comparison"]
     mode, value = parse_mode(args)
     if do_nsamples and (mode, value) != ("preset", "full"):
-        print(USAGE)
+        print(USAGE, file=sys.stderr)
         exit_with_error("--nsamples-comparison works with the full benchmark only.")
     if do_nsamples and not do_individual:
-        print("--nsamples-comparison makes per-run plots only, and --collective-only skips them — nothing to do.")
-        return
+        print("--nsamples-comparison makes per-run plots only, and --collective-only skips them — flag ignored.")
+        do_nsamples = False
     cfgs, benchmark = select_runs(mode, value)
     cfgs    = [c for c in cfgs if entry_kind(c) in kinds]   # only the selected kinds are looked up
     cfg_of  = {f: c for c in cfgs for f in resolve_cfg(c, benchmark)}   # resolved once; an entry matching several folders (layouts) includes all
-    folders = [f for f in cfg_of if run_kind(f) in kinds]
+    folders = sorted((f for f in cfg_of if run_kind(f) in kinds
+                      and run_filter.matches(parse_run_name(f))), key=folder_order)   # one filter point: individual and collective alike
     print(f"Including: {', '.join(sorted(kinds))}")
+    if not run_filter.is_empty:
+        print(f"Filters: {run_filter.describe()}")
     label = {"nshots": f"nshots_per_circuit={value}", "preset": f"{value} benchmark",
              "tag": f"runs with benchmark {value}"}[mode]
     print(f"Mode: {label} — {len(folders)} run(s):")
     for f in folders:
         print(f"  {f}")
+    if not folders:
+        print("\n⚠️  No run matches the selection and filters — nothing to analyze.")
+        if run_filter.backends:
+            print("Backends with runs: " + ", ".join(sorted({parse_run_name(f).device for f in benchmark_runs()})))
+        return
 
     analyzed = []   # (run_folder, n_samples) of every run with benchmark data, for the collective plots
     for run_folder in folders:
@@ -539,18 +612,20 @@ def main():
                 if do_nsamples:
                     nsamples_comparison(done_folder, n_samples)
         except Exception as e:
-            print(f"❌ {run_folder}: merge/analyze failed — {e}")
+            print(f"❌ {run_folder}: merge/analyze failed — {e}", file=sys.stderr)
 
-    if not do_collective or do_nsamples:
+    if not do_collective:
         print("\n✅ Pipeline complete.")
         return
     section("Collective plots")
     selection = f"any+nshots-{value}" if mode == "nshots" else value
     data_types = [KIND_DATA_TYPES[k][0] for k in KIND_DATA_TYPES if k in kinds]
     try:
-        make_collective_plots(analyzed, PROJECT_ROOT / collective_plots_dir(collective_folder_name(selection, data_types)))
+        collective_name = collective_folder_name(selection, data_types, run_filter)
+        make_collective_plots(analyzed, PROJECT_ROOT / collective_plots_dir(collective_name),
+                              PROJECT_ROOT / collective_table_path(collective_name))
     except Exception as e:
-        print(f"❌ collective plots failed — {e}")
+        print(f"❌ collective plots failed — {e}", file=sys.stderr)
 
     print("\n✅ Pipeline complete.")
 

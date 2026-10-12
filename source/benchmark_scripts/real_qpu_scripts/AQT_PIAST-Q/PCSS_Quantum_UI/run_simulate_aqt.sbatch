@@ -24,7 +24,7 @@ cd "$PROJECT"
 RULE='────────────────────────────────────────────────────────────'
 stamp() { date '+%Y-%m-%d %H:%M:%S'; }
 row()   { printf '  %-12s %s\n' "$1:" "$2"; }
-describe_exit() {                                      # what an exit code of the loop script means
+describe_exit() {                                      # what an exit code of qbcs_real_simulate_aqt.py means
     case $1 in
         0)  echo "done" ;;
         2)  echo "unusable arguments" ;;

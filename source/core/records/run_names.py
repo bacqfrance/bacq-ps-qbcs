@@ -2,7 +2,7 @@
 run_names.py
 The one place run-folder, plot-folder and summary names are built and parsed.
 
-    <benchmark>_<data type>_<provider>-<backend>_lnn-<bool>_service-<svc>_spam-<bool>_layout-<mode>
+    <benchmark>_<data type>_<provider>-<backend>_lnn-<bool>_service-<svc>_spam-<bool>_layout-<mode>_<YYYY-MM-DD>_#<N>
 
 Fields are separated by "_"; inside a field "-" joins a name and its value and "+" joins the
 parameters of <benchmark>:
@@ -16,17 +16,25 @@ parameters of <benchmark>:
     lnn / spam    True | False | none (standalone health checks)
     service       ibm-cloud | iqm-resonance | qaas-it4i | mqss-lrz | pcss | local
     layout        optimized | random | lowest | legacy | none | three qubits (15-14-21)
+    date          the UTC day the run folder was first made by its submit (simulate, health-check) script
+    #N            the run's number that day: #1 for the first run of those settings, #2 for the next, ...
 
-e.g. full_real-data_ibm-fez_lnn-True_service-ibm-cloud_spam-True_layout-optimized.
-Collective plots: <benchmark>_collective_<data type>[+<data type>...]; summaries: processed_results/summary.json
+e.g. full_real-data_ibm-fez_lnn-True_service-ibm-cloud_spam-True_layout-optimized_2026-10-11_#1.
+The builders below (qpu_run_name(), local_run_name(), health_check_run_name()) give the name without its date;
+dated_run_folder() adds it and the number: it reuses the latest folder of those settings while it is unfinished, else
+makes a new one dated today with the next number. Names without a date (test runs) still parse, with date None.
+Collective plots: <benchmark>_collective_<data type>[+<data type>...][_dates-…|_date-… for a single day][_backends-…][_services-…][_layouts-…]
+(the optional parts name run_post_process.py's filters, RunFilter.suffix()); summaries: processed_results/summary.json
 (summary+nsamples-N.json) in the run, copied to analysis/summaries/summary_<run name>.json.
 Every other subset-analysis output in processed_results/ carries the same subset_suffix(N) = +nsamples-N
 (run_data+nsamples-N.json, run_data_spam+nsamples-N.json, health_checks+nsamples-N.json, spam_confusion_matrix+nsamples-N.npy, plots).
 The test suite's runs live in datafiles/tests/ (run folder tests/<run name>); their plots and summaries
 go to analysis/tests/plots/ and analysis/tests/summaries/ (plots_dir(), summaries_dir()).
-A new QPU provider or data type needs its value added here (QPUS / DATA_TYPES) and in test_20.
+A new QPU provider or data type needs its value added here (QPUS / DATA_TYPES) and in test_20; a data type also needs its figure_label,
+and its metadata goes in bacq_ps_qbcs_summary_json.py.
 """
 
+import hashlib
 import re
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -64,6 +72,8 @@ def service_name_of_run_service(service):
 
 _LAYOUT = re.compile(r"optimized|random|lowest|legacy|none|\d+-\d+-\d+")
 _BENCH  = re.compile(r"[a-z0-9][a-z0-9-]*(\+[a-z]+-[0-9][0-9-]*)*")
+_DATE   = re.compile(r"\d{4}-\d{2}-\d{2}")
+_NUMBER = re.compile(r"#[1-9]\d*")
 
 
 @dataclass(frozen=True)
@@ -76,10 +86,25 @@ class RunName:
     service:   str
     spam:      str
     layout:    str
+    date:      str | None = None   # YYYY-MM-DD, None for a name without a date
+    run_number: int | None = None  # N of _#N, the run's number on that day; None with no date
 
     def __str__(self):
+        return (f"{self.undated}_{self.date}_#{self.run_number}" if self.date else self.undated)
+
+    @property
+    def undated(self):
+        """The name without its date: the run's settings, which dated_run_folder() looks up by."""
         return (f"{self.benchmark}_{self.data_type}_{self.provider}-{self.backend}_lnn-{self.lnn}"
                 f"_service-{self.service}_spam-{self.spam}_layout-{self.layout}")
+
+    @property
+    def date_label(self):
+        """The run's date and number as the figures show them, DD/MM/YYYY #N ("date unknown" without a date)."""
+        if not self.date:
+            return "date unknown"
+        y, m, d = self.date.split("-")
+        return f"{d}/{m}/{y} #{self.run_number}"
 
     @property
     def device(self):
@@ -101,6 +126,11 @@ class RunName:
                 "sim-fake-fez":  "simulation (FakeFez noise)",
                 "sim-qpu-noise": "simulation (calibration noise)"}[self.data_type]
         return f"{name} — {kind}"
+
+    @property
+    def figure_label_full(self):
+        """figure_label with the layout and the run's date, e.g. "ibm-fez — real QPU, layout optimized, 11/10/2026 #1"."""
+        return f"{self.figure_label}, layout {self.layout}, {self.date_label}"
 
     @property
     def is_health_check(self):
@@ -195,8 +225,17 @@ def parse_run_name(name):
     """RunName of a run-folder name (or a path ending in one); ValueError if it doesn't follow the scheme."""
     base   = str(name).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
     fields = base.split("_")
+    date = run_number = None
+    if len(fields) == 9:
+        number = fields.pop()
+        date   = fields.pop()
+        if not _DATE.fullmatch(date):
+            raise ValueError(f"{base!r}: bad date {date!r} (YYYY-MM-DD)")
+        if not _NUMBER.fullmatch(number):
+            raise ValueError(f"{base!r}: bad run number {number!r} (#1, #2, ...)")
+        run_number = int(number[1:])
     if len(fields) != 7:
-        raise ValueError(f"{base!r} is not a run name: expected 7 fields separated by '_', got {len(fields)}")
+        raise ValueError(f"{base!r} is not a run name: expected 7 fields (9 with the date and run number) separated by '_', got {len(fields)}")
     bench, dtype, device, lnn, service, spam, layout = fields[0], fields[1], fields[2], *fields[3:]
     def tail(field, key):
         if not field.startswith(key + "-"):
@@ -216,7 +255,200 @@ def parse_run_name(name):
         raise ValueError(f"{base!r}: unknown service {service!r} (one of {', '.join(SERVICES)})")
     if not _LAYOUT.fullmatch(layout):
         raise ValueError(f"{base!r}: bad layout {layout!r} (optimized, random, lowest, legacy, none or three qubits a-b-c)")
-    return RunName(bench, dtype, provider, backend, lnn, service, spam, layout)
+    return RunName(bench, dtype, provider, backend, lnn, service, spam, layout, date, run_number)
+
+
+@dataclass(frozen=True)
+class RunFilter:
+    """Which runs run_post_process.py analyzes, beyond its selection: every field given must match (AND), and a
+    list matches if any of its values does (OR). None = no restriction on that field.
+
+    date_from / date_to   inclusive YYYY-MM-DD bounds (either may be None); a name without a date never matches
+    backends              <provider>-<backend> (RunName.device), e.g. ibm-fez
+    services              the service field, e.g. ibm-cloud
+    layouts               the layout field, e.g. optimized, random, 15-14-21"""
+    date_from: str | None = None
+    date_to:   str | None = None
+    backends:  tuple[str, ...] | None = None
+    services:  tuple[str, ...] | None = None
+    layouts:   tuple[str, ...] | None = None
+
+    @property
+    def is_empty(self):
+        return all(v is None for v in (self.date_from, self.date_to, self.backends, self.services, self.layouts))
+
+    def matches(self, name):
+        """Whether the RunName `name` passes every filter that is set."""
+        if self.date_from or self.date_to:
+            if not name.date or (self.date_from and name.date < self.date_from) or (self.date_to and name.date > self.date_to):
+                return False
+        return ((self.backends is None or name.device in self.backends)
+                and (self.services is None or name.service in self.services)
+                and (self.layouts is None or name.layout in self.layouts))
+
+    def describe(self):
+        """The filter for the run list header, e.g. "date 2026-09-01 to 2026-09-30; backends ibm-fez, iqm-garnet"."""
+        parts = []
+        if self.date_from or self.date_to:
+            parts.append("date " + _date_text(self, " to ", "from ", "until "))
+        for label, values in (("backends", self.backends), ("services", self.services), ("layouts", self.layouts)):
+            if values is not None:
+                parts.append(f"{label} {', '.join(values)}")
+        return "; ".join(parts) or "none"
+
+    def suffix(self):
+        """The part of a collective folder name that tells a filtered set from the unfiltered one, "" without
+        filters, e.g. _dates-2026-09-01-to-2026-09-30_backends-ibm-fez+iqm-garnet. A long list becomes
+        <count>-<hash> (Windows' 260-character path limit)."""
+        parts = []
+        if self.date_from or self.date_to:
+            single = self.date_from == self.date_to
+            parts.append(("date-" if single else "dates-") + _date_text(self, "-to-", "from-", "until-"))
+        for label, values in (("backends", self.backends), ("services", self.services), ("layouts", self.layouts)):
+            if values is not None:
+                text = "+".join(sorted(values))
+                if len(text) > 40:
+                    text = f"{len(values)}-{hashlib.sha1(text.encode()).hexdigest()[:8]}"
+                parts.append(f"{label}-{text}")
+        return "".join("_" + p for p in parts)
+
+
+def make_run_filter(date=None, backends=None, services=None, layouts=None):
+    """A RunFilter from the command-line values: `date` as parse_date_filter() reads it, the others lists of
+    strings (None = not given). ValueError naming the bad value if a date, backend, service or layout is not
+    one a run name can have."""
+    date_from, date_to = parse_date_filter(date) if date is not None else (None, None)
+    for b in backends or ():
+        if not re.fullmatch(r"[a-z0-9]+-[a-z0-9][a-z0-9-]*", b):
+            raise ValueError(f"bad backend {b!r} (<provider>-<backend>, e.g. ibm-fez)")
+    for s in services or ():
+        if s not in SERVICES:
+            raise ValueError(f"unknown service {s!r} (one of {', '.join(SERVICES)})")
+    for l in layouts or ():
+        if not _LAYOUT.fullmatch(l):
+            raise ValueError(f"bad layout {l!r} (optimized, random, lowest, legacy, none or three qubits a-b-c)")
+    as_tuple = lambda v: tuple(v) if v else None
+    return RunFilter(date_from, date_to, as_tuple(backends), as_tuple(services), as_tuple(layouts))
+
+
+def _date_text(f, between, from_, until):
+    if f.date_from and f.date_to:
+        return f.date_from if f.date_from == f.date_to else f"{f.date_from}{between}{f.date_to}"
+    return f"{from_}{f.date_from}" if f.date_from else f"{until}{f.date_to}"
+
+
+def parse_date_filter(text):
+    """(date_from, date_to) of a --date value: YYYY-MM-DD (that day), A:B (inclusive range), A: or :B (open end).
+    ValueError if it is none of these or the range is reversed."""
+    start, colon, end = text.partition(":")
+    start, end = start or None, (end or None) if colon else start or None
+    if (start is None and end is None) or any(d is not None and not _is_calendar_date(d) for d in (start, end)):
+        raise ValueError(f"bad date {text!r} (YYYY-MM-DD, YYYY-MM-DD:YYYY-MM-DD, YYYY-MM-DD: or :YYYY-MM-DD)")
+    if start and end and start > end:
+        raise ValueError(f"bad date range {text!r}: the start is after the end")
+    return start, end
+
+
+def _is_calendar_date(text):
+    from datetime import date
+    try:
+        date.fromisoformat(text)
+    except ValueError:
+        return False
+    return bool(_DATE.fullmatch(text))
+
+
+def today_utc():
+    """Today's UTC date, YYYY-MM-DD — the date field of a run folder made now."""
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _dated_key(name, folder_name):
+    """(date, run number) of `folder_name` if it is <name>_<date>_#<N>, else None."""
+    date, _, number = folder_name[len(name) + 1:].partition("_")
+    if _DATE.fullmatch(date) and _NUMBER.fullmatch(number):
+        return date, int(number[1:])
+    return None
+
+
+def dated_run_folders(undated, root="datafiles"):
+    """The folders <root>/<undated>_<YYYY-MM-DD>_#<N> that exist, by date then run number (oldest first; the
+    number sorts numerically). `undated` may carry a subfolder (tests/<name>); the returned names keep it."""
+    undated = str(undated).replace("\\", "/")
+    parent, _, name = undated.rpartition("/")
+    folder = Path(root, parent) if parent else Path(root)
+    if not folder.is_dir():
+        return []
+    keyed = [(key, p.name) for p in folder.glob(f"{name}_*")
+             if p.is_dir() and (key := _dated_key(name, p.name))]
+    dated = [n for _, n in sorted(keyed)]
+    return [f"{parent}/{d}" if parent else d for d in dated]
+
+
+def run_finished(run_folder, root="datafiles"):
+    """True when a run folder needs nothing more from its submit / simulate / health-check script: every chunk
+    of its run_info.json submitted (a real run) or collected (a simulation: every chunk has counts in
+    raw_results/results_counts.json; a crash that left the last chunk's fidelity or SPAM counts incomplete still counts
+    as finished, so a new run folder is started: use --force-new-run or delete the folder to redo it); a standalone
+    health check once its job_records/health_check.json exists. A folder without run_info.json (nothing recorded yet) is unfinished."""
+    import json
+    path = Path(root, run_folder)
+    name = parse_run_name(run_folder)
+    if name.is_health_check:
+        return (path / "job_records" / "health_check.json").exists()
+    try:
+        sample_size = json.loads((path / "run_info.json").read_text(encoding="utf-8"))["sample_size"]
+    except (OSError, ValueError, KeyError):
+        return False
+    if name.is_simulation:
+        from source.core.records.chunk_scope import collected_chunks
+        return len(collected_chunks(path)) >= sample_size
+    from source.core.records.job_records import chunks_without_submission
+    return not chunks_without_submission(path, sample_size)
+
+
+def run_has_uncollected(run_folder, root="datafiles"):
+    """True when a run folder has something a collect script can still collect: a chunk job record in
+    job_records/ whose status is neither "complete" nor "failed" (so "submitted"), or a health check (the
+    standalone job_records/health_check.json, or an accompanying health_checks/health_check_<N>.json) in that
+    state. A failed job or check is not collectable; a folder without records is not collectable either."""
+    from source.core.common import read_json_or_none
+    from source.core.records.health_check_records import load_health_checks
+    from source.core.records.job_records import chunk_record_files
+    path = Path(root, run_folder)
+    final = ("complete", "failed")
+    files = list(chunk_record_files(path / "job_records").values()) + [path / "job_records" / "health_check.json"]
+    for p in files:
+        rec = read_json_or_none(p) if p.exists() else None
+        if isinstance(rec, dict) and rec.get("status") not in final:
+            return True
+    return any(c.get("status") not in final for c in load_health_checks(path))
+
+
+def dated_run_folder(undated, root="datafiles", new_run=False):
+    """The run folder a submit / simulate / health-check script works in, for the name of its settings
+    (qpu_run_name(), local_run_name(), health_check_run_name()): the latest <undated>_<date>_#<N> folder while it is
+    unfinished (run_finished(); a resumed or partly failed run continues there, whatever its date), else
+    <undated>_<today, UTC>_#<next number of today> (a new run). new_run=True (--force-new-run) always makes a new
+    run. Creates nothing."""
+    existing = dated_run_folders(undated, root)
+    if existing and not new_run and not run_finished(existing[-1], root):
+        return existing[-1]
+    today = today_utc()
+    name  = str(undated).replace("\\", "/").rpartition("/")[2]
+    numbers = [k[1] for f in existing if (k := _dated_key(name, f.rpartition("/")[2])) and k[0] == today]
+    return f"{undated}_{today}_#{max(numbers, default=0) + 1}"
+
+
+def latest_run_folder(undated, root="datafiles", date=None):
+    """The latest existing <undated>_<date>_#<N> folder, for the scripts that read a run (collect, job status);
+    None if there is none. `date`: YYYY-MM-DD (the latest number of that day) or YYYY-MM-DD_#N (exactly that run)."""
+    existing = dated_run_folders(undated, root)
+    if date is not None:
+        exact = "_#" in date
+        existing = [f for f in existing if f.endswith("_" + date) or (not exact and f.rpartition("_#")[0].endswith("_" + date))]
+    return existing[-1] if existing else None
 
 
 def entry_data_type(entry):
@@ -286,6 +518,12 @@ def collective_plots_dir(name, test=False):
     return Path("analysis", *([TESTS_FOLDER] if test else []), "plots", name)
 
 
-def collective_folder_name(benchmark, data_types):
-    """<benchmark>_collective_<data type>[+<data type>...] for the plots comparing several runs."""
-    return f"{benchmark}_collective_{'+'.join(data_types)}"
+def collective_table_path(name, test=False):
+    """The run table of a collective comparison (collective_folder_name() + ".csv"), under analysis/summaries/ or, for
+    test runs, analysis/tests/summaries/."""
+    return Path("analysis", *([TESTS_FOLDER] if test else []), "summaries", f"{name}.csv")
+
+
+def collective_folder_name(benchmark, data_types, run_filter=None):
+    """<benchmark>_collective_<data type>[+<data type>...][<RunFilter.suffix()>] for the plots comparing several runs."""
+    return f"{benchmark}_collective_{'+'.join(data_types)}{run_filter.suffix() if run_filter else ''}"

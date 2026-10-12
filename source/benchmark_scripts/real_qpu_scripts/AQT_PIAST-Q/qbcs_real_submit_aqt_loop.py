@@ -53,20 +53,20 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../..")))   # datafiles/ paths are relative to the project root
 from source.core.qpu.providers import ACCOMPANYING_HEALTH_CHECK_NSHOTS
 from source.core.runner_support.benchmark_args import make_usage, usage_if_requested   # light (numpy only): the usage is printed before anything else loads
-from source.core.records.run_names import qpu_run_name, service_name
+from source.core.records.run_names import qpu_run_name, service_name, dated_run_folder
 from source.core.qpu.tokens import read_token
 usage_if_requested(sys.argv[1:], make_usage(__file__, "Submit a BACQ benchmark run to AQT PIAST-Q, one chunk per iteration, with a live ETA and a QPU-time-budget projection. Synchronous: each chunk's result is saved as it completes, so there is no separate collect script.", layout="submit_no_live"))   # no arguments or --help: print the usage and do nothing
 
 from pathlib import Path
 from pcss_qapi import AuthorizationService
 from pcss_qapi.aqt.provider import PCSS_AQTProvider
-from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args
+from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args, parse_run_folder_arg, pop_force_new_run_flag
 from source.core.qpu.calibration_input import resolve_run_layout, layout_summary
 from source.core.qbcs import bacq_ps_qbcs
 from source.core.health_check import submit_health_check
 from source.core.records.health_check_records import (load_health_checks, install_submit_crash_log, format_chunk_range,
                                          EXIT_HC_DEGRADED, EXIT_HC_NOT_SUBMITTED, EXIT_AQT_TASK_TIMEOUT,
-                                         append_submit_log, print_run_config)
+                                         append_submit_log, print_run_config, health_check_log_line)
 from source.core.qpu.aqt import AQTTaskTimeout, AQT_TASK_TIMEOUT_S, STOP_EXIT_CODE, PAUSE_EXIT_CODE, take_stop_file, pause_after_hours, pause_due
 from source.core.records.job_records import chunks_without_submission
 from source.core.circuits.SPAM_functions import compute_and_save_spam_confusion_matrix
@@ -74,10 +74,11 @@ from source.core.records.job_timing import aqt_shot_parts, AQT_MAX_SHOTS
 from source.core.common import rel_path
 
 # ── Config ────────────────────────────────────────────────────────────────────
-BACKEND_NAME, BACKEND_CFG = parse_backend_config(sys.argv[1:], Path(__file__).parent)   # required backend=NAME, checked against backends.json
+FORCE_NEW_RUN, ARGV = pop_force_new_run_flag(sys.argv[1:])   # --force-new-run: start a new run folder even if the latest run of these settings is unfinished
+BACKEND_NAME, BACKEND_CFG = parse_backend_config(ARGV, Path(__file__).parent)   # required backend=NAME, checked against backends.json
 SERVICE_NAME = service_name("AQT_PIAST-Q")   # the access platform, as records and qbcs call it (source/core/records/run_names.py)
-BENCH            = parse_benchmark_args(sys.argv[1:], extra_keys=("backend",))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
-LAYOUT           = parse_layout_args(sys.argv[1:], calibration_required=True)   # random unless calibration_file= is given — see source/core/runner_support/benchmark_args.py
+BENCH            = parse_benchmark_args(ARGV, extra_keys=("backend", "run_folder"))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
+LAYOUT           = parse_layout_args(ARGV, calibration_required=True)   # random unless calibration_file= is given — see source/core/runner_support/benchmark_args.py
 NSHOTS           = BENCH.nshots
 SAMPLE_SIZE      = BENCH.sample_size
 LNN              = BACKEND_CFG["lnn"]   # the backend's topology, from backends.json
@@ -86,7 +87,8 @@ LIST_TIMES       = BENCH.list_times
 DT               = 0.2
 CHUNK_SIZE       = int(len(LIST_TIMES) * 6)           # 6 circuits per depth
 EMS              = ["SPAM", "NEC", "RC+NEC", "cRC+NEC"] if DO_SPAM else ["NEC", "RC+NEC", "cRC+NEC"]
-RUN_FOLDER       = qpu_run_name("AQT_PIAST-Q", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag)
+RUN_SETTINGS     = qpu_run_name("AQT_PIAST-Q", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag)   # the run name without its date
+RUN_FOLDER       = parse_run_folder_arg(ARGV, RUN_SETTINGS) or dated_run_folder(RUN_SETTINGS, new_run=FORCE_NEW_RUN)   # run_folder=<name> pins the folder (the sbatch files resolve it once per job)
 
 CHUNK_START      = 1                # first chunk to submit (1-based)
 CHUNK_STOP       = SAMPLE_SIZE      # last value, inclusive
@@ -164,8 +166,8 @@ if todo_chunks:
     print(f"  This session:     chunks {format_chunk_range(todo_chunks)} ({len(todo_chunks)})")
 
 # ── Health check PRE (once, before the loop; skipped if nothing left to do) ──
-p011_pre = None
-p011_post = None
+hc_pre_record = None    # the PRE check / the latest POST check record, for submit.log
+hc_post_record = None
 if not all_done:
     stop_if_requested("the PRE health check")
     # Health checks accompanying the run live in <run>/health_checks/ (auto-numbered).
@@ -188,12 +190,12 @@ if not all_done:
         )
     except Exception as e:
         print(f"  ❌ PRE health check could not be executed on {BACKEND_NAME} (after the built-in connection "
-              f"retries and the per-circuit time limit): {e} — QPU health unknown, no chunks submitted. Rerun to resume.")
+              f"retries and the per-circuit time limit): {e} — QPU health unknown, no chunks submitted. Rerun to resume.", file=sys.stderr)
         sys.exit(EXIT_AQT_TASK_TIMEOUT if isinstance(e, AQTTaskTimeout) else EXIT_HC_NOT_SUBMITTED)
     hc_pre_record = load_health_checks(path_hc)[-1]
     p011_pre     = hc_pre_record["P011"]
     if hc_pre_record["verdict"] != "functional":
-        print(f"  ❌ QPU degraded — check #{hc_pre_record['number']}, P(011)={p011_pre:.3f} — aborting!")
+        print(f"  ❌ QPU degraded — check #{hc_pre_record['number']}, P(011)={p011_pre:.3f} — aborting!", file=sys.stderr)
         sys.exit(EXIT_HC_DEGRADED)
     print(f"  ✅ QPU functional — check #{hc_pre_record['number']}, P(011)={p011_pre:.3f} — proceeding.")
 else:
@@ -204,6 +206,7 @@ wall_sum    = 0.0                         # sum of iter_seconds over all real ch
 qpu_s_total = 0.0                         # sum of the modelled QPU time (timing.qpu_s)
 qpu_known   = 0                           # chunks with a numeric estimate
 n_real      = 0                           # chunks actually submitted this run
+submitted_chunks = []                     # their chunk numbers, in submission order
 t_run_start = time.perf_counter()
 
 # Time limit: PCSS_Quantum_UI/run_aqt_loop.sbatch and run_aqt_loop_with_retries.sbatch set AQT_PAUSE_AFTER_HOURS. Once it has passed,
@@ -276,7 +279,7 @@ for CHUNKS_TO_SUBMIT in range(CHUNK_START, CHUNK_STOP + 1):
         except Exception as e:
             print(f"  ❌ POST health check after chunk {nc} could not be executed (after the built-in "
                   f"connection retries and the per-circuit time limit): {e} — chunk {nc} was submitted and saved; stopping before the "
-                  f"next chunk since QPU health is now unknown.")
+                  f"next chunk since QPU health is now unknown.", file=sys.stderr)
             sys.exit(EXIT_AQT_TASK_TIMEOUT if isinstance(e, AQTTaskTimeout) else EXIT_HC_NOT_SUBMITTED)
         hc_post_record = load_health_checks(run_folder_path)[-1]
         p011_post     = hc_post_record["P011"]
@@ -284,13 +287,14 @@ for CHUNKS_TO_SUBMIT in range(CHUNK_START, CHUNK_STOP + 1):
         if status_post == "functional":
             print(f"  ✅ QPU functional — check #{hc_post_record['number']} (after chunk {nc}), P(011)={p011_post:.3f}")
         else:
-            print(f"  ❌ QPU degraded — check #{hc_post_record['number']} (after chunk {nc}), P(011)={p011_post:.3f} — stopping.")
+            print(f"  ❌ QPU degraded — check #{hc_post_record['number']} (after chunk {nc}), P(011)={p011_post:.3f} — stopping.", file=sys.stderr)
             sys.exit(EXIT_HC_DEGRADED)
     iter_seconds = time.perf_counter() - t0   # whole iteration: submit + health check
 
     durations.append(iter_seconds)
     wall_sum += iter_seconds
     n_real   += 1
+    submitted_chunks.append(nc)
     if qpu_s is not None:
         qpu_s_total += qpu_s
         qpu_known   += 1
@@ -335,11 +339,11 @@ if take_stop_file(run_folder_path):   # touched during the last chunk: nothing i
 # ── Save log ────────────────────────────────────────────────────────────────
 total_wall = time.perf_counter() - t_run_start
 log_path   = append_submit_log(
-    run_folder_path, backend=BACKEND_NAME, chunks=todo_chunks[:n_real], n_chunks=qbcs.n_chunks, nshots=NSHOTS,   # the loop runs todo_chunks in order
+    run_folder_path, backend=BACKEND_NAME, chunks=submitted_chunks, n_chunks=qbcs.n_chunks, nshots=NSHOTS,
     layout=layout_summary(LAYOUT, run_qubits, CAL_SOURCE), run_qubits=run_qubits,
     extra_lines=[f"Chunk range:      {CHUNK_START}-{CHUNK_STOP}",
-                 *([f"HC PRE  P(011):    {p011_pre:.3f}"] if p011_pre is not None else []),
-                 *([f"HC POST P(011):    {p011_post:.3f}"] if p011_post is not None else []),
+                 *([health_check_log_line("PRE ", hc_pre_record)] if hc_pre_record is not None else []),
+                 *([health_check_log_line("POST", hc_post_record)] if hc_post_record is not None else []),
                  f"Total wallclock:  {datetime.timedelta(seconds=round(total_wall))}",
                  f"QPU-time estimate (this run): {datetime.timedelta(seconds=round(qpu_s_total))}"
                  f"  [{qpu_known}/{n_real} chunks with a known estimate]",

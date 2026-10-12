@@ -6,8 +6,9 @@ qbcs_real_submit_ibm.py, but no QPU time.
 
   1. Download BACKEND_NAME's calibration once and save it to
      datafiles/<RUN_FOLDER>/calibration_snapshot.json (source/core/qpu/qpu_snapshot.py).
-     A rerun reuses that file (with a warning) — same calibration, no connection
-     needed; remove the run folder to download fresh calibration data. With calibration_file=PATH
+     A rerun of an unfinished run reuses that file (with a warning) — same calibration,
+     no connection needed (a finished run is followed by a new dated folder, which
+     downloads fresh calibration); remove the run folder to start over. With calibration_file=PATH
      the snapshot is taken from that file instead, and nothing is downloaded.
   2. Build an offline backend + Aer noise model from the snapshot (depolarizing
      gate errors, T1/T2 relaxation over gate durations, readout errors).
@@ -35,7 +36,7 @@ sys.stderr.reconfigure(encoding="utf-8")
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../..")))   # the project root, for the source.* imports
 os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../..")))   # datafiles/ paths are relative to the project root
 from source.core.runner_support.benchmark_args import make_usage, usage_if_requested   # light (numpy only): the usage is printed before anything else loads
-from source.core.records.run_names import qpu_run_name
+from source.core.records.run_names import qpu_run_name, dated_run_folder
 from source.core.qpu.tokens import read_token
 usage_if_requested(sys.argv[1:], make_usage(__file__, "Run the BACQ benchmark on the local Aer simulator with a real IBM QPU's calibration: same circuits, settings and qubit selection as qbcs_real_submit_ibm.py, but no QPU time.", layout="simulate"))   # no arguments or --help: print the usage and do nothing
 from pathlib import Path
@@ -54,7 +55,7 @@ LAYOUT           = parse_layout_args(sys.argv[1:], calibration_any_layout=True) 
 LNN              = BACKEND_CFG["lnn"]   # the backend's topology, from backends.json
 DO_SPAM          = True
 DT               = 0.2
-RUN_FOLDER       = qpu_run_name("IBM", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag, data_type="sim-qpu-noise")
+RUN_FOLDER       = dated_run_folder(qpu_run_name("IBM", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag, data_type="sim-qpu-noise"))
 SEED             = None   # Aer sampling seed; None = fresh randomness per chunk
 
 # ── Calibration snapshot (download once, then reuse) ──────────────────────────

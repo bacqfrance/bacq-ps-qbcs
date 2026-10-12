@@ -2,7 +2,8 @@
 run_timing.py
 A run's time and workload from its records and timestamp logs: CPU (transpile, submit; collection is timed separately),
 QPU and queue breakdowns, failed attempts, the QPU workload that prices it, and
-derive_date_time_from_data() for the summary JSON (source/analysis_scripts/bacq_ps_qbcs_summary_json.py).
+derive_date_time_from_data() for the summary JSON (source/analysis_scripts/bacq_ps_qbcs_summary_json.py): the run
+window over chunk, failed-attempt and health-check jobs, and its length without dead time.
 """
 
 import glob
@@ -15,8 +16,10 @@ from source.core.common import get_circuit_folder, PROJECT_ROOT, scrub_paths
 from source.core.records.chunk_scope import as_chunk_set, chunk_scope
 from source.core.records.run_info import load_run_info
 from source.core.records.timestamps import _from_timestamp_log, circuit_build_breakdown, TIMESTAMP_FILENAME
-from source.core.records.job_timing import parse_utc, MQSS_TIMEZONE
+from source.core.records.job_timing import parse_utc, MQSS_TIMEZONE, DEAD_TIME_MIN_GAP_S, DEAD_TIME_MIN_GAP_S_SYNC
 from source.core.records.run_names import PCSS
+from source.core.records.circuit_check import run_health_check_records, health_check_in_scope
+from source.core.records.job_records import failed_record_files
 
 
 # The chunk interval, used only by the legacy CPU-time fallback (runs without transpile/submit labels).
@@ -180,7 +183,6 @@ def cpu_time_breakdown(run_path, nchunks, lnn, list_times, dt, total_chunks=None
                                            qpu_chunk interval is not used (it holds result handling
                                            and waits, not transpilation); submission is 0 (synchronous).
     """
-    from source.core.records.circuit_check import run_health_check_records, health_check_in_scope
 
     run_path       = Path(run_path)
     # a coherent-noise run's circuits sit in their own cache (get_circuit_folder()); its noise is in the records' CONFIG
@@ -285,7 +287,6 @@ def collect_time_breakdown(run_path, nchunks=None):
     timed — reported as "N/A", counted as 0 in the total time); n_chunks_without and
     n_health_checks_without count the collected ones without a measurement.
     nchunks: None (every chunk), a count or the chunk numbers in scope (chunk_scope.py)."""
-    from source.core.records.circuit_check import run_health_check_records, health_check_in_scope
     run_path = Path(run_path)
     labels, _ = _from_timestamp_log(run_path / TIMESTAMP_FILENAME,
                                     lambda rows: ((r := _cpu_label_times_from_rows(rows, nchunks)),
@@ -333,7 +334,6 @@ def qpu_queue_breakdown(run_path, nchunks=None, service=None):
     fields (qpu_s_source legacy_*). Old AQT records must be converted to the current format first."""
     from source.core.records.job_timing import (service_of_record, SYNCHRONOUS_SERVICES, is_legacy_record,
                                    legacy_record_timing, qpu_execution_s)
-    from source.core.records.circuit_check import run_health_check_records, health_check_in_scope
     nchunks  = chunk_scope(run_path, nchunks)           # the first nchunks collected chunks
     n_legacy = 0
 
@@ -440,7 +440,6 @@ def qpu_workload(run_path, nchunks=None):
     each failed job that reached the provider in full) are billed too but are not counted in
     n_jobs / n_circuits / n_shots. n_may_exist_on_provider (submissions that may have run) and
     n_uncollected (jobs still 'submitted': chunks and health checks) are not counted anywhere: their cost is unknown."""
-    from source.core.records.circuit_check import run_health_check_records, health_check_in_scope
     nchunks = chunk_scope(run_path, nchunks)            # the first nchunks collected chunks
     jobs = {}                                           # job key -> [circuits executed, shots]
     chunks_in_job = {}                                  # job key -> number of chunks
@@ -514,7 +513,6 @@ def failed_attempts_breakdown(run_path, nchunks=None):
                                   finished circuits), counting a failed health check as one job
       chunks_per_job              the chunks each failed chunk job of n_provider_jobs held (not AQT)
     queues: the per-job waits (for combining with the successful jobs' queue time)."""
-    from source.core.records.job_records import failed_record_files
     from source.core.records.job_timing import service_of_record, SYNCHRONOUS_SERVICES
     out = {"n_attempts": 0, "n_jobs": 0, "n_submission_failures": 0, "n_may_exist_on_provider": 0,
            "chunks": [], "qpu_s": 0.0, "qpu_sources": {}, "queue_s": 0.0,
@@ -700,7 +698,50 @@ def aggregate_run_timing(run_folder, n_samples=None, total_chunks=None, qiskit_v
     return out
 
 
-def derive_date_time_from_data(run_folder, n_samples=None):
+def _job_intervals_for_window(run_path, scope=None):
+    """([(start, end)], n_chunks): the run's jobs as aware UTC datetimes, from job records only: the chunk
+    records (those in scope, else the complete ones, else all), the failed attempts (failed_record_files, in
+    scope) and the health checks (run_health_check_records, in scope, any status); n_chunks counts the chunk
+    records. A record without finished_at contributes only its start; one without submitted_at is skipped."""
+    def _parse(s):                              # naive job-record times are MQSS/EQE1's Europe/Berlin local time
+        return parse_utc(s, naive_tz=MQSS_TIMEZONE)
+
+    files = sorted(glob.glob(os.path.join(run_path, "job_records", "job_record_chunk_*.json")),
+                   key=lambda f: int(f.rsplit("_", 1)[1].split(".")[0]))
+    pairs = [(int(f.rsplit("_", 1)[1].split(".")[0]), json.loads(Path(f).read_text(encoding="utf-8"))) for f in files]
+    if scope is not None:                       # the first n_samples collected chunks
+        recs = [r for n, r in pairs if n in scope]
+    else:                                       # only chunks with results (uncollected: no finish time)
+        recs = [r for _, r in pairs if r.get("status") == "complete"] or [r for _, r in pairs]
+    n_chunks = len(recs)
+    for attempts in failed_record_files(run_path, scope).values():
+        recs += attempts
+    recs += [r for r in run_health_check_records(run_path) if health_check_in_scope(r, scope)]
+    out = []
+    for r in recs:
+        start = _parse(r.get("submitted_at"))
+        if start:
+            out.append((start, _parse(r.get("finished_at")) or start))
+    return out, n_chunks
+
+
+def _active_seconds(intervals, min_gap_s):
+    """Length in seconds of the intervals' window minus the dead time: the gaps longer than min_gap_s between
+    the merged intervals (shorter ones are the pipeline's own transpile/submit work). None if there are none."""
+    if not intervals:
+        return None
+    merged = []
+    for a, b in sorted(intervals):
+        if merged and a <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    window = (merged[-1][1] - merged[0][0]).total_seconds()
+    gaps = [(merged[i + 1][0] - merged[i][1]).total_seconds() for i in range(len(merged) - 1)]
+    return window - sum(g for g in gaps if g > min_gap_s)
+
+
+def derive_date_time_from_data(run_folder, n_samples=None, service=None):
     """Derive the run's date/time window from its job records (n_samples subset scoping below).
     Requires job_records/job_record_chunk_*.json (submitted_at / finished_at): every real-QPU
     run, and local (service="local") runs simulated since local job records were added — older
@@ -708,36 +749,25 @@ def derive_date_time_from_data(run_folder, n_samples=None):
 
     n_samples: if given, scope the run window to the first n_samples
     collected chunks (chunk_scope) instead of every collected chunk.
+    service: the run's service name; PCSS (AQT, synchronous) uses the longer dead-time threshold.
 
-    Returns (date_qc_start, date_qc_end, submission_to_results_s): the run window as
-    formatted strings (earliest chunk submission, latest chunk finish) and its length
-    in seconds (None if either end is unknown)."""
-
-    # naive job-record times are MQSS/EQE1's Europe/Berlin local time
-    def _parse(s):
-        return parse_utc(s, naive_tz=MQSS_TIMEZONE)
+    Returns (date_qc_start, date_qc_end, submission_to_results_s, without_dead_time_s): the run window as
+    formatted strings (earliest submission, latest finish over the chunk, failed-attempt and health-check
+    jobs), its length in seconds (None if unknown), and that length minus the dead time (the gaps between
+    the jobs longer than DEAD_TIME_MIN_GAP_S, or DEAD_TIME_MIN_GAP_S_SYNC for PCSS)."""
 
     def _fmt(dt):
         return dt.strftime("%Y-%m-%d, %H:%M") + " UTC" if dt else "N/A"
 
     _run_dir = PROJECT_ROOT / "datafiles" / run_folder
-    _jr_dir = os.path.join(_run_dir, "job_records")
-    _files  = sorted(glob.glob(os.path.join(_jr_dir, "job_record_chunk_*.json")),
-                     key=lambda f: int(f.rsplit("_", 1)[1].split(".")[0]))
-    if not _files:
+    if not glob.glob(os.path.join(_run_dir, "job_records", "job_record_chunk_*.json")):
         raise FileNotFoundError(f"No job_record_chunk_*.json in datafiles/{run_folder}/job_records")
     scope = as_chunk_set(chunk_scope(_run_dir, n_samples))
-    if scope is not None:                       # the first n_samples collected chunks
-        _files = [f for f in _files if int(f.rsplit("_", 1)[1].split(".")[0]) in scope]
-    else:                                       # only chunks with results (uncollected: no finish time)
-        _files = [f for f in _files if json.loads(Path(f).read_text(encoding="utf-8")).get("status") == "complete"] or _files
-    _recs = [json.loads(Path(f).read_text(encoding="utf-8")) for f in _files]
+    ivs, n_chunks = _job_intervals_for_window(_run_dir, scope)
+    start = min(a for a, _ in ivs) if ivs else None
+    end   = max(b for _, b in ivs) if ivs else None
+    print(f"  Run window: {_fmt(start)}  →  {_fmt(end)}  ({n_chunks} chunks)")
 
-    subs = [d for d in (_parse(r.get("submitted_at")) for r in _recs) if d]
-    fins = [d for d in (_parse(r.get("finished_at"))  for r in _recs) if d]
-    start_dt = _fmt(min(subs)) if subs else "N/A"
-    end_dt   = _fmt(max(fins)) if fins else "N/A"
-    print(f"  Run window: {start_dt}  →  {end_dt}  ({len(_recs)} chunks)")
-
-    duration_s = (max(fins) - min(subs)).total_seconds() if subs and fins else None
-    return start_dt, end_dt, duration_s
+    duration_s = (end - start).total_seconds() if ivs else None
+    active_s = _active_seconds(ivs, DEAD_TIME_MIN_GAP_S_SYNC if service == PCSS else DEAD_TIME_MIN_GAP_S)
+    return _fmt(start), _fmt(end), duration_s, active_s

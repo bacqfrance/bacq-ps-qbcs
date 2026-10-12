@@ -29,15 +29,11 @@ class RunInfo:
     do_spam:      bool
     chunk_size:   int
     circuits_qiskit_v13_qpy: bool = False   # chunks from chunks_qiskit_v13_qpy/ (all_to_all builds) — see qbcs.build()
-    source:       str = field(default="manifest", compare=False)   # kept so older manifests, which store it, still load
+    source:       str = field(default="manifest", compare=False)   # written into every manifest; compare=False only removes it from dataclass equality, write_run_info()'s rewrite check compares the whole dict, so a manifest holding another source is rewritten; load_run_info() drops it
 
     @property
     def ems(self):
         return list(ALL_EMS) if self.do_spam else [e for e in ALL_EMS if e != "SPAM"]
-
-    @property
-    def path(self):
-        return PROJECT_ROOT / "datafiles" / self.run_folder
 
 
 def write_run_info(config, run_folder_path, lnn, circuits_qiskit_v13_qpy=False):

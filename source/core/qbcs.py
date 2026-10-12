@@ -9,6 +9,7 @@ from source.core.circuits.building import build_BCS_time_evolution_circuit, buil
 from source.core.records.timestamps import TIMESTAMP_FILENAME, TIMESTAMP_FILENAME_V13, sync_circuit_timestamp_logs, timestamp
 import json
 import gc
+import sys
 import time
 from tqdm import tqdm
 from source.core.circuits.circuit_drawings import export_circuit_drawings, chunk_items
@@ -51,6 +52,16 @@ IQM_MAX_CIRCUITS_PER_JOB = {IQM_RESONANCE: 100, MQSS_LRZ: 70}
 # whole job. A job therefore holds VLQ_CHUNKS_PER_JOB whole chunks (or
 # submit(chunks_per_qpu_job_batch=...)): 12 full-benchmark chunks are 816 circuits, ~4 min to upload.
 VLQ_CHUNKS_PER_JOB = 12
+# IBM Batch jobs hold this many whole chunks: the full benchmark's 480 chunks go out as 10 jobs.
+IBM_CHUNKS_PER_JOB = 48
+
+
+def _chunk_in(path, key):
+    """True when the JSON file at path exists, is readable and holds the key (e.g. "chunk_3")."""
+    try:
+        return path.exists() and key in json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return False
 
 
 class bacq_ps_qbcs:
@@ -549,7 +560,7 @@ class bacq_ps_qbcs:
             merge_timing(record, submit_s=round(time.perf_counter() - sim_t0, 3))
             archive_failed_record(record_path.parent, nc)
             write_job_record(record_path, record)
-            print(f"  ❌ [Chunk {nc}] Simulation failed — recorded as failed (job_records/).")
+            print(f"  ❌ [Chunk {nc}] Simulation failed — recorded as failed (job_records/).", file=sys.stderr)
             raise
         record["finished_at"] = now_utc_iso(precise=True)
         collect_t0 = time.perf_counter()
@@ -1122,7 +1133,8 @@ class bacq_ps_qbcs:
         Requires merge_all_chunks() to have been called first.
 
         n_samples: analyze only the first n_samples chunks instead of the full
-        self.CONFIG["samples"] (None = full run, unchanged default behaviour).
+        self.CONFIG["samples"] (None = the full run; an incomplete run is cut to the
+        chunks collected so far, with a warning).
         Reads the same raw_results/*_merged.json — nothing is copied or
         re-merged. Writes to "+nsamples-{n_samples}"-suffixed filenames in
         processed_results/ alongside the full run's own outputs — safe
@@ -1301,12 +1313,6 @@ class bacq_ps_qbcs:
         raw_dir       = exp_results_folder_path / "raw_results"
         counts_file   = raw_dir / "results_counts.json"
         fidelity_file = raw_dir / "results_fidelity.json"
-
-        def _chunk_in(path, key):
-            try:
-                return path.exists() and key in json.loads(path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                return False
 
         if record["status"] == "complete" and _chunk_in(counts_file, f"chunk_{nc}") and _chunk_in(fidelity_file, f"chunk_{nc}"):
             print(f"  [Chunk {nc}] Already collected — skipping."); return
@@ -1525,12 +1531,6 @@ class bacq_ps_qbcs:
         counts_file   = raw_dir / "results_counts.json"
         fidelity_file = raw_dir / "results_fidelity.json"
 
-        def _chunk_in(path, key):
-            try:
-                return path.exists() and key in json.loads(path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                return False
-    
         if service_name not in (IBM_CLOUD, MQSS_LRZ, IQM_RESONANCE, QAAS_IT4I):
             raise ValueError(f"Unknown service_name: {service_name!r}. Must be 'IBM_Cloud' / 'MQSS_LRZ' / 'IQM_Resonance' / 'QAAS_IT4I'.")
         self.TIMESTAMP_FILE = Path(exp_results_folder_path) / TIMESTAMP_FILENAME   # collection labels go into the run's log
@@ -1904,7 +1904,7 @@ class bacq_ps_qbcs:
                 record = {
                     "chunk_id":              nc,
                     "status":                "failed",
-                    "failure":               f"submission failed: {err.cause!r}"[:2000],
+                    "failure":               scrub_paths(f"submission failed: {err.cause!r}")[:2000],
                     "failure_stage":         "submission",
                     "may_exist_on_provider": may_exist,
                     "service_name":          service_name,
@@ -1930,7 +1930,7 @@ class bacq_ps_qbcs:
             except Exception as e:
                 print(f"  ⚠️  [Chunk {nc}] Could not write the submission-failed record: {e!r}")
         print(f"  ❌ Submission of chunk(s) {format_chunk_range(list(chunk_ids))} failed after "
-              f"{len(err.attempts)} attempt(s): {err.cause!r} — recorded as failed (job_records/).")
+              f"{len(err.attempts)} attempt(s): {err.cause!r} — recorded as failed (job_records/).", file=sys.stderr)
         if may_exist:
             print("  ⚠️  The connection broke after the request may have reached the provider: the job may exist "
                   "there and use QPU time. Check the provider (its dashboard / check_real_qpu_job_status_*.py) "
@@ -1972,8 +1972,8 @@ class bacq_ps_qbcs:
                 "n_executed_shots":    sum(sizes) * shots_p,
                 "timing":              timing,
                 "status":              "failed",
-                "failure":             (f"submission failed (shot part {part}): {exc!r}" if stage == "submission"
-                                        else f"shot part {part} raised: {exc!r}")[:2000],
+                "failure":             scrub_paths(f"submission failed (shot part {part}): {exc!r}" if stage == "submission"
+                                                   else f"shot part {part} raised: {exc!r}")[:2000],
                 "result_path":         None,
                 "CONFIG": saved_config(self.CONFIG),
             }
@@ -2004,8 +2004,8 @@ class bacq_ps_qbcs:
         print(f"  [Chunk {nc}] Circuit 0: depth={isa_circuits[0].depth()}, "
               f"gates={dict(isa_circuits[0].count_ops())}, layout={final_physical_qubits(isa_circuits[0])}")
 
-        layout      = isa_circuits[0].layout.final_layout if isa_circuits[0].layout else None
-        layout_dict = {str(v): k for k, v in layout.get_physical_bits().items()} if layout else "N/A"
+        final_qubits = final_physical_qubits(isa_circuits[0])
+        layout_dict  = {str(v): p for v, p in enumerate(final_qubits)} if final_qubits else "N/A"
 
         # ── Add SPAM circuits if enabled ──────────────────────────────────────
         if self.CONFIG["SPAM_correction"]:
@@ -2215,8 +2215,8 @@ class bacq_ps_qbcs:
             "submitted_at":              submitted_at,
             "scheduled_at":              "N/A",
             "finished_at":               finished_at,
-            "wall_seconds":              round(wall_seconds, 3),                      # +
-            "qpu_seconds_estimate":      None if qpu_us_main is None else round((qpu_us_main + qpu_us_spam) / 1e6, 6),
+            "wall_seconds":              round(wall_seconds, 3),
+            "qpu_seconds_estimate":      qpu_s_physics,
             "qpu_seconds_estimate_main": None if qpu_us_main is None else round(qpu_us_main / 1e6, 6),
             "qpu_seconds_estimate_spam": None if qpu_us_spam is None else round(qpu_us_spam / 1e6, 6),
             "nshots":                    self.CONFIG["shots"],                       # total per circuit, all parts
@@ -2242,7 +2242,6 @@ class bacq_ps_qbcs:
         print(f"  [Chunk {nc}] Job record saved → {rel_path(record_path)}")
         del isa_circuits, all_circuits, all_results, parts
         if self.CONFIG["SPAM_correction"]: del spam_isa
-        import gc
         gc.collect()
 
     def _load_raw_chunk_qiskit(self, nc):
@@ -2630,12 +2629,6 @@ class bacq_ps_qbcs:
         counts_file   = raw_dir / "results_counts.json"
         fidelity_file = raw_dir / "results_fidelity.json"
 
-        def _chunk_in(path, key):
-            try:
-                return path.exists() and key in json.loads(path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                return False
-    
         if record["status"] == "complete" and _chunk_in(counts_file, f"chunk_{nc}") and _chunk_in(fidelity_file, f"chunk_{nc}"):
             print(f"  [Chunk {nc}] Already collected — skipping."); return
 
@@ -2739,16 +2732,10 @@ class bacq_ps_qbcs:
         counts_file   = raw_dir / "results_counts.json"
         fidelity_file = raw_dir / "results_fidelity.json"
 
-        def _chunk_in(path, key):
-            try:
-                return path.exists() and key in json.loads(path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                return False
-    
         if record["status"] == "complete" and _chunk_in(counts_file, f"chunk_{nc}") and _chunk_in(fidelity_file, f"chunk_{nc}"):
             print(f"  [Chunk {nc}] Already collected — skipping."); return
 
-        job_id             = record["job_id"]
+        job_id            = record["job_id"]
         n_spam             = record["n_spam"]
         n_circuits         = record["n_circuits"]
         nshots             = record["nshots"]

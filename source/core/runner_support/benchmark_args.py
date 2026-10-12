@@ -14,10 +14,16 @@ There is no default benchmark: a script called without arguments prints its usag
 The submit and simulate scripts also take the qubit layout (parse_layout_args):
 
     layout=optimized | random | lowest | 15,14,21       which physical qubits the run uses
-    calibration_file=PATH                                with layout=optimized: the calibration to score with
+    calibration_file=PATH                                the calibration to score layout=optimized with (the simulate
+                                                         scripts also take it with any layout: the simulation's noise data)
 
 The collect and job-status scripts take layout= too (parse_layout_args(collect=True)), to find the run
-folder, which ends in _layout-<mode> (or _layout-15-14-21).
+folder, which ends in _layout-<mode>_<YYYY-MM-DD>_#<N> (or _layout-15-14-21_<date>_#<N>): the latest one, or that
+of date=YYYY-MM-DD (the day's latest run) or date=YYYY-MM-DD_#N (parse_date_arg()). Without layout= and date=
+every run of the benchmark with something left to collect is handled (find_collect_run_folders()).
+
+The submit scripts take the word --force-new-run (pop_force_new_run_flag()): start a new run folder even if
+the latest run of those settings is unfinished.
 
 No qiskit and no myQLM (only numpy): every venv imports it.
 """
@@ -32,7 +38,8 @@ from pathlib import Path
 import numpy as np
 
 from source.core.common import PROJECT_ROOT, exit_with_error
-from source.core.records.run_names import benchmark_field, layout_field, run_name_with_any_layout, run_name_with_layout
+from source.core.records.run_names import (benchmark_field, layout_field, run_name_with_any_layout, run_name_with_layout,
+                                           latest_run_folder, parse_run_name)
 
 DT = 0.2   # Trotter step; evolution time = DT * Nt
 
@@ -90,16 +97,16 @@ def make_usage(script_file, description, backend=True, benchmark=True, health_ch
     the sections that apply — BACKEND (names from the folder's backends.json), BENCHMARK, for the
     job-status scripts (health_check_flag) HEALTH CHECK, and LAYOUT. `layout` selects its form:
       None             no layout section
-      "submit"         layout= (default optimized) and calibration_file=
       "submit_live"    layout= only (default optimized): the QPU's live calibration, no calibration_file= (IBM, Resonance, VLQ)
       "submit_no_live" the same for QPUs without live calibration (AQT, EQE1): random unless a file is given
-      "simulate"       like "submit", but calibration_file= is the simulation's noise data under any layout
+      "simulate"       layout= (default optimized) and calibration_file=, which is the simulation's noise data under any layout
       "simulate_required"  layout= is required (simulating AQT, EQE1); calibration_file= defaults to the newest in calibration_input_files/
-      "collect"        layout= only: it names the run folder to collect (optional if only one exists)"""
+      "collect"        layout= and date= are optional: they name the run folder; without them every run of the
+                       benchmark with something left to collect is handled"""
     script = Path(script_file).resolve()
     path = script.relative_to(Path(__file__).resolve().parents[3]).as_posix()
     bench = "BENCHMARK" if not health_check_flag else "(BENCHMARK | health_check)"
-    lay_syn = {"submit": "[LAYOUT]", "submit_live": "[LAYOUT]", "submit_no_live": "[LAYOUT]", "simulate": "[LAYOUT]", "simulate_required": "LAYOUT", "collect": "[layout=...]"}.get(layout, "")
+    lay_syn = {"submit_live": "[LAYOUT]", "submit_no_live": "[LAYOUT]", "simulate": "[LAYOUT]", "simulate_required": "LAYOUT", "collect": "[layout=...]"}.get(layout, "")
     synopsis = " ".join(filter(None, ["backend=NAME" if backend else "", bench if benchmark else "", lay_syn]))
     blocks = [f"usage: python {path} {synopsis}",
               textwrap.fill(description, width=110, initial_indent="  ", subsequent_indent="  ")]
@@ -114,10 +121,15 @@ def make_usage(script_file, description, backend=True, benchmark=True, health_ch
         blocks.append("  HEALTH CHECK — the standalone health check instead of a benchmark run:\n"
                       "  health_check           check the backend's standalone health-check job; no BENCHMARK is needed")
     if layout == "collect":
-        blocks.append("  LAYOUT — which run folder (…_layout-<mode>); optional when the benchmark has only one:\n"
-                      "  layout=optimized | random | lowest | 15,14,21")
+        blocks.append("  LAYOUT — which run folder (…_layout-<mode>); optional: without layout= and date=, every run of the\n"
+                      "  benchmark with something left to collect is handled, all layouts and dates:\n"
+                      "  layout=optimized | random | lowest | 15,14,21\n\n"
+                      "  DATE — which run of these settings (the folder's _<YYYY-MM-DD>_#<N>); optional, default the latest:\n"
+                      "  date=YYYY-MM-DD        the latest run of that day\n"
+                      "  date=YYYY-MM-DD_#N     that run\n"
+                      "  date= alone covers every layout with a run of that date; with layout=, only that layout")
     elif layout:
-        head = {"submit": "(optional, default optimized)", "submit_live": "(optional, default optimized)",
+        head = {"submit_live": "(optional, default optimized)",
                 "submit_no_live": "(optional; random unless calibration_file= is given)",
                 "simulate": "(optional, default optimized)", "simulate_required": "(required)"}[layout]
         text = f"  LAYOUT — the physical qubits the run uses {head}:\n  {LAYOUT_USAGE}"
@@ -133,21 +145,24 @@ def make_usage(script_file, description, backend=True, benchmark=True, health_ch
             text += "\n\n" + (LAYOUT_USAGE_NO_LIVE_CALIBRATION if layout == "submit_no_live"
                               else textwrap.indent(LAYOUT_REQUIRED_EXPLANATION, "  "))
         blocks.append(text)
+    if layout in ("submit_live", "submit_no_live"):
+        blocks.append("  RUN FOLDER — by default the latest unfinished run of these settings is continued:\n"
+                      "  --force-new-run        start a new run folder even if the latest run of these settings is unfinished")
     blocks.append(HELP_USAGE)
     return "\n\n".join(blocks)
 
 
 def usage_if_requested(argv, usage):
-    """Print `usage` and exit — doing nothing else — when the script is called without arguments (exit
-    code 2: a batch job that was given nothing to do must not look successful) or with --help / -h
-    (exit code 0). Otherwise remember it as the usage that the argument errors print."""
+    """Print `usage` and exit — doing nothing else — when the script is called without arguments (to stderr,
+    exit code 2: a batch job that was given nothing to do must not look successful) or with --help / -h
+    (to stdout, exit code 0). Otherwise remember it as the usage that the argument errors print."""
     global _active_usage
     _active_usage = usage
     if "--help" in argv or "-h" in argv:
         print(usage)
         sys.exit(0)
     if not argv:
-        print(usage)
+        print(usage, file=sys.stderr)
         sys.exit(2)
 
 
@@ -173,8 +188,17 @@ class BenchmarkArgs:
         return len(self.nt_list)
 
 
+FORCE_NEW_RUN_WORD = "--force-new-run"   # bare command-line word of the submit scripts: start a new run folder
+
+
+def pop_force_new_run_flag(argv):
+    """(whether `--force-new-run` is in argv, argv without it) — to be called before the benchmark/backend
+    argument parsers, which do not know the word."""
+    return FORCE_NEW_RUN_WORD in argv, [a for a in argv if a != FORCE_NEW_RUN_WORD]
+
+
 def _fail(msg):
-    print(f"❌ {msg}\n\n{_active_usage or USAGE}")
+    print(f"❌ {msg}\n\n{_active_usage or USAGE}", file=sys.stderr)
     sys.exit(2)
 
 
@@ -260,10 +284,10 @@ def parse_backend_arg(argv, default, allowed=None, others_ok=False):
         if m:
             backend = m.group(1)
         elif not others_ok:
-            print(f"❌ unknown argument {a!r}\n{usage}")
+            print(f"❌ unknown argument {a!r}\n{usage}", file=sys.stderr)
             sys.exit(2)
     if backend is None:
-        print(f"❌ no backend given — the QPU to run on must be named explicitly\n{usage}")
+        print(f"❌ no backend given — the QPU to run on must be named explicitly\n{usage}", file=sys.stderr)
         sys.exit(2)
     if allowed is not None:
         require_known_backend(backend, allowed)
@@ -299,7 +323,7 @@ LAYOUT_N_QUBITS = 3   # the benchmark circuits act on exactly three qubits
 class LayoutArgs:
     mode:             str            # optimized | random | lowest | list
     qubits:           list = None    # mode == "list": the physical qubits, virtual qubit i -> qubits[i]
-    calibration_file: str  = None    # mode == "optimized": the calibration to score with (as given; relative to the project root)
+    calibration_file: str  = None    # the calibration to score mode == "optimized" with (as given; relative to the project root); a simulate script accepts it with any mode (the simulation's noise data)
     notice:           str  = None    # printed by the script when the mode was chosen by default
 
     @property
@@ -337,9 +361,10 @@ def parse_layout_args(argv, calibration_required=False, layout_required=False, c
       calibration_any_layout  simulation scripts: calibration_file= is the simulated QPU's noise data, so it is allowed
                             with any layout (it only drives the scoring for layout=optimized).
       collect               for the collect / job-status scripts: layout= only, to name the run folder; the result is
-                            None when it is absent (find_collect_run_folder() then looks for the one folder).
+                            None when it is absent (find_collect_run_folders() then handles every layout).
 
-    Otherwise (live calibration) the default is layout=optimized. A relative calibration_file is relative to the
+    Otherwise (a QPU with live calibration, a simulation, or a submission to AQT / EQE1 with a calibration_file=) the
+    default is layout=optimized. A relative calibration_file is relative to the
     project root, where every script runs. See source/core/qpu/layout_selection.py and source/core/qpu/calibration_input.py."""
     kv = {}
     for a in argv:
@@ -375,14 +400,88 @@ def parse_layout_args(argv, calibration_required=False, layout_required=False, c
     return LayoutArgs(mode, qubits, cal)
 
 
-def find_collect_run_folder(base, layout):
+def parse_date_arg(argv):
+    """The date=YYYY-MM-DD or date=YYYY-MM-DD_#N argument of a collect / job-status script (None without one):
+    which dated run folder to read (the day's latest run, or that run). Those scripts pass "date" in parse_benchmark_args(extra_keys=...)."""
+    dates = [a.split("=", 1)[1] for a in argv if a.startswith("date=")]
+    if len(dates) > 1:
+        _fail("date given twice")
+    if dates and not re.fullmatch(r"\d{4}-\d{2}-\d{2}(_#[1-9]\d*)?", dates[0]):
+        _fail(f"date must be YYYY-MM-DD or YYYY-MM-DD_#N, got {dates[0]!r}")
+    return dates[0] if dates else None
+
+
+def parse_run_folder_arg(argv, undated):
+    """The optional run_folder=<name> argument of the AQT loop script (None without one): pins the run folder
+    (the sbatch files resolve it once per job). It must be a dated run name with the settings `undated`
+    (qpu_run_name()), else the usage is printed and the script exits with code 2."""
+    values = [a.split("=", 1)[1] for a in argv if a.startswith("run_folder=")]
+    if len(values) > 1:
+        _fail("run_folder given twice")
+    if not values:
+        return None
+    try:
+        name = parse_run_name(values[0])
+    except ValueError as e:
+        _fail(f"run_folder: {e}")
+    if not name.date or str(name) != values[0] or name.undated != undated:
+        _fail(f"run_folder {values[0]!r} is not a dated run folder of these settings ({undated}_<YYYY-MM-DD>_#<N>)")
+    return values[0]
+
+
+def find_collect_run_folder(base, layout, date=None):
     """The run folder of a collect / job-status script: `base` (the name up to and including the benchmark
-    tag) + _layout-<mode>. With layout None, the one folder datafiles/<base>_layout-* — an error (exit code 2)
-    if there is none or several (then name the layout). Run from the project root, as every script does."""
+    tag) + _layout-<mode> + _<YYYY-MM-DD>_#<N>: the latest such folder, or that of `date` (YYYY-MM-DD or YYYY-MM-DD_#N). With layout None, the
+    one layout on disk — an error (exit code 2) if there is none or several (then name the layout); the collect and
+    job-status scripts call find_collect_run_folders() instead, which handles every layout.
+    Run from the project root, as every script does."""
+    root = PROJECT_ROOT / "datafiles"
+    if layout is None:
+        layouts = sorted({parse_run_name(p.name).undated for p in root.glob(run_name_with_any_layout(base))
+                          if p.is_dir() and parse_run_name(p.name).date})
+        if len(layouts) != 1:
+            exit_with_error(f"no run folder datafiles/{run_name_with_any_layout(base)}" if not layouts else
+                            f"run folders of several layouts match: {', '.join(layouts)} — name the one with "
+                            "layout=optimized | random | lowest | 15,14,21")
+        undated = layouts[0]
+    else:
+        undated = run_name_with_layout(base, layout.tag)
+    found = latest_run_folder(undated, root, date)
+    if found is None:
+        exit_with_error(f"no run folder datafiles/{undated}_{date or '<YYYY-MM-DD>_#<N>'}")
+    return found
+
+
+def find_collect_run_folders(base, layout, date=None):
+    """The run folders (names, oldest first) a collect / job-status script handles. With `layout` given (with or
+    without `date`): [find_collect_run_folder(base, layout, date)] (a finished run can be collected again). With
+    `date` alone: the run of that date (YYYY-MM-DD: its latest, YYYY-MM-DD_#N: that number) of every layout on disk
+    that has one, finished or not; an error (exit code 2) if none does. With neither: every dated folder of the
+    benchmark `base`, whatever its layout, that run_has_uncollected() — a job or health check left to collect; an
+    error (exit code 2) if there is none, naming what was found.
+    Run from the project root, as every script does."""
     if layout is not None:
-        return run_name_with_layout(base, layout.tag)
-    found = sorted(p.name for p in (PROJECT_ROOT / "datafiles").glob(run_name_with_any_layout(base)) if p.is_dir())
-    if len(found) != 1:
-        exit_with_error(f"no run folder datafiles/{run_name_with_any_layout(base)}" if not found else
-                        f"several run folders match: {', '.join(found)} — name the one with layout=optimized | random | lowest | 15,14,21")
-    return found[0]
+        return [find_collect_run_folder(base, layout, date)]
+    from source.core.records.run_names import run_has_uncollected
+    root = PROJECT_ROOT / "datafiles"
+    pattern = run_name_with_any_layout(base)
+    if date is not None:
+        layouts = sorted({parse_run_name(p.name).undated for p in root.glob(pattern)
+                          if p.is_dir() and parse_run_name(p.name).date})
+        folders = [f for f in (latest_run_folder(u, root, date) for u in layouts) if f is not None]
+        if not folders:
+            exit_with_error(f"no run folder of date {date} in datafiles/{pattern}"
+                            + (f" (layouts found: {', '.join(layouts)})" if layouts else ""))
+        return sorted(folders, key=lambda n: ((r := parse_run_name(n)).date, r.run_number or 0))
+    found = []
+    for p in root.glob(pattern):
+        if p.is_dir() and (name := parse_run_name(p.name)).date:
+            found.append(((name.date, name.run_number or 0), p.name))
+    folders = [n for _, n in sorted(found)]
+    if not folders:
+        exit_with_error(f"no run folder datafiles/{pattern}")
+    todo = [f for f in folders if run_has_uncollected(f, root)]
+    if not todo:
+        exit_with_error(f"nothing left to collect in {', '.join(folders)}; name one with date=YYYY-MM-DD_#N or "
+                        "layout=optimized | random | lowest | 15,14,21")
+    return todo

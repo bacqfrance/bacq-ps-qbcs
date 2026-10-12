@@ -30,7 +30,7 @@ from source.tests.testing_functions import rm_glob, run_name_for_test, TEST_CIRC
 BS = chr(92)   # a backslash, spelled out so no string escaping can change it
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT       = PROJECT_ROOT / "source" / "benchmark_scripts" / "local_simulation_scripts" / "benchmark_noiseless_all_to_all.py"
-FOLDER_LINE  = 'RUN_FOLDER = local_run_name(BENCH.tag, "sim-noiseless", lnn=False)'
+FOLDER_LINE  = 'RUN_FOLDER = dated_run_folder(local_run_name(BENCH.tag, "sim-noiseless", lnn=False))'
 TEST_FOLDER  = run_name_for_test("test23")
 
 TEXT_SUFFIXES = {".json", ".log", ".csv", ".txt", ".md", ".tsv", ".yaml", ".yml", ".ini", ".cfg", ".qasm", ".html", ".svg"}

@@ -53,8 +53,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 LIST_TIMES = [0.4, 0.6]   # same reduced depths as test_00/test_01
 DT         = 0.2
 SAMPLE_SIZE = 16          # must be a multiple of 2**nqubits=8 (source/core/common.py)
-SHOTS_A, SHOTS_B = 250, 4000
-ROLES = ["bare", "NEC", "RC", "NEC+RC", "cRC", "NEC+cRC"]   # 16x apart -> expected AWAE ratio ~ sqrt(16) = 4
+SHOTS_A, SHOTS_B = 250, 4000   # 16x apart -> expected AWAE ratio ~ sqrt(16) = 4
+ROLES = ["bare", "NEC", "RC", "NEC+RC", "cRC", "NEC+cRC"]
 
 
 def _run_one_shot_value(qbcs, nshots, run_folder):
@@ -88,7 +88,7 @@ def _assert_local_run_outputs(run_path, do_spam=True):
     """§8's output tree, restricted to what a local run driven through bacq_ps_qbcs
     directly produces — verified against a real sim run's directory tree. It has job
     records like a real-QPU run, one 'complete' record per chunk (no chunk_times_UTC_time.json
-    any more); submit.log is written by the scripts, not by submit(), so it is not here."""
+    is written); submit.log is written by the scripts, not by submit(), so it is not here."""
     for rel in [
         "raw_results/results_counts.json",
         "raw_results/results_counts_merged.json",
@@ -306,4 +306,6 @@ def test_07_full_pipeline_local_sim_no_spam():
 
 
 if __name__ == "__main__":
-    test_07_full_pipeline_local_sim()
+    # Through pytest, so conftest.py sends the circuit caches to datafiles/tests/circuits/.
+    import pytest
+    sys.exit(pytest.main([__file__, "-q"]))

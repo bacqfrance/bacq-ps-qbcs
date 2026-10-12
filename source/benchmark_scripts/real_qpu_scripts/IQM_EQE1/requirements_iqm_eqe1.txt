@@ -9,7 +9,7 @@
 # incomplete stops with a message saying so.
 
 # Qiskit simulation
-qiskit==2.5.2          # same as root's
+qiskit==2.5.2          # same as local_sim.venv's
 qiskit-aer==0.17.2
 
 # IQM EQE1 (via MQSS)

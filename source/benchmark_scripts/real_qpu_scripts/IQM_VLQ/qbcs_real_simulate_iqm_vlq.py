@@ -7,8 +7,9 @@ QPU time and no LEXIS login.
   1. Download VLQ's current calibration set from IT4I's public API (no authentication)
      once and save it, with the effective snapshot built from it, to
      datafiles/<RUN_FOLDER>/ (vlq_calibration.json, calibration_snapshot.json).
-     A rerun reuses the files (with a warning); remove the run folder to download
-     fresh calibration data. With calibration_file=PATH (a run's vlq_calibration.json) that
+     A rerun of an unfinished run reuses the files (with a warning; a finished run is
+     followed by a new dated folder, which downloads fresh calibration); remove the
+     run folder to start over. With calibration_file=PATH (a run's vlq_calibration.json) that
      calibration is used instead, and nothing is downloaded.
   2. Build an offline backend + Aer noise model from the snapshot. The resonator is
      folded into an all-to-all CZ (source/core/qpu/iqm_vlq.snapshot_from_calibration): error
@@ -36,7 +37,7 @@ sys.stderr.reconfigure(encoding="utf-8")
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../..")))   # the project root, for the source.* imports
 os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../..")))   # datafiles/ paths are relative to the project root
 from source.core.runner_support.benchmark_args import make_usage, usage_if_requested   # light (numpy only): the usage is printed before anything else loads
-from source.core.records.run_names import qpu_run_name
+from source.core.records.run_names import qpu_run_name, dated_run_folder
 usage_if_requested(sys.argv[1:], make_usage(__file__, "Run the BACQ benchmark on the local Aer simulator with VLQ's calibration: same circuits, settings and qubit selection as qbcs_real_submit_iqm_vlq.py, but no QPU time and no LEXIS login.", layout="simulate"))   # no arguments or --help: print the usage and do nothing
 from pathlib import Path
 
@@ -52,7 +53,7 @@ LAYOUT           = parse_layout_args(sys.argv[1:], calibration_any_layout=True) 
 LNN              = BACKEND_CFG["lnn"]   # the backend's topology, from backends.json
 DO_SPAM          = True
 DT               = 0.2
-RUN_FOLDER       = qpu_run_name("IQM_VLQ", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag, data_type="sim-qpu-noise")
+RUN_FOLDER       = dated_run_folder(qpu_run_name("IQM_VLQ", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag, data_type="sim-qpu-noise"))
 CALIBRATION_SET  = "default"   # or a calibration set UUID, e.g. the one a real run recorded
 SEED             = None        # Aer sampling seed; None = fresh randomness per chunk
 

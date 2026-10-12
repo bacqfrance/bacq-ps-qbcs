@@ -23,7 +23,7 @@ from source.core.records.circuit_check import load_run_verification, add_circuit
 from source.core.records.chunk_scope import load_run_completeness, add_completeness_banner, completeness
 
 # ── Config (standalone use; source/analysis_scripts/run_post_process.py overrides it via env vars) ──
-RUN_FOLDER    = "full_real-data_iqm-emerald_lnn-True_service-iqm-resonance_spam-True_layout-legacy"   # standalone: the run (datafiles/<RUN_FOLDER>)
+RUN_FOLDER    = "old_runs_full/full_real-data_iqm-emerald_lnn-True_service-iqm-resonance_spam-True_layout-legacy_2026-09-07_#1"   # standalone: the run (datafiles/<RUN_FOLDER>)
 
 N_SAMPLES    = None # None = full run (unchanged behaviour); int = plot that subset's run_data+nsamples-N instead
 
@@ -107,7 +107,7 @@ def plot_obs(run_data_path, title_suffix, fname_suffix):
     fig.legend(handles, labels_leg, loc="lower right", fontsize=7,
                ncol=2, bbox_to_anchor=(1.0, 0.05))
     fig.suptitle(
-        f"{NAME.figure_label} — {title_suffix}\n"
+        f"{NAME.figure_label_full} — {title_suffix}\n"
         f"LNN={LNN}, shots={NSHOTS}, {ibm_results.get('nchunks', '?')} chunks",
         fontweight="bold", fontsize=11
     )
@@ -169,7 +169,7 @@ for ax, (role_key, role_label) in zip(axes_flat, roles_map.items()):
 handles, labels_leg = axes_flat[0].get_legend_handles_labels()
 fig.legend(handles, labels_leg, loc="lower right", fontsize=9,
            ncol=2, bbox_to_anchor=(1.0, 0.05))
-fig.suptitle(f"{NAME.figure_label} — max|obs-exact| per role\n"
+fig.suptitle(f"{NAME.figure_label_full} — max|obs-exact| per role\n"
              f"LNN={LNN}, shots={NSHOTS}",
              fontweight="bold", fontsize=11)
 plt.tight_layout()

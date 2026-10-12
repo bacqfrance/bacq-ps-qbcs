@@ -46,7 +46,10 @@ def rotate_circuit_basis_change(circuit_routine, obs_list_per_qubit=["X", "Y", "
     return circ_rotated
 
 
-def get_observable_operator(obs_str=None, obs_str_list = ["X", "Y", "Z", "XY", "XZ", "YZ", "XYZ"]):
+EXACT_OBS_LIST      = ["X", "Y", "Z", "XY", "XZ", "YZ", "XYZ"]   # order of compute_exact_observables()
+
+
+def get_observable_operator(obs_str=None, obs_str_list = EXACT_OBS_LIST):
     from qat.core import Observable, Term
     dict_obs_operators = { 
                           "X" : Observable(3, pauli_terms=[Term(1.0, "X", [0])]), 
@@ -60,7 +63,7 @@ def get_observable_operator(obs_str=None, obs_str_list = ["X", "Y", "Z", "XY", "
     obs_ind = obs_str_list.index(obs_str)
     return dict_obs_operators[obs_str], obs_ind
 
-# Building the circuit, and its noisy version
+# Building the circuit, and its copy rotated to the measurement basis
 def build_BCS_time_evolution_circuit(nsites, g, epsilon, T, dt, local_qubit_basis=["X", "Y", "Z"], LNN=False):
     from qat.lang.AQASM import Program
     from source.core.circuits.main import BCS_hamiltonian, chain1D
@@ -213,7 +216,7 @@ def compute_exact_observables(circuit_original, return_jobs=False):
     from qat.core import Batch
     qpu = get_default_qpu()
     exact_values = np.zeros(7, dtype=complex)
-    obs_str_list = ["X", "Y", "Z", "XY", "XZ", "YZ", "XYZ"]
+    obs_str_list = list(EXACT_OBS_LIST)
 
     job_list = [None]*7
     for obs_str in obs_str_list:
@@ -237,7 +240,6 @@ def compute_exact_observables(circuit_original, return_jobs=False):
 # the 7 observables at each depth. They depend only on the Hamiltonian and the
 # depth, so build() computes them once (myQLM, local_sim.venv) and saves them
 # next to the circuits; the analysis then only reads a JSON file.
-EXACT_OBS_LIST      = ["X", "Y", "Z", "XY", "XZ", "YZ", "XYZ"]   # order of compute_exact_observables()
 EXACT_OBS_FILENAME  = "exact_observables.json"
 
 def exact_observables_path(CONFIG):

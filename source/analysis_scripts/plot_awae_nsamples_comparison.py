@@ -32,7 +32,7 @@ from source.core.records.circuit_check import load_run_verification, add_circuit
 from source.core.records.chunk_scope import load_run_completeness, add_completeness_banner, completeness
 
 # ── Config ────────────────────────────────────────────────────────────────────
-RUN_FOLDER    = "full_real-data_iqm-emerald_lnn-True_service-iqm-resonance_spam-True_layout-legacy"   # standalone: the run (datafiles/<RUN_FOLDER>)
+RUN_FOLDER    = "old_runs_full/full_real-data_iqm-emerald_lnn-True_service-iqm-resonance_spam-True_layout-legacy_2026-09-07_#1"   # standalone: the run (datafiles/<RUN_FOLDER>)
 N_SAMPLES     = None                     # reference analysis; None = full run
 NSAMPLES_LIST = [8, 48, 120, 240, 480]
 
@@ -96,7 +96,7 @@ if not schemes:   # no scheme has a cumulative AWAE below 1 (derived_quantities)
     fig, ax = plt.subplots(figsize=(14, 5))
     ax.axis("off")
     ax.text(0.5, 0.5, msg, ha="center", va="center", fontsize=14, color="firebrick")
-    fig.suptitle(f"AWAE — best EMS: number of samples\n{NAME.figure_label}, LNN={LNN}, shots={NSHOTS}",
+    fig.suptitle(f"AWAE — best EMS: number of samples\n{NAME.figure_label_full}, LNN={LNN}, shots={NSHOTS}",
                  fontweight="bold", fontsize=11)
     add_circuit_check_banner(fig, VERIFICATION); add_completeness_banner(fig, COMPLETENESS)
     fname = plots_dir / "awae_best_ems_nsamples_comparison.png"
@@ -142,7 +142,7 @@ ax_a.legend(fontsize=7)
 ax_b.legend(fontsize=7)
 
 title_ems = schemes[0][1] if len(schemes) == 1 else f"{best_ems} (N_max) / {best_ems_nacc} (N_acc)"
-fig.suptitle(f"AWAE — best EMS ({title_ems}): number of samples\n{NAME.figure_label}, LNN={LNN}, shots={NSHOTS}",
+fig.suptitle(f"AWAE — best EMS ({title_ems}): number of samples\n{NAME.figure_label_full}, LNN={LNN}, shots={NSHOTS}",
              fontweight="bold", fontsize=11)
 plt.tight_layout()
 add_circuit_check_banner(fig, VERIFICATION); add_completeness_banner(fig, COMPLETENESS)

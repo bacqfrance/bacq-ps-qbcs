@@ -18,29 +18,31 @@ sys.stderr.reconfigure(encoding="utf-8")
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../..")))   # the project root, for the source.* imports
 os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../..")))   # datafiles/ paths are relative to the project root
 from source.core.runner_support.benchmark_args import make_usage, usage_if_requested   # light (numpy only): the usage is printed before anything else loads
-from source.core.records.run_names import qpu_run_name, service_name
+from source.core.records.run_names import qpu_run_name, service_name, dated_run_folder
 from source.core.qpu.tokens import read_token
 usage_if_requested(sys.argv[1:], make_usage(__file__, "Submit a BACQ benchmark run to a real IBM QPU. Async: returns once every chunk is submitted; collect the results with qbcs_real_collect_ibm.py (same arguments).", layout="submit_live"))   # no arguments or --help: print the usage and do nothing
 from pathlib import Path
 
 from qiskit_ibm_runtime import QiskitRuntimeService
 
-from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args
+from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args, pop_force_new_run_flag
 from source.core.qpu.providers import ibm_batch
 from source.core.qpu.qpu_snapshot import snapshot_log_lines, SNAPSHOT_FILENAME
 from source.core.runner_support.run_submission import submit_async_run
+from source.core.qbcs import IBM_CHUNKS_PER_JOB
 
 # ── Config ────────────────────────────────────────────────────────────────────
-BACKEND_NAME, BACKEND_CFG = parse_backend_config(sys.argv[1:], Path(__file__).parent)   # required backend=NAME, checked against backends.json
+FORCE_NEW_RUN, ARGV = pop_force_new_run_flag(sys.argv[1:])   # --force-new-run: start a new run folder even if the latest run of these settings is unfinished
+BACKEND_NAME, BACKEND_CFG = parse_backend_config(ARGV, Path(__file__).parent)   # required backend=NAME, checked against backends.json
 SERVICE_NAME = service_name("IBM")   # the access platform, as records and qbcs call it (source/core/records/run_names.py)
-BENCH            = parse_benchmark_args(sys.argv[1:], extra_keys=("backend",))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
-LAYOUT           = parse_layout_args(sys.argv[1:], live_calibration="IBM")   # layout=... (live calibration only) — see source/core/runner_support/benchmark_args.py
+BENCH            = parse_benchmark_args(ARGV, extra_keys=("backend",))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
+LAYOUT           = parse_layout_args(ARGV, live_calibration="IBM")   # layout=... (live calibration only) — see source/core/runner_support/benchmark_args.py
 SAMPLE_SIZE      = BENCH.sample_size
 LNN              = BACKEND_CFG["lnn"]   # the backend's topology, from backends.json
 DO_SPAM          = True
-RUN_FOLDER       = qpu_run_name("IBM", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag)
+RUN_FOLDER       = dated_run_folder(qpu_run_name("IBM", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag), new_run=FORCE_NEW_RUN)
 CHUNKS_TO_SUBMIT = SAMPLE_SIZE   # the whole run; lower it to submit only the first N chunks
-CHUNKS_PER_JOB   = min(48, SAMPLE_SIZE)   # full: 10 jobs of 48 chunks; mini: all 8 chunks in one job
+CHUNKS_PER_JOB   = min(IBM_CHUNKS_PER_JOB, SAMPLE_SIZE)   # full: 10 jobs of 48 chunks; mini: all 8 chunks in one job
 # ── Connect to IBM ────────────────────────────────────────────────────────────
 print(f"\n[{BACKEND_NAME} — connection]")
 token   = read_token("ibm_token")

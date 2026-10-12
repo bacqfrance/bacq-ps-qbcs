@@ -3,10 +3,12 @@ testing_functions.py
 ====================
 Helper functions for the bacq_ps_qbcs pipeline test suite.
 
-Provides three reusable functions:
+Provides these reusable functions:
     - do_qiskit_pipeline()  : runs the new bacq_ps_qbcs Qiskit pipeline and returns run_data dict
     - do_myqlm_pipeline()   : runs the legacy run_mitigation_pipeline_all_depths() (defined at the end of this file) and returns run_data dict
     - do_exact_computation() : computes exact noiseless observables per depth using myQLM statevector QPU
+    - run_name_for_test()   : builds the run-folder name a test uses for a label and data type
+    - run_mitigation_pipeline_all_depths() : the legacy myQLM pipeline do_myqlm_pipeline() calls
 
 All functions return results as dicts compatible with run_data.json format.
 
@@ -25,7 +27,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 import glob
 import shutil
 import stat
-import sys
 import time
 import numpy as np
 from qiskit_aer.primitives import SamplerV2 as AerSamplerV2

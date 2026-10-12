@@ -4,13 +4,12 @@ test_15_health_check_network_retries.py
 Unit tests (no real QPU, no real network — a fake backend/collect-service stands
 in for the provider) for the health-check retry/exit-code handling in
 source/core/health_check.py (require_functional_health_check, submit_post_health_check) and
-source/core/qpu/remote_jobs.py (_is_transient_network_error) added after a live DNS failure crashed a real EQE1 submission with an
-unhandled TypeError:
+source/core/qpu/remote_jobs.py (_is_transient_network_error):
 
   - _is_transient_network_error() recognizes connection/DNS/timeout-shaped errors
     and nothing else.
   - submit_health_check(accompanying=True) on an asynchronous service (IBM,
-    IQM EQE1 (service MQSS_LRZ), IQM_RESONANCE, IQM_VLQ): a submission failure writes its own
+    IQM EQE1 (service MQSS_LRZ), IQM Resonance (service IQM_Resonance), IQM VLQ (service QAAS_IT4I)): a submission failure writes its own
     numbered 'failed' record (job_id=None, a `failure` message) and raises
     HealthCheckSubmitError — every attempt stays on disk, per the project
     owner's rule that every check must be recorded.
@@ -282,7 +281,7 @@ def test_require_functional_health_check_degraded_exits_immediately_without_retr
 def test_require_functional_health_check_returns_the_record_when_functional(run_folder):
     class GoodResult:
         def get_counts(self):
-            return {"110": 100}   # reversed by qbcs.py -> '011', P(011) = 1
+            return {"110": 100}   # reversed by health_check.py -> '011', P(011) = 1
     class GoodJob:
         def wait_for_final_state(self): pass
         def done(self): return True

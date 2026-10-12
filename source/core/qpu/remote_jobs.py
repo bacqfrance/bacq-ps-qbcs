@@ -56,7 +56,7 @@ def _remote_job_state(service_name, service, job_id, backend_name=None, nshots=N
 def _failed_job_timing(service_name, service, record):
     """Whatever timing the provider still reports for a job that ended in failure (QPU time
     it billed, queue, start/end), for the cost accounting of failed attempts. The query's own
-    wall time is stored as collect_s. Never raises; an unavailable value stays None."""
+    wall time is stored as collect_s. Never raises; an unavailable value is left out (except qpu_s / queue_s, which stay None)."""
     t0  = time.perf_counter()
     out = {}
     try:
@@ -199,12 +199,14 @@ def _submit_error_kind(exc):
     return "not_connected" if "not_connected" in kinds else None
 
 
-SUBMIT_RETRY_BACKOFF_S = (30, 60, 120)   # waits before the 2nd, 3rd, 4th try of a chunk submission
+SUBMIT_RETRY_BACKOFF_S = (30, 60, 120)   # a chunk submission gets 4 tries, waiting 30, 60, 120 s between them (the 120 s only there);
+# the health-check loops use len() tries, so 3: they wait 30 s and 60 s
 
 
 class ChunkSubmitError(RuntimeError):
     """A chunk submission that did not succeed (after retries, if the error was retryable).
-    attempts: [{"at", "s", "error", "kind"}]; kind: see _submit_error_kind."""
+    attempts: [{"at", "s", "error", "kind"}]; kind: see _submit_error_kind.
+    submit_s: seconds spent submitting, over all attempts (set by the raiser after construction)."""
 
     def __init__(self, label, cause, attempts, kind):
         self.cause, self.attempts, self.kind = cause, attempts, kind

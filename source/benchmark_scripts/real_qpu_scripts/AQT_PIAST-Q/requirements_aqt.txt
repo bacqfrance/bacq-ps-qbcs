@@ -10,7 +10,7 @@
 # files (USER_MANUAL §3.1). Build there first — a script that finds the cache
 # incomplete stops with a message saying so.
 
-# Qiskit — pinned to major version 1, not root's 2.5.2
+# Qiskit — pinned to major version 1, not local_sim.venv's 2.5.2
 qiskit==1.4.6          # forced by qiskit-aqt-provider's own "qiskit>=1,<2" requirement
 qiskit-aer==0.17.2
 

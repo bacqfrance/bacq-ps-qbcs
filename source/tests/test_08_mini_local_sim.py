@@ -31,7 +31,7 @@ from source.core.records.run_names import run_summary_name
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT       = PROJECT_ROOT / "source" / "benchmark_scripts" / "local_simulation_scripts" / "benchmark_noiseless_all_to_all.py"
-FOLDER_LINE  = 'RUN_FOLDER = local_run_name(BENCH.tag, "sim-noiseless", lnn=False)'
+FOLDER_LINE  = 'RUN_FOLDER = dated_run_folder(local_run_name(BENCH.tag, "sim-noiseless", lnn=False))'
 TEST_FOLDER  = run_name_for_test("test08")
 
 

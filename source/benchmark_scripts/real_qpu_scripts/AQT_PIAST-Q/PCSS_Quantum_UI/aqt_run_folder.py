@@ -22,7 +22,8 @@ def compute_run_folder():
     without executing the rest of that script. This keeps the two in sync
     automatically if NSHOTS/LNN/DO_SPAM/BACKEND_NAME change — nothing is
     duplicated here. The Config block parses sys.argv[1:], the same arguments
-    the loop script is launched with.
+    the loop script is launched with (--force-new-run included: it makes a new
+    folder, so the sbatch files call this once per job).
     """
     text = LOOP_SCRIPT.read_text(encoding="utf-8")
     try:
@@ -37,8 +38,8 @@ def compute_run_folder():
     usage_src = "\n".join(ln for ln in text.split("\n")   # the loop script's usage, so that an argument error prints it
                           if ln.startswith(("from source.core.runner_support.benchmark_args import make_usage", "usage_if_requested(")))
     config_src = ("import sys\nimport numpy as np\nfrom pathlib import Path\n"
-                  "from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args\n"
-                  "from source.core.records.run_names import qpu_run_name, service_name\n"
+                  "from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args, parse_run_folder_arg, pop_force_new_run_flag\n"
+                  "from source.core.records.run_names import qpu_run_name, service_name, dated_run_folder\n"
                   + usage_src + "\n" + text[start:end])
     namespace = {"__file__": str(LOOP_SCRIPT)}   # the Config block finds backends.json next to the loop script
     exec(compile(config_src, str(LOOP_SCRIPT), "exec"), namespace)

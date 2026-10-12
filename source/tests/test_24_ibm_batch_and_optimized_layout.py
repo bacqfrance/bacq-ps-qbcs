@@ -8,7 +8,9 @@ Unit tests (no simulator run, no QPU, no network, no qiskit_ibm_runtime needed):
     module stands in for the real one);
   - bacq_ps_qbcs.resolve_physical_qubits with layout=optimized: when the QPU has no SWAP-free placement of the
     circuits, the run is refused with a ValueError (resolve_layout_or_exit turns it into one line and exit code 2)
-    before anything is recorded; a layout that exists, and a forced list, still resolve.
+    before anything is recorded; a layout that exists, and a forced list, still resolve;
+  - the VLQ calibration source saved with a layout carries no absolute path;
+  - the run_local_simulation driver ends cleanly (one line, exit code 2) on an unusable layout, through resolve_layout_or_exit.
 """
 
 import sys, os

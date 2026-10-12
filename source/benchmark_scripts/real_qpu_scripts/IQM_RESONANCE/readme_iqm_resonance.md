@@ -49,7 +49,6 @@ real_backend = provider.get_backend(use_metrics=True)   # with the calibration e
 
 | Knob | Meaning |
 |---|---|
-| `IQM_RESONANCE_URL` | `"https://resonance.iqm.tech/"` (from `source/core/qpu/providers.py`) |
 | `BACKEND_NAME` | quantum-computer id/alias, given as `backend=NAME` on the command line — **required** by `qbcs_real_submit_iqm_resonance.py`, `qbcs_real_collect_iqm_resonance.py`, `qbcs_real_simulate_iqm_resonance.py` and `check_real_qpu_job_status_iqm_resonance.py` (they stop with a usage line without it), e.g. `backend=emerald` (Crystal-54). The name must be listed in [`backends.json`](backends.json); add a line there to use another machine. Pass the same `backend=` to submit/collect/status for a given run — the run folder name is derived from it, which is how they find the run on disk. `health_check_real_iqm_resonance.py` requires it too — there is no default. Listed: `emerald`, `garnet` (grid, LNN) and `sirius` (all-to-all). |
 | run size (shots, RC samples, evolution times) | the preset or sizes given on the command line (below), not edited in the script |
 | `LNN` | linear-nearest-neighbour transpilation. Taken from the chosen machine's `"lnn"` entry in `backends.json`. **It depends on the device's topology** — IQM Resonance serves several machines and they don't all share one connectivity: a grid-connected device like `emerald` (Crystal-54) needs `"lnn": true` (matching its local coupling), but a star/resonator-coupled device (all-to-all through the resonator, like `sirius` or IQM VLQ) needs `"lnn": false`. When adding a machine to `backends.json`, check its real topology — the wrong setting doesn't necessarily fail outright, but it changes what the transpiler optimizes for and can produce a worse or misleading benchmark. |
@@ -73,8 +72,7 @@ lexicographically lowest valid one, or exactly the given qubits — the script s
 The submit script always scores with the live calibration and refuses `calibration_file=` (exit code 2, with an
 explanation). The run folder
 ends in `_layout-optimized`, `_layout-random`, `_layout-lowest` or `_layout-15-14-21`, so runs with different
-layouts never collide; the collect and status scripts take `layout=` too (optional when the benchmark has one run
-folder). The simulate script takes the same arguments plus `calibration_file=PATH`: a snapshot (e.g. an old run's
+layouts never collide; the collect and status scripts take `layout=` too (optional). After the layout comes the UTC date the run started and its number that day (`_2026-10-11_#1`). Rerunning the submit script continues the latest run of its settings while it is unfinished (some chunk not yet submitted), whatever its date, else starts a new folder dated today with the next run number; `--force-new-run` starts a new folder even while the latest is unfinished. Without `layout=` and `date=`, the collect and status scripts take every run of that benchmark with something left to collect in turn, all layouts and dates (each is reported, and a failure in one does not stop the others); `layout=` picks one run (its latest, or the one of `date=`), also a finished one; `date=YYYY-MM-DD` alone takes each layout's latest run of that day, and `date=YYYY-MM-DD_#N` each layout's run with that number (layouts without one are skipped). The simulate script takes the same arguments plus `calibration_file=PATH`: a snapshot (e.g. an old run's
 `calibration_snapshot.json`) as the simulated QPU's noise data instead of the download, to re-simulate that calibration.
 A submission also saves the QPU's current calibration in the run folder (`calibration_snapshot.json`), once per run — what the layout was chosen on. A layout the QPU cannot run ends the script with a one-line message (exit code 2) before anything is submitted; so does `layout=optimized` when the QPU has no placement of the circuits without SWAPs, like `random` and `lowest`.
 
@@ -132,10 +130,11 @@ script) on the local Aer simulator, with a noise model built from this QPU's
 calibration, and costs no QPU time:
 
 1. downloads the calibration once into
-   `datafiles/<benchmark>_sim-qpu-noise_<provider>-<backend>_…/calibration_snapshot.json`. A rerun reuses that
-   file (same calibration, no connection needed) and prints a warning that it uses
-   pre-saved calibration data; to download fresh calibration and run with it,
-   remove the run folder `datafiles/<benchmark>_sim-qpu-noise_<provider>-<backend>_…/`;
+   `datafiles/<benchmark>_sim-qpu-noise_<provider>-<backend>_…/calibration_snapshot.json`. A rerun of an unfinished run
+   reuses that file (same calibration, no connection needed) and prints a warning that it uses
+   pre-saved calibration data (a finished run is followed by a new dated folder, which
+   downloads fresh calibration); to start over, remove the run folder
+   `datafiles/<benchmark>_sim-qpu-noise_<provider>-<backend>_…/`;
 2. builds an offline backend + Aer noise model from it (depolarizing gate
    errors, T1/T2 relaxation over gate durations, readout errors —
    `source/core/qpu/qpu_snapshot.py`);
@@ -143,7 +142,7 @@ calibration, and costs no QPU time:
    would, runs every chunk (SPAM on the same qubits), and analyzes the results.
 
 Run it from the project root in `iqm_resonance.venv`. It connects with `get_backend(use_metrics=True)` — without it the backend carries no error data. Post-process by adding the
-`…_sim-qpu-noise_…` folder name to `RUN_THESE` in `source/analysis_scripts/run_post_process.py` and
+`sim-qpu-noise_…` folder name (without the benchmark) to `RUN_THESE` in `source/analysis_scripts/run_post_process.py` and
 running it with `--include-simulations-real`; its
 summary JSON names the backend and snapshot date, so the result is never
 mistaken for a hardware run. Like the submit script, it runs a health check
