@@ -46,7 +46,7 @@ from pathlib import Path
 
 from source.core.common import PROJECT_ROOT, exit_with_error, rel_path, scrub_paths
 from source.core.qpu.tokens import token_path
-from source.core.records.job_timing import now_utc_iso
+from source.core.records.job_timing import iso_utc, now_utc_iso
 
 TOKEN_FILE        = token_path("iqm_vlq_token")             # tokens/ is git-ignored
 LEXIS_LOG_NAME    = "iqm_vlq_authentication_lexis_logs.log"   # py4lexis' own log, in the run folder (git-ignored)
@@ -553,6 +553,7 @@ def snapshot_from_calibration(cal):
     return {
         "backend":            "VLQ",
         "downloaded_at":      cal.get("downloaded_at"),
+        "measured_at":        iso_utc((cal.get("calibration_set") or {}).get("end_timestamp")),   # when IT4I made the calibration
         "calibration_set_id": cal.get("calibration_set_id"),
         "calibration_source": cal.get("source"),
         "num_qubits":         len(names),

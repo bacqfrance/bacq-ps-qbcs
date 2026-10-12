@@ -2382,15 +2382,16 @@ class bacq_ps_qbcs:
                                  f"the circuits without SWAPs (among its usable qubits and couplers). "
                                  f"Pin the qubits explicitly with layout=a,b,c (three distinct qubits).")
             if layout_backend is not None and record["physical_qubits"] is None:
-                raise ValueError(f"no layout of the circuits exists that both the calibration file "
-                                 f"({calibration_source}) and the QPU ({getattr(backend, 'name', backend)}) support "
-                                 f"(method {record['method']})")
+                raise ValueError(f"no layout of the circuits exists that both the calibration "
+                                 f"{f'file ({calibration_source})' if calibration_source else 'snapshot of this run'} "
+                                 f"and the QPU ({getattr(backend, 'name', backend)}) support (method {record['method']})")
             if layout_backend is not None and record["physical_qubits"] is not None and getattr(backend, "target", None) is not None:
                 try:
                     check_forced_layout(rep, backend.target, record["physical_qubits"])
                 except ValueError as e:
-                    raise ValueError(f"the layout chosen with the calibration file cannot be run on the QPU itself "
-                                     f"({getattr(backend, 'name', backend)}) — is the file out of date? {e}") from None
+                    raise ValueError(f"the layout chosen with the calibration {'file' if calibration_source else 'snapshot'} "
+                                     f"cannot be run on the QPU itself ({getattr(backend, 'name', backend)}) — is it out "
+                                     f"of date? {e}") from None
 
         record["backend"]        = getattr(backend, "name", str(backend))
         record["selected_at"]    = now_utc_iso(precise=True)

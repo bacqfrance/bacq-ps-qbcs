@@ -94,7 +94,7 @@ file. Therefore:
 - `layout=optimized calibration_file=PATH` scores the placements with a calibration file. `calibration_file=` is
   mandatory with `optimized` here (an error without it). The file may be the provider's own,
   AQT/PCSS's `piastq_characterisation_<date>.json`, or an already converted snapshot; a provider file is converted automatically and saved in the run folder
-  as `calibration_snapshot.json`. The latest provider file is in `calibration_input_files/PIAST-Q/`. A relative PATH is relative to the project root.
+  as `calibration_snapshot.json` (its `measured_at` is the file's own date). The latest provider file is in `calibration_input_files/PIAST-Q/`. A relative PATH is relative to the project root.
 - `layout=lowest` is the lexicographically lowest valid layout, and `layout=15,14,21` forces exactly those qubits
   (a layout the QPU cannot run ends the script with a one-line message, exit code 2).
 

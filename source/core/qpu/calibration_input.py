@@ -152,11 +152,29 @@ def resolve_layout_or_exit(qbcs, backend, **kwargs):
         exit_with_error(f"Layout: {e}")
 
 
+def _saved_snapshot_backend(backend, run_folder):
+    """The offline backend of the run's saved calibration_snapshot.json, which a live run's layout is scored on, or
+    None (score on the live `backend`) when there is no usable snapshot or the QPU's circuits are laid out another
+    way (VLQ scores on its vlq_calibration.json). Never raises."""
+    if getattr(backend, "vlq_calibration", None) is not None:
+        return None
+    path = PROJECT_ROOT / "datafiles" / run_folder / SNAPSHOT_FILENAME
+    try:
+        return backend_from_snapshot(path) if path.exists() else None
+    except Exception as e:
+        print(f"  ⚠️  [Calibration] could not rebuild the backend from {rel_path(path)} "
+              f"({type(e).__name__}: {e}) — scoring the layout on the live QPU.")
+        return None
+
+
 def resolve_run_layout(qbcs, backend, run_folder, layout, label=None):
     """What every real-QPU submit script does after build(): print the layout notice, load the calibration file
     (if any) as the run's snapshot — or else save the QPU's own current calibration (save_live_calibration) — and
     fix the run's physical qubits (qbcs.resolve_physical_qubits) with the layout `layout`
-    (source/core/runner_support/benchmark_args.py LayoutArgs). Returns (physical qubits, recorded calibration source)."""
+    (source/core/runner_support/benchmark_args.py LayoutArgs). The layout is scored on the saved snapshot (an offline
+    backend built from it), so the snapshot is the calibration the layout was chosen on; when no snapshot could be
+    saved (a QPU that reports no calibration, a failed save) it is scored on the live backend.
+    Returns (physical qubits, recorded calibration source)."""
     if layout.notice:
         print(layout.notice)
     layout_backend = source = None
@@ -165,6 +183,7 @@ def resolve_run_layout(qbcs, backend, run_folder, layout, label=None):
                                                          label or "layout scoring")
     else:
         save_live_calibration(backend, run_folder)
+        layout_backend = _saved_snapshot_backend(backend, run_folder)
     qubits = resolve_layout_or_exit(qbcs, backend, run_folder=run_folder, layout=layout,
                                     layout_backend=layout_backend, calibration_source=source)
     return qubits, source

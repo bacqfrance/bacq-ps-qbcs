@@ -23,7 +23,10 @@ layouts in source/core/qpu/iqm_vlq.py):
     and date= every run of the benchmark with something left to collect (run_has_uncollected), oldest first, or
     an error when nothing is left, and with date= alone that day's run (or #N) of every layout that has one;
     parse_date_arg validates date=YYYY-MM-DD[_#N], parse_run_folder_arg and pop_force_new_run_flag;
-  - VLQ: the resonator is always part of the layout — lowest / random / forced choose among the usable qubits.
+  - VLQ: the resonator is always part of the layout — lowest / random / forced choose among the usable qubits;
+  - the snapshot of a live run records when the provider made the calibration (measured_at: IBM's last_update_date,
+    an IQM calibration set's end_timestamp, VLQ's from vlq_calibration.json), and the layout of a live run is scored on
+    the saved snapshot (resolve_run_layout), falling back to the live backend when none could be saved.
 """
 
 import sys, os
@@ -491,6 +494,74 @@ def test_live_calibration_is_saved_once_and_only_where_reported(tmp_path, monkey
     assert "reports no calibration data" in capsys.readouterr().out
     broken = SimpleNamespace(name="broken")                                      # never raises
     assert CI.save_live_calibration(broken, "run_c") is None
+
+
+def _reporting_backend(tmp_path, **attrs):
+    """A stub backend (the live QPU) whose Target carries errors — AQT's file converted — plus `attrs`."""
+    _, offline, _ = use_calibration_file(AQT_FILE, tmp_path / "stub_src", "test")
+    return SimpleNamespace(name="stub_qpu", target=offline.target, **attrs)
+
+
+def test_snapshot_records_when_the_provider_made_the_calibration(tmp_path):
+    from datetime import datetime, timedelta, timezone
+    from source.core.qpu.qpu_snapshot import save_calibration_snapshot
+    ibm_time = datetime(2026, 10, 12, 19, 25, 25, tzinfo=timezone(timedelta(hours=2)))      # IBM: tz-aware, +02:00
+    ibm  = _reporting_backend(tmp_path, properties=lambda: SimpleNamespace(last_update_date=ibm_time))
+    snap = save_calibration_snapshot(ibm, tmp_path / "ibm.json")
+    assert snap["measured_at"] == "2026-10-12T17:25:25.000000Z"                              # UTC, "Z"
+    assert json.loads((tmp_path / "ibm.json").read_text(encoding="utf-8"))["measured_at"] == snap["measured_at"]
+
+    asked = []
+    def get_calibration_set(cal_id):
+        asked.append(cal_id)
+        return SimpleNamespace(end_timestamp=datetime(2026, 10, 12, 5, 45, 6, 25560, tzinfo=timezone.utc))
+    iqm = _reporting_backend(tmp_path, architecture=SimpleNamespace(calibration_set_id="set-1"),
+                             client=SimpleNamespace(get_calibration_set=get_calibration_set))
+    snap = save_calibration_snapshot(iqm, tmp_path / "iqm.json")
+    assert asked == ["set-1"] and snap["measured_at"] == "2026-10-12T05:45:06.025560Z"       # the set the backend runs with
+    assert snap["calibration_set_id"] == "set-1"
+
+    def refuse():
+        raise RuntimeError("no properties")
+    assert save_calibration_snapshot(_reporting_backend(tmp_path, properties=refuse), tmp_path / "x.json")["measured_at"] is None
+    assert save_calibration_snapshot(_reporting_backend(tmp_path), tmp_path / "y.json")["measured_at"] is None   # silent SDK
+    given = save_calibration_snapshot(_reporting_backend(tmp_path), tmp_path / "z.json", measured_at="2026-01-02T03:04:05+01:00")
+    assert given["measured_at"] == "2026-01-02T02:04:05.000000Z"
+
+
+def test_vlq_snapshot_carries_the_calibration_sets_end_timestamp():
+    assert V.snapshot_from_calibration(VLQ_CAL)["measured_at"] == "2026-09-28T05:22:21.060904Z"
+    assert V.snapshot_from_calibration({k: v for k, v in VLQ_CAL.items() if k != "calibration_set"} | {"calibration_set": {}}
+                                       )["measured_at"] is None
+
+
+def test_a_live_run_scores_its_layout_on_the_saved_snapshot(tmp_path, monkeypatch):
+    from source.core.qpu import calibration_input as CI
+    live = _reporting_backend(tmp_path)                    # before PROJECT_ROOT moves: it loads a project file
+    vlq  = _reporting_backend(tmp_path, vlq_calibration=None)
+    monkeypatch.setattr(CI, "PROJECT_ROOT", tmp_path)
+    layout = SimpleNamespace(notice=None, calibration_file=None, mode="optimized")
+
+    class Q:
+        def resolve_physical_qubits(self, backend, **kw):
+            self.kw = kw
+            return [0, 1, 2]
+    q = Q()
+    assert CI.resolve_run_layout(q, live, "run_a", layout)[0] == [0, 1, 2]
+    scored_on = q.kw["layout_backend"]
+    assert scored_on is not None and scored_on is not live                                   # rebuilt from calibration_snapshot.json
+    saved = json.loads((tmp_path / "datafiles" / "run_a" / "calibration_snapshot.json").read_text(encoding="utf-8"))
+    assert scored_on.target.num_qubits == saved["num_qubits"] and q.kw["calibration_source"] is None
+
+    # no snapshot could be saved (a QPU that reports no calibration): the live backend scores, as before
+    silent = SimpleNamespace(name="no_data", target=_aqt_like_target())
+    CI.resolve_run_layout(q, silent, "run_b", layout)
+    assert q.kw["layout_backend"] is None
+    # VLQ scores on its own vlq_calibration.json, never on the snapshot
+    CI.resolve_run_layout(q, vlq, "run_c", layout)
+    assert q.kw["layout_backend"] is not None            # vlq_calibration None: not a VLQ backend
+    vlq.vlq_calibration = VLQ_CAL
+    assert CI._saved_snapshot_backend(vlq, "run_c") is None
 
 
 def test_unusable_layout_ends_the_script_with_one_line(capsys):

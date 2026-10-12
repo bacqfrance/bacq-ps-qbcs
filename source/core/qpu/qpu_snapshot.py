@@ -15,6 +15,11 @@ know (control flow like if_else, vendor extras) are listed under
 "skipped_operations" and left out of the rebuilt Target — the benchmark
 circuits never use them.
 
+Two dates: "downloaded_at" is when the snapshot was made, "measured_at" when the provider made
+the calibration (UTC, "...Z"; None when the provider does not say). Live: IBM's
+backend.properties().last_update_date, IQM Resonance's calibration set end_timestamp, IQM VLQ's
+calibration set end_timestamp; a provider's calibration file carries its own date.
+
 Only as good as what the provider reports: IBM, IQM Resonance
 (get_backend(use_metrics=True)) and IQM VLQ report full calibration; IQM EQE1 (MQSS) and
 AQT report none through their SDK. For those two, a calibration file published
@@ -32,7 +37,7 @@ import math
 from pathlib import Path
 
 from source.core.common import rel_path
-from source.core.records.job_timing import now_utc_iso
+from source.core.records.job_timing import iso_utc, now_utc_iso
 
 SNAPSHOT_FILENAME = "calibration_snapshot.json"
 
@@ -158,10 +163,26 @@ def snapshot_from_iqm_eqe1_json(data, source_file):
     return snap
 
 
-def save_calibration_snapshot(backend, path, extra=None):
+def provider_calibration_time(backend):
+    """When the provider made the calibration `backend` reports, as a UTC ISO string (job_timing.iso_utc), or None.
+    IBM: backend.properties().last_update_date. IQM Resonance: end_timestamp of the calibration set the backend's
+    architecture names (calibration_set_id). Never raises: a missing date must not stop a run."""
+    try:
+        arch   = getattr(backend, "architecture", None)
+        cal_id = getattr(arch, "calibration_set_id", None) if arch is not None else None
+        if cal_id is not None:
+            return iso_utc(backend.client.get_calibration_set(cal_id).end_timestamp)
+        return iso_utc(backend.properties().last_update_date)
+    except Exception:
+        return None
+
+
+def save_calibration_snapshot(backend, path, extra=None, measured_at=None):
     """Write backend.target's calibration to `path` (JSON). Returns the dict.
 
     extra: optional dict merged into the top level (e.g. calibration_set_id).
+    measured_at: when the provider made the calibration (any ISO string or datetime; saved as UTC);
+    None asks the backend (provider_calibration_time()), which gives None when it cannot say.
     Raises ValueError (NO_CALIBRATION_MESSAGE) when the target has no gate errors."""
     target = backend.target
     ops, skipped = {}, []
@@ -191,6 +212,7 @@ def save_calibration_snapshot(backend, path, extra=None):
     snapshot = {
         "backend":            getattr(backend, "name", str(backend)),
         "downloaded_at":      now_utc_iso(),
+        "measured_at":        iso_utc(measured_at) if measured_at is not None else provider_calibration_time(backend),
         "calibration_set_id": None if cal_id is None else str(cal_id),
         "num_qubits":         target.num_qubits,
         "dt":                 target.dt,

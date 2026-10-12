@@ -57,7 +57,8 @@ benchmark records. The code of steps 4–8 is built on these findings.
    - **Results:** result format, bit order.
    - **Layout:** which physical qubits the job used, and where that is reported.
    - **Calibration:** where the calibration data come from (API endpoint, calibration-set ID),
-     their format and metrics, and whether a job records which calibration it ran with.
+     their format and metrics, whether a job records which calibration it ran with, and when the provider made
+     the calibration (saved as the snapshot's `measured_at`; `null` when it says nothing).
    - **Executed circuits:** whether the executed (server-transpiled) circuits can be read back, and
      in what form (gate names, qubit indexing, added gates such as MOVEs). The circuit check
      (step 6) compares them with the submitted ones.
@@ -100,7 +101,9 @@ Every script must:
   `calibration_file=`): submit scripts call `resolve_run_layout(qbcs, backend, RUN_FOLDER, LAYOUT, label=BACKEND_NAME)`
   (`source/core/qpu/calibration_input.py`) right after `build()`; a QPU whose SDK reports its calibration passes
   `live_calibration="<QPU>"` in its submit script (the live calibration is always used, so `calibration_file=` is
-  refused); a QPU that reports none passes `calibration_required=True` (random layout without a file, `optimized` only
+  refused; the layout is scored on the saved `calibration_snapshot.json`, whose `measured_at` the live-calibration helper
+  `provider_calibration_time()` in `source/core/qpu/qpu_snapshot.py` fills from the SDK, a new QPU adding its case there);
+  a QPU that reports none passes `calibration_required=True` (random layout without a file, `optimized` only
   with one), and its simulate script `layout_required=True` and `calibration_any_layout=True` (the file is the simulated
   noise data, allowed with any layout); collect and status scripts use `parse_layout_args(..., collect=True)`, `parse_date_arg()` and
   `find_collect_run_folder()` (one run) / `find_collect_run_folders()` (without `layout=` and `date=`: every run with something left to collect, in turn);
