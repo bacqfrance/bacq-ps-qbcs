@@ -315,8 +315,8 @@ for CHUNKS_TO_SUBMIT in range(CHUNK_START, CHUNK_STOP + 1):
     print(
         f"\n  [{now.isoformat(timespec='seconds')}]  Chunk {nc}  |  done {CHUNKS_TO_SUBMIT}/{CHUNK_STOP}\n"
         f"      wall {wall_s:.1f}s   iter {iter_seconds:.1f}s   QPU {qpu_txt}\n"
-        f"      ETA(last {ETA_WINDOW}) {eta_r_txt:>14}   finish ~ {finish_last.strftime('%Y-%m-%d %H:%M %Z')}\n"
-        f"      ETA(avg)    {eta_a_txt:>14}   finish ~ {finish_avg.strftime('%Y-%m-%d %H:%M %Z')}\n"
+        f"      ETA(last {ETA_WINDOW}) {eta_r_txt:>14}  📅  finish ~ {finish_last.strftime('%Y-%m-%d %H:%M %Z')}\n"
+        f"      ETA(avg)    {eta_a_txt:>14}  📅  finish ~ {finish_avg.strftime('%Y-%m-%d %H:%M %Z')}\n"
         f"      QPU-budget proj {proj_txt}",
         flush=True,
     )
