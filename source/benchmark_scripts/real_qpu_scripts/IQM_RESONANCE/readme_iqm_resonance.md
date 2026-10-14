@@ -141,9 +141,9 @@ calibration, and costs no QPU time:
 3. picks the physical qubits from the snapshot exactly as a real submission
    would, runs every chunk (SPAM on the same qubits), and analyzes the results.
 
-Run it from the project root in `iqm_resonance.venv`. It connects with `get_backend(use_metrics=True)` — without it the backend carries no error data. Post-process by adding the
-`sim-qpu-noise_…` folder name (without the benchmark) to `RUN_THESE` in `source/analysis_scripts/run_post_process.py` and
-running it with `--include-simulations-real`; its
+Run it from the project root in `iqm_resonance.venv`. It connects with `get_backend(use_metrics=True)` — without it the backend carries no error data. Post-process with
+`run_post_process.py --include-simulations-real` (`source/analysis_scripts/`; every `sim-qpu-noise_…` run of this QPU, whatever its layout, is
+already covered by `SIMULATED_QPUS` in `RUN_THESE`); its
 summary JSON names the backend and snapshot date, so the result is never
 mistaken for a hardware run. Like the submit script, it runs a health check
 before and after the simulation — the same transpiled circuit, on the run's

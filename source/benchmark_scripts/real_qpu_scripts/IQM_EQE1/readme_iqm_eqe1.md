@@ -139,9 +139,9 @@ works like `qbcs_real_simulate_iqm_resonance.py`. The calibration is saved as
 `datafiles/<benchmark>_sim-qpu-noise_iqm-eqe1_…_layout-<mode>_<YYYY-MM-DD>_#<N>/calibration_snapshot.json`. A rerun reuses that copy (it must be the same calibration), prints that it is reusing the run's saved calibration, and
 resumes an unfinished run (a finished one is followed by a new dated folder); remove the run folder to start over. It then builds an
 Aer noise model, picks the physical qubits as `layout=` says, runs health
-checks and every chunk locally, and analyzes the results. To post-process it, add its folder name without the benchmark
-(`sim-qpu-noise_…_layout-<mode>`) to `RUN_THESE` in `source/analysis_scripts/run_post_process.py` and run that
-with `--include-simulations-real`, or run it with `nshots_per_circuit=<its shots> --include-simulations-real`
+checks and every chunk locally, and analyzes the results. To post-process it, run
+`source/analysis_scripts/run_post_process.py` with `--include-simulations-real` (every layout of this QPU's `sim-qpu-noise_…` runs is
+already in `SIMULATED_QPUS` of `RUN_THESE`; `--layouts=<mode>` narrows it), or with `nshots_per_circuit=<its shots> --include-simulations-real`
 (main USER_MANUAL §7). Examples of the simulation:
 
 ```bash

@@ -17,8 +17,8 @@ same circuits and settings as qbcs_real_submit_aqt_loop.py, but no QPU time.
      the same noise model.
   5. submit(service="local", layout_backend=<snapshot backend>) — every chunk,
      SPAM on the same qubits — then analyze_results(). Post-process with
-     source/analysis_scripts/run_post_process.py --include-simulations-real: add the run name without its <benchmark>_
-     (sim-qpu-noise_<provider>-<backend>_…) to RUN_THESE (USER_MANUAL §10.2).
+     source/analysis_scripts/run_post_process.py --include-simulations-real: every layout of the
+     QPU's sim-qpu-noise_<provider>-<backend> runs is already in SIMULATED_QPUS of RUN_THESE (USER_MANUAL §10.2).
 
 Qubit layout (required — see the usage): PIAST-Q reports no calibration, so a real submission uses a RANDOM
 layout unless calibration_file= is given. layout=random|lowest|optimized|15,14,21 says which one to mimic;

@@ -20,8 +20,8 @@ QPU time and no LEXIS login.
      downloaded architecture (iqm-client; no login), graded from the calibration.
   4. Health check before and after the simulation, on the run's qubits.
   5. submit(service="local", layout_backend=<snapshot backend>), then analyze_results().
-     Post-process with source/analysis_scripts/run_post_process.py --include-simulations-real (add the run name without
-     its <benchmark>_, sim-qpu-noise_iqm-vlq_…, to RUN_THESE — USER_MANUAL §10.2).
+     Post-process with source/analysis_scripts/run_post_process.py --include-simulations-real (every layout of
+     sim-qpu-noise_iqm-vlq is already in SIMULATED_QPUS of RUN_THESE — USER_MANUAL §10.2).
 
 Run from the project root in venvs/iqm_vlq.venv (iqm-client builds the offline target; no login needed).
 

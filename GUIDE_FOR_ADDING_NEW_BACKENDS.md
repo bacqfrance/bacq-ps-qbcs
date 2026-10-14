@@ -230,8 +230,8 @@ the summary's QPU time and cost with what the provider's own dashboard says.
 
 ### 10. Post-processing and docs
 
-- Add the run-name fragment `real-data_<provider>-<backend>` (e.g. `real-data_ibm-fez`) to `REAL_QPUS` in `source/analysis_scripts/run_post_process.py` (and its simulation run
-  folders to `RUN_THESE`, if any).
+- Add the run-name fragment `real-data_<provider>-<backend>` (e.g. `real-data_ibm-fez`) to `REAL_QPUS` in `source/analysis_scripts/run_post_process.py`, and `sim-qpu-noise_<provider>-<backend>`
+  (cut off after the backend, so every layout is covered) to `SIMULATED_QPUS` if the backend has a `qbcs_real_simulate_*.py`.
 - USER_MANUAL: the backend in §3 (setup), §5.4 (the `<provider>-<backend>` and `service` fields), §7 (timing table: what QPU and queue time mean for it,
   the token table), §10.2 (the cost paragraph), and the test table; both QUICK_START guides.
 - `readme_<backend>.md` in the backend's folder (`source/benchmark_scripts/real_qpu_scripts/<BACKEND>/`), with the
@@ -290,7 +290,7 @@ Usually nothing: `aggregate_run_timing`, `qpu_queue_breakdown`, `qpu_workload` a
 
 ### `source/analysis_scripts/run_post_process.py`
 
-- `REAL_QPUS` (`real-data_<provider>-<backend>` entries) and `RUN_THESE`.
+- `REAL_QPUS` (`real-data_<provider>-<backend>` entries), `SIMULATED_QPUS` (`sim-qpu-noise_<provider>-<backend>`) and `RUN_THESE`.
 
 ### Unreliable connections
 
@@ -319,4 +319,4 @@ provider — check the job list before submitting again.
 - [ ] USER_MANUAL §9 test table updated; full suite passes
 - [ ] real-service check: health check → mini benchmark → post-processing, compared with the provider's dashboard
 - [ ] `backends.json` with every machine's real topology; `backend=` required by every script
-- [ ] `REAL_QPUS`; USER_MANUAL §3/§5.4/§7/§9, §10.2 cost paragraph; both QUICK_START guides; `tokens/README.md`; `readme_<backend>.md`
+- [ ] `REAL_QPUS`, `SIMULATED_QPUS`; USER_MANUAL §3/§5.4/§7/§9, §10.2 cost paragraph; both QUICK_START guides; `tokens/README.md`; `readme_<backend>.md`

@@ -901,9 +901,9 @@ A simulated run is a synchronous `service="local"` run: its summary reports QPU 
 and all its time as CPU time. The calibration it used stays in the run folder
 (`calibration_snapshot.json`). Rerunning the simulate script on an unfinished run reuses it — it prints a warning that it
 uses pre-saved calibration data — and resumes the run; once the run is finished, a rerun starts a new dated run folder
-with fresh calibration (to start over on an unfinished one, remove its folder `datafiles/<benchmark>_sim-qpu-noise_<provider>-<backend>_…/` first). To post-process it, add its folder
-name without the benchmark (`sim-qpu-noise_<provider>-<backend>_…_layout-<mode>`) to `RUN_THESE` in `source/analysis_scripts/run_post_process.py` and run it with
-`--include-simulations-real`, or run
+with fresh calibration (to start over on an unfinished one, remove its folder `datafiles/<benchmark>_sim-qpu-noise_<provider>-<backend>_…/` first). To post-process it, run
+`source/analysis_scripts/run_post_process.py` with `--include-simulations-real`: every layout of every QPU's `sim-qpu-noise_<provider>-<backend>_…` runs is already
+covered by `SIMULATED_QPUS` in `RUN_THESE` (narrow it with `--layouts=<mode>`), or run
 `python source/analysis_scripts/run_post_process.py nshots_per_circuit=<its shots> --include-simulations-real`.
 
 Legacy runs (recorded without timing blocks) were converted to the current format, so they are
@@ -1319,7 +1319,8 @@ Every run records what it was — shots, samples, depths, `dt`, topology, SPAM �
 written right after `build()` (`record_run_info()`, which calls `write_run_info()` in `source/core/records/run_info.py`). The scripts below read those settings from the run folder, so
 the `RUN_FOLDER` in their headers only names the run when one is run standalone. Every run folder has one. `run_post_process.py` needs no per-QPU configuration: a `RUN_THESE` entry is a run name without its
 `<benchmark>_` (e.g. `real-data_ibm-fez`, `sim-noiseless_local-aer_lnn-True`; the real QPUs are listed once in
-`REAL_QPUS`, the local simulations in `LOCAL_SIMULATIONS`, and both lists go into `RUN_THESE`), cut off after any field, and
+`REAL_QPUS`, the simulations with a real QPU's calibration in `SIMULATED_QPUS` (`sim-qpu-noise_<provider>-<backend>`, so every layout is included), the local simulations in
+`LOCAL_SIMULATIONS`, and all three lists go into `RUN_THESE`), cut off after any field, and
 matches the one folder `<benchmark>_<entry>…` on disk (`<benchmark>` = `mini` or `full`), whose settings then come
 from the run as above. If an entry matches several runs (e.g. two layouts or two dates), all are analyzed, in the order
 QPU, layout, date, run number; to pick one, add fields or name it with

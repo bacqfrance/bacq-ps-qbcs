@@ -189,9 +189,9 @@ the current calibration set (public API, no login) once into
 2 · MOVE + CZ, the prx error from the per-gate fidelity above, readout and T1/T2 as measured) and picks the qubits exactly as the submit script does (transpiling onto an offline target built
 from the downloaded architecture, with iqm-client).
 A rerun of an unfinished run reuses the files and prints a warning that it uses pre-saved calibration data (a finished run is followed by a new dated folder, which downloads fresh calibration); remove the run folder to start over. It runs in
-`iqm_vlq.venv` (iqm-client builds the offline target); it needs no login. Post-process by adding the
-`sim-qpu-noise_…` folder name (without the benchmark) to `RUN_THESE` in `source/analysis_scripts/run_post_process.py` and
-running it with `--include-simulations-real`; its
+`iqm_vlq.venv` (iqm-client builds the offline target); it needs no login. Post-process with
+`run_post_process.py --include-simulations-real` (`source/analysis_scripts/`; every `sim-qpu-noise_…` run of this QPU, whatever its layout, is
+already covered by `SIMULATED_QPUS` in `RUN_THESE`); its
 summary JSON names the backend and snapshot date, so the result is never
 mistaken for a hardware run. Like the submit script, it runs a health check
 before and after the simulation — the same transpiled circuit, on the run's

@@ -127,6 +127,18 @@ REAL_QPUS = [
      "real-data_aqt-piast-q",
 ]
 
+SIMULATED_QPUS = [   # simulations with a real QPU's calibration (qbcs_real_simulate_*.py), cut off after the backend: every layout
+    "sim-qpu-noise_ibm-marrakesh",
+    "sim-qpu-noise_ibm-kingston",
+    "sim-qpu-noise_ibm-fez",
+    "sim-qpu-noise_iqm-eqe1",
+    "sim-qpu-noise_iqm-emerald",
+    "sim-qpu-noise_iqm-garnet",
+    "sim-qpu-noise_iqm-sirius",
+    "sim-qpu-noise_iqm-vlq",
+    "sim-qpu-noise_aqt-piast-q",
+]
+
 LOCAL_SIMULATIONS = [   # source/benchmark_scripts/local_simulation_scripts/
     "sim-noiseless_local-aer_lnn-False",
     "sim-noiseless_local-aer_lnn-True",
@@ -139,8 +151,7 @@ RUN_THESE = {
     "full": [
         *LOCAL_SIMULATIONS,
         # Simulations with a real QPU's calibration — source/benchmark_scripts/real_qpu_scripts/<QPU>/qbcs_real_simulate_*.py full:
-        "sim-qpu-noise_iqm-vlq_lnn-False_service-local_spam-True_layout-optimized",
-        "sim-qpu-noise_aqt-piast-q_lnn-False_service-local_spam-True_layout-random",
+        *SIMULATED_QPUS,
         # Real QPUs:
         *REAL_QPUS,
         # dict(run="real-data_ibm-fez", n_samples=48),
@@ -154,9 +165,7 @@ RUN_THESE = {
     "mini": [
         *LOCAL_SIMULATIONS,
         # Simulations with a real QPU's calibration — source/benchmark_scripts/real_qpu_scripts/<QPU>/qbcs_real_simulate_*.py:
-        "sim-qpu-noise_iqm-vlq_lnn-False_service-local_spam-True_layout-optimized",
-        "sim-qpu-noise_aqt-piast-q_lnn-False_service-local_spam-True_layout-random",
-        "sim-qpu-noise_aqt-piast-q_lnn-False_service-local_spam-True_layout-optimized",
+        *SIMULATED_QPUS,
         # Real QPUs (source/benchmark_scripts/real_qpu_scripts/, mini):
         *REAL_QPUS,
     ],

@@ -19,8 +19,8 @@ qbcs_real_submit_iqm_resonance.py, but no QPU time.
      model — so it shows what that circuit would score with this calibration.
   5. submit(service="local", layout_backend=<snapshot backend>) — every chunk,
      SPAM on the same qubits — then analyze_results(). Post-process with
-     source/analysis_scripts/run_post_process.py --include-simulations-real: add the run name without its <benchmark>_
-     (sim-qpu-noise_<provider>-<backend>_…) to RUN_THESE (USER_MANUAL §10.2).
+     source/analysis_scripts/run_post_process.py --include-simulations-real: every layout of the
+     QPU's sim-qpu-noise_<provider>-<backend> runs is already in SIMULATED_QPUS of RUN_THESE (USER_MANUAL §10.2).
 
 Run from the project root in venvs/iqm_resonance.venv.
 
