@@ -21,7 +21,7 @@ same circuits and settings as qbcs_real_submit_aqt_loop.py, but no QPU time.
      QPU's sim-qpu-noise_<provider>-<backend> runs is already in SIMULATED_QPUS of RUN_THESE (USER_MANUAL §10.2).
 
 Qubit layout (required — see the usage): PIAST-Q reports no calibration, so a real submission uses a RANDOM
-layout unless calibration_file= is given. layout=random|lowest|optimized|15,14,21 says which one to mimic;
+layout unless calibration_file= is given. layout=random|lowest|optimized|15,14,12 says which one to mimic;
 layout=optimized scores the placements with the calibration file. The run folder ends in _layout-<mode>.
 
 Run from the project root in venvs/aqt.venv.

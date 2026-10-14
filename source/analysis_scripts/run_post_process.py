@@ -9,10 +9,10 @@ Run the full BACQ analysis pipeline for a chosen set of runs (real QPU or local 
   6. collective plots  (source/core/analysis/collective_plots.py) — all analyzed runs together:
      AWAE vs N_t of each run's best EMS; QPU, submission and collection time, the
      submission-to-results window and the effective cost per QPU; N_acc and E_min at N_max per
-     run; and a run table CSV (N_acc, N_max, E_min, best scheme, QPU time, effective cost) in analysis/summaries/
+     run; and a run table CSV (N_acc, N_max, E_min, best scheme at N_max and at N_acc, QPU time, effective cost) next to the plots
 
 Stages 2-5 reuse the existing scripts, driven per-run via the QPU_RUN_FOLDER /
-QPU_N_SAMPLES env vars; each run's summary json is also copied to analysis/summaries/. Each run's own settings (shots, samples,
+QPU_N_SAMPLES env vars; each run's summary json is also copied to its analysis/plots+summaries/<run folder>/. Each run's own settings (shots, samples,
 depths, topology, SPAM) come from its run folder — source/core/records/run_info.py — not from
 constants here, so e.g. mini, full and custom runs are analyzed alike.
 
@@ -37,14 +37,18 @@ Optional filters narrow the selected runs, for the individual and the collective
   --services=ibm-cloud,pcss         the run's service
   --layouts=optimized,random        the run's qubit layout (optimized, random, lowest, legacy, none, 15-14-21)
 A filtered collective set goes to its own folder, e.g. mini_collective_real-data_dates-2026-09-01-to-2026-09-30_backends-ibm-fez.
+Add --latest-per-qpu to keep only the latest run (date, then run number; complete or not, any layout) of each
+<provider>-<backend> among the runs the selection and filters leave; its collective plots go to a folder ending
+_latest-per-qpu. An incomplete run (fewer chunks analyzed than its sample size) is marked "(n/N chunks)" in the
+collective plots. Each collective plots folder also gets a copy of every plotted run's summary json.
 Add --individual-only (stages 1-5 only) or --collective-only (stage 6 only, from the
 runs' existing analysis results); without either flag both are done. The collective plots go to
-analysis/plots/<benchmark>_collective_<data types>/, e.g. mini_collective_real-data+sim-noiseless
+analysis/plots+summaries/<benchmark>_collective_<data types>/, e.g. mini_collective_real-data+sim-noiseless
 (source/core/records/run_names.py); with nshots_per_circuit=N alone the benchmark part is any+nshots-N.
 Add --nsamples-comparison (full benchmark only) to also analyze each run on 8, 48, 120, 240 and
 480 samples (NSAMPLES_COMPARISON; JSONs only, no per-N plots; only the RC samples vary, the SPAM
 correction always uses every collected chunk's calibration) and plot the full run's best EMS for
-each in analysis/plots/<run folder>/awae_best_ems_nsamples_comparison.png. It is per-run only:
+each in analysis/plots+summaries/<run folder>/awae_best_ems_nsamples_comparison.png. It is per-run only:
 the collective plots are made as usual (from the full runs), and with --collective-only the flag is ignored.
 
 """
@@ -74,8 +78,8 @@ from source.core.records.timestamps import TIMESTAMP_FILENAME
 from source.core.records.health_check_records import format_chunk_range
 from source.core.runner_support.venvs import venv_python
 from source.core.common import exit_with_error, PROJECT_ROOT
-from source.core.records.run_names import (collective_folder_name, collective_plots_dir, collective_table_path, entry_data_type, is_run_name, make_run_filter,
-                                   parse_run_name, run_summary_name, subset_suffix, summary_name, summaries_dir)
+from source.core.records.run_names import (collective_folder_name, collective_plots_dir, entry_data_type, is_run_name, make_run_filter,
+                                   parse_run_name, run_summary_name, subset_suffix, summary_name, plots_dir)
 
 ANALYSIS_SCRIPTS = PROJECT_ROOT / "source" / "analysis_scripts"   # the post-processing scripts run_script() launches
 
@@ -173,7 +177,7 @@ RUN_THESE = {
 
 NSAMPLES_COMPARISON = [8, 48, 120, 240, 480]   # sample counts of --nsamples-comparison
 
-USAGE = """usage: python source/analysis_scripts/run_post_process.py SELECTION INCLUDE... [FILTER...] [--individual-only | --collective-only] [--nsamples-comparison]
+USAGE = """usage: python source/analysis_scripts/run_post_process.py SELECTION INCLUDE... [FILTER...] [--latest-per-qpu] [--individual-only | --collective-only] [--nsamples-comparison]
 
   Run the BACQ analysis pipeline (merge + analyze, summary, plots, collective plots) for a chosen set of runs,
   real-QPU and/or simulated. Nothing is analyzed unless at least one INCLUDE flag is given.
@@ -200,6 +204,10 @@ USAGE = """usage: python source/analysis_scripts/run_post_process.py SELECTION I
   --services=A,B         the service, e.g. ibm-cloud,pcss (local for the local simulations)
   --layouts=A,B          the qubit layout: optimized, random, lowest, legacy, none or three qubits like 15-14-21
   The collective plots of a filtered set go to their own folder (<benchmark>_collective_<data types>_dates-…_backends-…).
+
+  --latest-per-qpu       keep only the latest run (date, then run number; complete or not, any layout) of each
+                         <provider>-<backend> left by the selection and filters; the collective plots folder gets the
+                         suffix _latest-per-qpu. Incomplete runs are marked "(n/N chunks)" in the collective plots.
 
   ANALYSIS SCOPE — individual and/or collective analysis and plots:
   --individual-only      only the per-run analysis and plots (stages 1-5)
@@ -447,7 +455,8 @@ def merge_and_analyze(run_folder, n_samples_override=None):
     qbcs.CONFIG["lnn_architecture"] = info.lnn
     qbcs.TIMESTAMP_FILE             = run_path / TIMESTAMP_FILENAME
     qbcs._use_circuit_LNN           = info.lnn
-    qbcs._status                    = "submitted"
+    qbcs._qiskit_v13_qpy            = not info.lnn   # build() sets it so; all_to_all caches hold only the v13 timestamp log
+    qbcs._status                   = "submitted"
     if is_sim:
         qbcs.CONFIG["service"] = "local"   # kept in CONFIG only; nothing reads it back
 
@@ -508,11 +517,10 @@ def run_script(script_name, run_folder, n_samples, extra_env=None):
 
 
 def copy_summary(run_folder, n_samples):
-    """Copy the run's summary json to analysis/summaries/ (a test run's: analysis/tests/summaries/), where every
-    run's summary is collected."""
+    """Copy the run's summary json to the run's plots+summaries folder (a test run's: analysis/tests/plots+summaries/)."""
     src = PROJECT_ROOT / "datafiles" / run_folder / "processed_results" / run_summary_name(n_samples)
     if src.exists():
-        dest = PROJECT_ROOT / summaries_dir(run_folder)
+        dest = PROJECT_ROOT / plots_dir(run_folder)
         dest.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dest / summary_name(run_folder, n_samples))
 
@@ -591,6 +599,8 @@ def main():
     args, do_individual, do_collective = parse_scope(args)
     do_nsamples = "--nsamples-comparison" in args
     args = [a for a in args if a != "--nsamples-comparison"]
+    latest_per_qpu = "--latest-per-qpu" in args
+    args = [a for a in args if a != "--latest-per-qpu"]
     mode, value = parse_mode(args)
     if do_nsamples and (mode, value) != ("preset", "full"):
         print(USAGE, file=sys.stderr)
@@ -603,6 +613,14 @@ def main():
     cfg_of  = {f: c for c in cfgs for f in resolve_cfg(c, benchmark)}   # resolved once; an entry matching several folders (layouts) includes all
     folders = sorted((f for f in cfg_of if run_kind(f) in kinds
                       and run_filter.matches(parse_run_name(f))), key=folder_order)   # one filter point: individual and collective alike
+    if latest_per_qpu:
+        latest = {}   # device -> ((date, run number), folder)
+        for f in folders:
+            n = parse_run_name(f)
+            key = (n.date or "", n.run_number or 0)
+            if n.device not in latest or key >= latest[n.device][0]:
+                latest[n.device] = (key, f)
+        folders = sorted((f for _, f in latest.values()), key=folder_order)
     print(f"Including: {', '.join(sorted(kinds))}")
     if not run_filter.is_empty:
         print(f"Filters: {run_filter.describe()}")
@@ -642,9 +660,8 @@ def main():
     selection = f"any+nshots-{value}" if mode == "nshots" else value
     data_types = [KIND_DATA_TYPES[k][0] for k in KIND_DATA_TYPES if k in kinds]
     try:
-        collective_name = collective_folder_name(selection, data_types, run_filter)
-        make_collective_plots(analyzed, PROJECT_ROOT / collective_plots_dir(collective_name),
-                              PROJECT_ROOT / collective_table_path(collective_name))
+        collective_name = collective_folder_name(selection, data_types, run_filter, latest_per_qpu)
+        make_collective_plots(analyzed, PROJECT_ROOT / collective_plots_dir(collective_name))
     except Exception as e:
         print(f"❌ collective plots failed — {e}", file=sys.stderr)
 

@@ -104,7 +104,7 @@ def simulate_run(*, run_folder, bench, layout, lnn, snapshot_path, cal_source, d
 
     qbcs.analyze_results()   # processed_results/run_data.json (+ _spam.json)
     t3 = time.perf_counter()
-    print(f"\nBuild {t1 - t0:.1f} s | simulation {t2 - t1:.1f} s | analysis {t3 - t2:.1f} s")
+    print(f"\nBuild {t1 - t0:.1f} s | simulation {t2 - t1:.1f} s | analysis {t3 - t2:.1f} s | total wall time {t3 - t0:.1f} s")
     print_done_block(f"{len(todo)} chunk(s) simulated: {format_chunk_range(todo) or 'none'}",
                      [("Run folder",  f"datafiles/{run_folder}"),
                       ("Job records", f"datafiles/{run_folder}/job_records/"),

@@ -13,22 +13,25 @@ Plots comparing all runs analyzed by source/analysis_scripts/run_post_process.py
   effective_cost_EUR.png    effective cost in EUR per run (log scale)
   n_acc.png                 N_acc per run (linear scale)
   e_min_nmax.png            E_min at N_max per run (linear scale, with the threshold epsilon)
-and, in analysis/summaries/ (not with the plots), <benchmark>_collective_<data types>[<filter suffix>].csv (the suffix only for a filtered set of runs): one row per run with
-  run, n_samples, N_acc, N_max, E_min_Nmax, best_scheme_Nmax, QPU_time_s, QPU_time, effective_cost_EUR
+and, in the same folder, <benchmark>_collective_<data types>[<filter suffix>][_latest-per-qpu].csv (the suffixes only for a filtered set of runs): one row per run with
+  run, n_samples, sample_size, N_acc, best_scheme_Nacc, N_max, E_min_Nmax, best_scheme_Nmax, QPU_time_s, QPU_time, effective_cost_EUR
 
 Reads each run's processed_results/summary.json (a subset: summary+nsamples-N.json) and
 run_data[_spam][+nsamples-N].json. Works with both the current summary format and the
 legacy one (effective_cost_euros instead of effective_cost_EUR, computer_name instead of device_label, ...);
+each run's summary json is copied into the plots folder too;
 a quantity a run's summary lacks is left out of that plot with a warning.
 """
 
 import csv
 import json
 import math
+import shutil
 from pathlib import Path
 
 from source.core.common import PROJECT_ROOT, rel_path
-from source.core.records.run_names import parse_run_name, run_summary_name, subset_suffix
+from source.core.records.run_info import load_run_info
+from source.core.records.run_names import parse_run_name, run_summary_name, subset_suffix, summary_name
 from source.core.analysis.derived_quantities import EPSILON, cumulative_awae, best_schemes
 
 import matplotlib
@@ -87,6 +90,7 @@ def _load_run(run_folder, n_samples):
         name       = summary.get("device_label") or summary.get("computer_name") or backend,   # computer_name: summaries saved before the rename
         shots      = summary.get("shots_per_circuit"),
         n_samples  = n_samples,
+        sample_size = load_run_info(run_folder).sample_size,   # the chunks of a complete run
         layout     = parse_run_name(run_folder).layout,
         date       = parse_run_name(run_folder).date,         # YYYY-MM-DD (None: an undated test run)
         run_number = parse_run_name(run_folder).run_number,   # N of _#N (None: an undated test run)
@@ -100,6 +104,7 @@ def _load_run(run_folder, n_samples):
         n_max      = summary.get("N_max"),
         emin_nmax  = summary.get("E_min_Nmax"),
         best_ems_nmax = summary.get("best_ems_Nmax"),
+        best_ems_nacc = summary.get("best_ems_Nacc"),
         cost_eur   = summary.get("effective_cost_EUR", summary.get("effective_cost_euros")),   # legacy key: effective_cost_euros
         curves     = curves,
     )
@@ -111,11 +116,12 @@ def run_order(run):
 
 
 def _labels(runs):
-    """QPU name, layout and date (DD/MM/YYYY #N) per run, extended by shots / subset only where it tells runs with
-    the same label apart (a field the duplicates share is not appended)."""
-    labels = [f"{r['name']}, layout {r['layout']}, {r['date_label']}" for r in runs]
+    """QPU name, layout and date (DD/MM/YYYY #N) per run, with "(n/N chunks)" on every incomplete run (fewer chunks
+    analyzed than the run's sample size), extended by shots only where it tells runs with the same label apart
+    (a field the duplicates share is not appended)."""
+    labels = [f"{r['name']}, layout {r['layout']}, {r['date_label']}"
+              + (f" ({r['n_samples']}/{r['sample_size']} chunks)" if r["n_samples"] is not None else "") for r in runs]
     for extra in (lambda r: f"{r['shots']} shots" if r["shots"] is not None else None,
-                  lambda r: f"n={r['n_samples']}" if r["n_samples"] is not None else None,
                   lambda r: r["run_folder"]):
         dups = {l for l in labels if labels.count(l) > 1}
         if not dups:
@@ -231,13 +237,13 @@ def _write_run_table(runs, labels, path):
         return fmt.format(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and not math.isnan(v) else ""
     def text(v):
         return v if isinstance(v, str) and v != "N/A" else ""
-    rows = [["run", "n_samples", "N_acc", "N_max", "E_min_Nmax", "best_scheme_Nmax",
+    rows = [["run", "n_samples", "sample_size", "N_acc", "best_scheme_Nacc", "N_max", "E_min_Nmax", "best_scheme_Nmax",
              "QPU_time_s", "QPU_time", "effective_cost_EUR"]]
     for l, r in zip(labels, runs):
         q = r["qpu_time_s"]
         q_ok = isinstance(q, (int, float)) and not math.isnan(q)
-        rows.append([l, "" if r["n_samples"] is None else str(r["n_samples"]),
-                     num(r.get("n_acc"), "{:.0f}"), num(r.get("n_max"), "{:.0f}"),
+        rows.append([l, "" if r["n_samples"] is None else str(r["n_samples"]), str(r["sample_size"]),
+                     num(r.get("n_acc"), "{:.0f}"), text(r.get("best_ems_nacc")), num(r.get("n_max"), "{:.0f}"),
                      num(r.get("emin_nmax"), "{:.4g}"), text(r.get("best_ems_nmax")),
                      num(q, "{:.0f}"), _duration_fmt(round(q)) if q_ok else "",
                      num(r["cost_eur"], "{:.2f}")])
@@ -250,8 +256,9 @@ def _write_run_table(runs, labels, path):
     print(f"✅ Saved → {rel_path(path)}")
 
 
-def make_collective_plots(analyzed, out_dir, table_path):
-    """analyzed: [(run_folder, n_samples or None)]; the plots are written to out_dir, the run table to table_path."""
+def make_collective_plots(analyzed, out_dir):
+    """analyzed: [(run_folder, n_samples or None)]; the plots, the run table (<out_dir name>.csv) and the runs'
+    summary jsons are written to out_dir."""
     runs = sorted((r for r in (_load_run(f, n) for f, n in analyzed) if r is not None), key=run_order)
     if not runs:
         print("⏭  no analyzed runs — no collective plots")
@@ -259,6 +266,9 @@ def make_collective_plots(analyzed, out_dir, table_path):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     labels = _labels(runs)
+    for r in runs:   # the summaries behind the plots and the table, next to them
+        src = _find_summary(PROJECT_ROOT / "datafiles" / r["run_folder"], r["n_samples"])
+        shutil.copy2(src, out_dir / summary_name(r["run_folder"], r["n_samples"]))
     _awae_plot(runs, labels, ["awae"], out_dir / "awae_best_ems_vs_Nt.png")
     _awae_plot(runs, labels, ["cumul"], out_dir / "cumul_awae_best_ems_vs_Nt.png")
     _awae_plot(runs, labels, ["awae", "cumul"], out_dir / "awae_and_cumul_awae_best_ems_vs_Nt.png")
@@ -278,6 +288,4 @@ def make_collective_plots(analyzed, out_dir, table_path):
               lambda v: f"{v:.0f}", out_dir / "n_acc.png", log=False)
     _bar_plot(runs, labels, "emin_nmax", "$E_{min}$ at $N_{max}$", "$E_{min}$ at $N_{max}$ per run",
               lambda v: f"{v:.3g}", out_dir / "e_min_nmax.png", log=False)
-    table_path = Path(table_path)
-    table_path.parent.mkdir(parents=True, exist_ok=True)
-    _write_run_table(runs, labels, table_path)
+    _write_run_table(runs, labels, out_dir / f"{out_dir.name}.csv")

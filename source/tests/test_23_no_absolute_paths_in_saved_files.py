@@ -24,7 +24,7 @@ from pathlib import Path
 
 from source.analysis_scripts.run_post_process import analyze_run
 from source.core.runner_support.venvs import venv_python
-from source.core.records.run_names import plots_dir as run_plots_dir, summaries_dir
+from source.core.records.run_names import plots_dir as run_plots_dir
 from source.tests.testing_functions import rm_glob, run_name_for_test, TEST_CIRCUITS_ROOT
 
 BS = chr(92)   # a backslash, spelled out so no string escaping can change it
@@ -100,7 +100,7 @@ def test_23_saved_files_hold_no_absolute_path():
     assert src.count(FOLDER_LINE) == 1, "benchmark_noiseless_all_to_all.py's RUN_FOLDER line changed — update this test"
     src = src.replace(FOLDER_LINE, f'RUN_FOLDER = "{TEST_FOLDER}"')
 
-    plots, summaries = run_plots_dir(TEST_FOLDER), summaries_dir(TEST_FOLDER)
+    plots = run_plots_dir(TEST_FOLDER)
     rm_glob(f"datafiles/{TEST_FOLDER}", plots.as_posix(), f"{TEST_CIRCUITS_ROOT}/all_to_all_Nt1-3")
     result = subprocess.run([venv_python("local_sim.venv", "test_23 (the mini benchmark child process)"), "-c", src],
                             encoding="utf-8", errors="replace", cwd=PROJECT_ROOT, capture_output=True)
@@ -112,9 +112,8 @@ def test_23_saved_files_hold_no_absolute_path():
     names = {p.name for p in files}
     assert {"submit.log", "run_info.json", "run_data.json"} <= names, sorted(names)
     assert any(p.parent.name == "job_records" for p in files), "no job records were written"
-    for folder in (PROJECT_ROOT / plots, PROJECT_ROOT / summaries):
-        if folder.is_dir():
-            files += list(_text_files(folder))
+    if (PROJECT_ROOT / plots).is_dir():
+        files += list(_text_files(PROJECT_ROOT / plots))
 
     literals = _forbidden_literals()
     found = [line for p in files for line in _leaks(p, literals)]

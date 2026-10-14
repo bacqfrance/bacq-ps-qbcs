@@ -16,7 +16,7 @@ from source.core.runner_support.benchmark_args import DT
 
 
 def run_local_simulation(*, run_folder, bench, lnn, backend_label, do_spam=True, sampler_factory=None,
-                         extra_qbcs_kwargs=None, extra_config=None, noisy_setup=None):
+                         extra_qbcs_kwargs=None, extra_config=None, noisy_setup=None, layout=None):
     """Build, simulate and analyze run_folder as the local benchmark scripts do.
 
     bench: BenchmarkArgs (source/core/runner_support/benchmark_args.py); lnn: the circuit topology;
@@ -25,7 +25,8 @@ def run_local_simulation(*, run_folder, bench, lnn, backend_label, do_spam=True,
     sampler_factory(): a new sampler per use (the noiseless runs: Aer's SamplerV2).
     noisy_setup(): for a run on a calibration snapshot, called once the clock has started, returns
     (snapshot_path, snapshot_backend, sampler); the qubits are then chosen on the snapshot's backend, the
-    health check only warns when degraded, and submit.log records the qubits and the snapshot."""
+    health check only warns when degraded, and submit.log records the qubits and the snapshot.
+    layout: the LayoutArgs of a noisy run (None: optimized)."""
     from source.core.qpu.providers import ACCOMPANYING_HEALTH_CHECK_NSHOTS
     from source.core.qbcs import bacq_ps_qbcs
     from source.core.common import print_done_block
@@ -54,9 +55,9 @@ def run_local_simulation(*, run_folder, bench, lnn, backend_label, do_spam=True,
     )
 
     qbcs.build(circuit_transpilation_LNN=lnn)   # compile + interleave chunks (see USER_MANUAL §5.4); the cached circuits when noisy
-    run_qubits = resolve_layout_or_exit(qbcs, snapshot_backend, run_folder=run_folder) if noisy else None
+    layout = layout or LayoutArgs("optimized")
+    run_qubits = resolve_layout_or_exit(qbcs, snapshot_backend, run_folder=run_folder, layout=layout) if noisy else None
     t1 = time.perf_counter()
-    print(f"build time:   {t1 - t0:.1f} s")
 
     extra = [("Backend", backend_label)] + list(extra_config or [])
     if noisy:
@@ -101,19 +102,17 @@ def run_local_simulation(*, run_folder, bench, lnn, backend_label, do_spam=True,
                                                          accompanying=True, after_submission=True,
                                                          chunks=todo_chunks))[-1]
         print(f"  Health check after the simulation: P(011)={hc_post['P011']:.3f} → {hc_post['verdict']}")
-        log_layout = ({"layout": layout_summary(LayoutArgs("optimized"), run_qubits), "run_qubits": run_qubits,
-                       "snapshot_path": snapshot_path} if noisy else {})   # resolve_layout_or_exit above chose the default "optimized"
+        log_layout = ({"layout": layout_summary(layout, run_qubits), "run_qubits": run_qubits,
+                       "snapshot_path": snapshot_path} if noisy else {})
         log_path = append_submit_log(run_folder_path, backend=backend_label, chunks=todo_chunks, n_chunks=qbcs.n_chunks,
                                      nshots=bench.nshots, **log_layout,
                                      extra_lines=[health_check_log_line("PRE ", hc_pre),
                                                   health_check_log_line("POST", hc_post)])
     t2 = time.perf_counter()
-    print(f"Local execution time:  {t2 - t1:.1f} s")
 
     qbcs.analyze_results()   # writes processed_results/run_data.json (+ _spam.json)
     t3 = time.perf_counter()
-    print(f"analysis time: {t3 - t2:.1f} s")
-    print(f"total wall time:   {t3 - t0:.1f} s")
+    print(f"\nBuild {t1 - t0:.1f} s | simulation {t2 - t1:.1f} s | analysis {t3 - t2:.1f} s | total wall time {t3 - t0:.1f} s")
 
     print_done_block(f"{len(todo_chunks)} chunk(s) simulated: {format_chunk_range(todo_chunks) or 'none'}",
                      [("Run folder", f"datafiles/{run_folder}"),

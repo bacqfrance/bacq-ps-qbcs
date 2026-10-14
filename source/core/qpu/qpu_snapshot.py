@@ -2,7 +2,8 @@
 qpu_snapshot.py
 Save a real QPU's calibration to JSON and rebuild an offline backend + Aer noise
 model from it — used by the source/benchmark_scripts/real_qpu_scripts/*/qbcs_real_simulate_*.py scripts, source/core/runner_support/run_simulation.py,
-source/core/qpu/calibration_input.py and source/benchmark_scripts/local_simulation_scripts/benchmark_fake_fez_lnn.py.
+source/core/qpu/calibration_input.py, source/core/qpu/iqm_vlq.py, source/core/records/health_check_records.py,
+source/benchmark_scripts/real_qpu_scripts/IBM/qbcs_real_submit_ibm.py and source/benchmark_scripts/local_simulation_scripts/benchmark_fake_fez_lnn.py.
 
 A simulated run always works from the saved file (<run>/calibration_snapshot.json),
 never from the live backend directly: a resumed run keeps the exact calibration
@@ -55,7 +56,8 @@ a noise model. This backend does not provide them:
 
 Simulated runs download calibration for IBM (source/benchmark_scripts/real_qpu_scripts/IBM/qbcs_real_simulate_ibm.py),
 IQM Resonance (source/benchmark_scripts/real_qpu_scripts/IQM_RESONANCE/qbcs_real_simulate_iqm_resonance.py)
-and IQM VLQ (a vlq_calibration.json given as calibration_file=..., else downloaded from IT4I's API);
+and IQM VLQ (a run's vlq_calibration.json, or that run's calibration_snapshot.json with its vlq_calibration.json
+beside it, given as calibration_file=..., else downloaded from IT4I's API);
 for AQT PIAST-Q and IQM EQE1 they use a calibration file instead (calibration_file=..., default: the
 newest in calibration_input_files/<provider>/ — source/core/qpu/calibration_input.py).
 """
@@ -126,7 +128,7 @@ def snapshot_from_iqm_eqe1_json(data, source_file):
     Native gates as the EQE1 backend's Target has them: r (prx), cz on the listed pairs, and
     measure. T2 is the Ramsey value (the circuits use no dynamical decoupling). The file has
     no gate durations, so none are set: the Aer noise model then has no T1/T2 relaxation
-    term — only depolarizing gate errors and readout errors. A qubit with NaN in any field
+    term — only depolarizing gate errors and readout errors. A qubit with NaN or missing (None) in any field
     used (T1, T2, 1q_fidelity, readout_fidelity) is left out of the Target entirely — no
     r / cz / measure entries — so neither the layout selection nor the transpiler can place
     anything on it; it is listed under "excluded_qubits"."""
@@ -158,7 +160,7 @@ def snapshot_from_iqm_eqe1_json(data, source_file):
     snap["notes"] = [
         "no gate durations in the source file: no T1/T2 relaxation in the noise model",
         "T2: Ramsey (not echo)",
-        "excluded_qubits: NaN in T1, T2, 1q_fidelity or readout_fidelity — left out of the Target",
+        "excluded_qubits: NaN or missing (None) in T1, T2, 1q_fidelity or readout_fidelity — left out of the Target",
     ]
     return snap
 

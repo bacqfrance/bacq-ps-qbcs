@@ -18,7 +18,9 @@ Unit tests (no simulator run, no QPU, no network) for IT4I's VLQ (IQM Star 24) s
     IT4I's and IQM's parts;
   - iqm_vlq.call: every network call to IT4I / HEAppE is logged (OK / FAIL / TIMEOUT with its
     duration) to the terminal and the run's iqm_vlq_connection.log, and abandoned after its time
-    limit with the place it was waiting in (a HEAppE request that is never answered).
+    limit with the place it was waiting in (a HEAppE request that is never answered);
+  - iqm_vlq.use_run_calibration: a calibration_file= that is a run's calibration_snapshot.json is accepted only with
+    that run's vlq_calibration.json beside it (the raw file is copied, the snapshot rebuilt); alone it exits with code 2.
 The QPU execution time of every backend is tested in test_11_circuit_check_and_timing.py.
 """
 
@@ -170,3 +172,22 @@ def test_connection_calls_are_logged_and_time_limited(tmp_path):
     finally:
         V.set_connection_log(None)
         V._pending_events.clear()
+
+
+def test_calibration_file_snapshot_is_accepted_only_with_its_raw_file_beside_it(tmp_path):
+    from source.core.qpu.qpu_snapshot import SNAPSHOT_FILENAME
+    real = tmp_path / "real_run"                   # a real run's folder: raw file + the snapshot built from it
+    snapshot_path = V.save_vlq_calibration(real, CAL)
+    sim = tmp_path / "sim_run"
+    cal, source = V.use_run_calibration(sim, calibration_file=snapshot_path)
+    assert cal == CAL and (sim / V.VLQ_CALIBRATION_FILENAME).exists() and (sim / SNAPSHOT_FILENAME).exists()
+    assert source.endswith(SNAPSHOT_FILENAME) is False and source.endswith(V.VLQ_CALIBRATION_FILENAME)
+
+
+def test_calibration_file_snapshot_alone_exits_with_code_2(tmp_path):
+    lone = tmp_path / "lone" / "calibration_snapshot.json"
+    lone.parent.mkdir()
+    lone.write_text(json.dumps(V.snapshot_from_calibration(CAL)), encoding="utf-8")
+    with pytest.raises(SystemExit) as e:
+        V.use_run_calibration(tmp_path / "sim_run", calibration_file=lone)
+    assert e.value.code == 2

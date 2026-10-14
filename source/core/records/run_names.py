@@ -23,13 +23,13 @@ e.g. full_real-data_ibm-fez_lnn-True_service-ibm-cloud_spam-True_layout-optimize
 The builders below (qpu_run_name(), local_run_name(), health_check_run_name()) give the name without its date;
 dated_run_folder() adds it and the number: it reuses the latest folder of those settings while it is unfinished, else
 makes a new one dated today with the next number. Names without a date (test runs) still parse, with date None.
-Collective plots: <benchmark>_collective_<data type>[+<data type>...][_dates-…|_date-… for a single day][_backends-…][_services-…][_layouts-…]
-(the optional parts name run_post_process.py's filters, RunFilter.suffix()); summaries: processed_results/summary.json
-(summary+nsamples-N.json) in the run, copied to analysis/summaries/summary_<run name>.json.
+Collective plots: <benchmark>_collective_<data type>[+<data type>...][_dates-…|_date-… for a single day][_backends-…][_services-…][_layouts-…][_latest-per-qpu]
+(the optional parts name run_post_process.py's filters, RunFilter.suffix(), and --latest-per-qpu); summaries: processed_results/summary.json
+(summary+nsamples-N.json) in the run, copied to analysis/plots+summaries/<run folder>/summary_<run name>.json.
 Every other subset-analysis output in processed_results/ carries the same subset_suffix(N) = +nsamples-N
 (run_data+nsamples-N.json, run_data_spam+nsamples-N.json, health_checks+nsamples-N.json, spam_confusion_matrix+nsamples-N.npy, plots).
 The test suite's runs live in datafiles/tests/ (run folder tests/<run name>); their plots and summaries
-go to analysis/tests/plots/ and analysis/tests/summaries/ (plots_dir(), summaries_dir()).
+go to analysis/tests/plots+summaries/ (plots_dir()).
 A new QPU provider or data type needs its value added here (QPUS / DATA_TYPES) and in test_20; a data type also needs its figure_label,
 and its metadata goes in bacq_ps_qbcs_summary_json.py.
 """
@@ -215,10 +215,14 @@ def health_check_run_name(qpu, backend, reps, nshots):
                        QPUS[qpu][1], "none", "none"))
 
 
-def local_run_name(benchmark, data_type, lnn, do_spam=True, device="local-aer"):
-    """The run folder of a local-simulation script (no QPU, layout none)."""
+def local_run_name(benchmark, data_type, lnn, do_spam=True, device="local-aer", layout_tag=None):
+    """The run folder of a local-simulation script (no QPU: layout none, except sim-fake-fez, which requires
+    layout_tag: LayoutArgs.tag, layout-optimized, … or the bare mode)."""
+    if data_type == "sim-fake-fez" and layout_tag is None:
+        raise ValueError("a sim-fake-fez run name needs a layout_tag (LayoutArgs.tag)")
     provider, b = device.split("-", 1)
-    return str(RunName(benchmark, data_type, provider, b, _flag(lnn), "local", _flag(do_spam), "none"))
+    layout = "none" if layout_tag is None else layout_tag.removeprefix("layout-")
+    return str(RunName(benchmark, data_type, provider, b, _flag(lnn), "local", _flag(do_spam), layout))
 
 
 def parse_run_name(name):
@@ -481,12 +485,13 @@ def run_summary_name(n_samples=None):
 
 
 def summary_name(run_folder, n_samples=None):
-    """summary_<run name>.json — the copy in analysis/summaries/, which collects every run's summary.
+    """summary_<run name>.json — the copy of a run's summary in its plots+summaries folder and in the collective ones.
     n_samples: a subset analysis of the run's first n samples (+nsamples-n in <benchmark>)."""
     return f"summary_{parse_run_name(run_folder).with_samples(n_samples)}.json"
 
 
-TESTS_FOLDER = "tests"   # datafiles/tests/ holds the test suite's runs and caches; analysis/tests/ its plots and summaries
+PLOTS_FOLDER = "plots+summaries"   # analysis/plots+summaries/: every run's plots and summary json, and the collective sets
+TESTS_FOLDER = "tests"   # datafiles/tests/ holds the test suite's runs and caches; analysis/tests/ its plots and summaries (plots+summaries/)
 
 
 def is_test_run(run_folder):
@@ -499,31 +504,21 @@ def _analysis_root(run_folder):
 
 
 def plots_dir(run_folder):
-    """A run's plot folder, relative to the project root: analysis/plots/<run folder> (old_runs_full/… keeps its
-    subfolder), or analysis/tests/plots/<run name> for a test run."""
+    """A run's plots+summaries folder, relative to the project root: analysis/plots+summaries/<run folder>
+    (old_runs_full/… keeps its subfolder), or analysis/tests/plots+summaries/<run name> for a test run."""
     rel = str(run_folder).replace("\\", "/")
     if is_test_run(rel):
         rel = rel.split("/", 1)[1]
-    return _analysis_root(run_folder) / "plots" / rel
-
-
-def summaries_dir(run_folder=None):
-    """Where run_post_process.py collects the summary jsons: analysis/summaries, or analysis/tests/summaries for a
-    test run."""
-    return _analysis_root(run_folder or "") / "summaries"
+    return _analysis_root(run_folder) / PLOTS_FOLDER / rel
 
 
 def collective_plots_dir(name, test=False):
-    """A collective plot folder (collective_folder_name()), under analysis/plots/ or, for test runs, analysis/tests/plots/."""
-    return Path("analysis", *([TESTS_FOLDER] if test else []), "plots", name)
+    """A collective plots+summaries folder (collective_folder_name()), under analysis/plots+summaries/ or, for test
+    runs, analysis/tests/plots+summaries/. It holds the plots, the run table and the runs' summary jsons."""
+    return Path("analysis", *([TESTS_FOLDER] if test else []), PLOTS_FOLDER, name)
 
 
-def collective_table_path(name, test=False):
-    """The run table of a collective comparison (collective_folder_name() + ".csv"), under analysis/summaries/ or, for
-    test runs, analysis/tests/summaries/."""
-    return Path("analysis", *([TESTS_FOLDER] if test else []), "summaries", f"{name}.csv")
-
-
-def collective_folder_name(benchmark, data_types, run_filter=None):
-    """<benchmark>_collective_<data type>[+<data type>...][<RunFilter.suffix()>] for the plots comparing several runs."""
-    return f"{benchmark}_collective_{'+'.join(data_types)}{run_filter.suffix() if run_filter else ''}"
+def collective_folder_name(benchmark, data_types, run_filter=None, latest_per_qpu=False):
+    """<benchmark>_collective_<data type>[+<data type>...][<RunFilter.suffix()>][_latest-per-qpu] for the plots comparing several runs."""
+    return (f"{benchmark}_collective_{'+'.join(data_types)}{run_filter.suffix() if run_filter else ''}"
+            f"{'_latest-per-qpu' if latest_per_qpu else ''}")

@@ -3,8 +3,8 @@ aqt_run_folder.py
 The run folder (datafiles/<name>) that qbcs_real_submit_aqt_loop.py uses for given
 benchmark arguments, without starting that script (which connects to PIAST-Q at once).
 
-  - As a script: prints the name. run_aqt_loop.sbatch and run_aqt_loop_with_retries.sbatch (this folder) use it to find
-    the run folder's output.log.
+  - As a script: prints the name. run_aqt_loop.sbatch and run_aqt_loop_with_retries.sbatch (this folder) use it to get the
+    run folder name (they build the output.log path from it).
         python aqt_run_folder.py [benchmark arguments]
   - As a module: compute_run_folder() (importable).
 """

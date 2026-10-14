@@ -187,7 +187,7 @@ datafiles/<run_folder>/
 ```
 
 `source/analysis_scripts/run_post_process.py` plots them (with the QPU jobs, labelled by chunk numbers) into
-`analysis/plots/<run_folder>/health_checks.png`; see main USER_MANUAL §7 and §10. Health checks are collected
+`analysis/plots+summaries/<run_folder>/health_checks.png`; see main USER_MANUAL §7 and §10. Health checks are collected
 by the collect script; the submit script skips checks and submission if all chunks are already submitted.
 
 `submit.log` (appended, never overwritten) holds one entry per submission, the same in every QPU folder

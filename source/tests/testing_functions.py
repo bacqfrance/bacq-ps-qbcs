@@ -63,7 +63,7 @@ def run_name_for_test(label, data_type="sim-noiseless"):
     """A test's run folder (relative to datafiles/), named as core/records/run_names.py says:
     tests/<label>_<data type>_local-aer_lnn-none_service-local_spam-none_layout-none, e.g.
     tests/test07+nshots-250_sim-noiseless_…. Every test writes under datafiles/tests/ and analysis/tests/
-    (run_names.plots_dir / summaries_dir), both git-ignored."""
+    (run_names.plots_dir), both git-ignored."""
     from source.core.records.run_names import local_run_name, TESTS_FOLDER
     return f"{TESTS_FOLDER}/{local_run_name(label, data_type, None, None)}"
 

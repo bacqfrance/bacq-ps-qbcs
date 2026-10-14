@@ -64,7 +64,7 @@ LAYOUT_USAGE = """layout=optimized       the qubits with the best calibrated suc
   layout=15,14,21        exactly these three physical qubits (virtual qubit i -> the i-th number); an error if the QPU cannot run them
   calibration_file=PATH  with layout=optimized: a calibration JSON, either already in the project's snapshot format or
                          as the provider publishes it (converted automatically); PATH is relative to the project root
-                         (IQM VLQ: only a run's vlq_calibration.json)"""
+                         (IQM VLQ: a run's vlq_calibration.json, or that run's calibration_snapshot.json with its vlq_calibration.json beside it)"""
 
 LAYOUT_USAGE_NO_LIVE_CALIBRATION = """  AQT PIAST-Q and IQM EQE1 report no calibration data, so a live run cannot be optimized without a calibration file:
   without calibration_file= the layout is `random` (a notice is printed); layout=optimized requires calibration_file=.
@@ -100,13 +100,14 @@ def make_usage(script_file, description, backend=True, benchmark=True, health_ch
       "submit_live"    layout= only (default optimized): the QPU's live calibration, no calibration_file= (IBM, Resonance, VLQ)
       "submit_no_live" the same for QPUs without live calibration (AQT, EQE1): random unless a file is given
       "simulate"       layout= (default optimized) and calibration_file=, which is the simulation's noise data under any layout
+      "simulate_builtin"  layout= (default optimized), no calibration_file=: the simulated QPU's calibration is bundled (FakeFez)
       "simulate_required"  layout= is required (simulating AQT, EQE1); calibration_file= defaults to the newest in calibration_input_files/
       "collect"        layout= and date= are optional: they name the run folder; without them every run of the
                        benchmark with something left to collect is handled"""
     script = Path(script_file).resolve()
     path = script.relative_to(Path(__file__).resolve().parents[3]).as_posix()
     bench = "BENCHMARK" if not health_check_flag else "(BENCHMARK | health_check)"
-    lay_syn = {"submit_live": "[LAYOUT]", "submit_no_live": "[LAYOUT]", "simulate": "[LAYOUT]", "simulate_required": "LAYOUT", "collect": "[layout=...]"}.get(layout, "")
+    lay_syn = {"submit_live": "[LAYOUT]", "submit_no_live": "[LAYOUT]", "simulate": "[LAYOUT]", "simulate_builtin": "[LAYOUT]", "simulate_required": "LAYOUT", "collect": "[layout=...]"}.get(layout, "")
     synopsis = " ".join(filter(None, ["backend=NAME" if backend else "", bench if benchmark else "", lay_syn]))
     blocks = [f"usage: python {path} {synopsis}",
               textwrap.fill(description, width=110, initial_indent="  ", subsequent_indent="  ")]
@@ -131,12 +132,16 @@ def make_usage(script_file, description, backend=True, benchmark=True, health_ch
     elif layout:
         head = {"submit_live": "(optional, default optimized)",
                 "submit_no_live": "(optional; random unless calibration_file= is given)",
-                "simulate": "(optional, default optimized)", "simulate_required": "(required)"}[layout]
+                "simulate": "(optional, default optimized)", "simulate_builtin": "(optional, default optimized)",
+                "simulate_required": "(required)"}[layout]
         text = f"  LAYOUT — the physical qubits the run uses {head}:\n  {LAYOUT_USAGE}"
         if layout == "submit_live":   # live calibration only: no calibration_file= line
             text = text[:text.index("\n  calibration_file=PATH")] + (
                 "\n  (The layout is scored with the QPU's live calibration; calibration_file= is not accepted for a real run —"
                 "\n  give it to the simulate script to simulate with an older calibration.)")
+        if layout == "simulate_builtin":   # a bundled calibration (FakeFez): no calibration_file= line
+            text = text[:text.index("\n  calibration_file=PATH")] + (
+                "\n  (The layout is scored with the simulated QPU's built-in calibration; calibration_file= is not accepted.)")
         if layout in ("simulate", "simulate_required"):
             text += ("\n  (In a simulation calibration_file= is also the noise data of the simulated QPU, whatever the layout; "
                      + ("without it the newest file in calibration_input_files/ is used.)" if layout == "simulate_required"
@@ -214,7 +219,7 @@ def parse_benchmark_args(argv, extra_keys=(), required=True, layout_args=True):
     itself (e.g. "backend"); they are skipped here. The benchmark has no default: without any (and
     required=True) it is an error; with required=False the result is None. --help / -h prints the
     usage and exits with code 0. `layout_args`: also accept (and skip) layout= and calibration_file=,
-    which parse_layout_args() handles; the local simulation scripts pass False and reject them."""
+    which parse_layout_args() handles; the noiseless and coherent-noise local scripts pass False and reject them."""
     if "--help" in argv or "-h" in argv:
         print(_active_usage or USAGE)
         sys.exit(0)
@@ -348,9 +353,11 @@ def _layout_value(value):
 
 
 def parse_layout_args(argv, calibration_required=False, layout_required=False, collect=False, calibration_any_layout=False,
-                      live_calibration=None):
+                      live_calibration=None, no_calibration_file=False):
     """The layout= and calibration_file= arguments (sys.argv[1:]); prints the usage and exits with code 2
     on anything invalid. Returns a LayoutArgs.
+
+      no_calibration_file   a simulation with a bundled calibration (benchmark_fake_fez_lnn.py): calibration_file= is refused.
 
       live_calibration      a real submission to a QPU that reports its calibration (its name, e.g. "IBM"): calibration_file=
                             is refused with an explanation — the run always uses the live calibration.
@@ -379,6 +386,8 @@ def parse_layout_args(argv, calibration_required=False, layout_required=False, c
         return LayoutArgs(*_layout_value(kv["layout"])) if "layout" in kv else None
 
     cal = kv.get("calibration_file")
+    if no_calibration_file and cal is not None:
+        _fail("calibration_file= is not accepted here: this simulation uses FakeFez's built-in calibration")
     if live_calibration and cal is not None:
         _fail(LIVE_CALIBRATION_EXPLANATION.format(qpu=live_calibration))
     if "layout" not in kv:

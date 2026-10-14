@@ -5,10 +5,11 @@ Unit tests (no simulation, no network) for source/core/records/run_names.py — 
 plot-folder and summary names are built and parsed:
 
   - every QPU script folder and every data type builds a name that parses back to the same fields
-    (real runs, their simulations, standalone health checks, local simulations);
+    (real runs, their simulations, standalone health checks, local simulations; the FakeFez simulation with
+    its layout field, and an older layout-none one);
   - the <benchmark> field of the presets and of custom benchmarks (n_depths, an explicit nt_list),
     as source/core/runner_support/benchmark_args.py produces it;
-  - subset analyses (+nsamples-N), the summary names (short in the run, full in analysis/summaries/)
+  - subset analyses (+nsamples-N), the summary names (short in the run, full in analysis/plots+summaries/)
     and the collective-plot folder names;
   - malformed names are refused, and an explicit layout has exactly three qubits;
   - the date field: dated names round-trip, undated ones still parse, a bad date is refused, the date and run
@@ -60,11 +61,22 @@ def test_qpu_names_round_trip(qpu, backend, device, service):
     assert (hc.benchmark, hc.lnn, hc.spam, hc.layout, hc.is_health_check) == ("health-check+reps-1+nshots-100", "none", "none", "none", True)
 
 
-@pytest.mark.parametrize("data_type", [d for d in RN.DATA_TYPES if d != "real-data"])
+@pytest.mark.parametrize("data_type", [d for d in RN.DATA_TYPES if d not in ("real-data", "sim-fake-fez")])   # fake-fez: below
 def test_local_names(data_type):
     name = RN.local_run_name("mini", data_type, lnn=False)
     r = RN.parse_run_name(name)
     assert (r.data_type, r.device, r.service, r.layout, r.is_simulation) == (data_type, "local-aer", "local", "none", True)
+
+
+def test_fake_fez_local_names_carry_a_layout():
+    """sim-fake-fez takes a layout field and has no layout-none form: building its name without one is refused."""
+    name = RN.local_run_name("mini", "sim-fake-fez", lnn=True, layout_tag=BA.LayoutArgs("random").tag)
+    assert name == "mini_sim-fake-fez_local-aer_lnn-True_service-local_spam-True_layout-random"
+    r = RN.parse_run_name(name)
+    assert (r.data_type, r.device, r.service, r.layout, r.is_simulation) == ("sim-fake-fez", "local-aer", "local", "random", True)
+    assert RN.local_run_name("mini", "sim-fake-fez", lnn=True, layout_tag="optimized").endswith("_layout-optimized")
+    with pytest.raises(ValueError, match="layout_tag"):
+        RN.local_run_name("mini", "sim-fake-fez", lnn=True)
 
 
 def test_entry_data_type():
@@ -111,8 +123,9 @@ def test_subsets_summaries_and_collective_folders():
     assert RN.summary_name(name) == f"summary_{name}.json"
     assert RN.summary_name(name, 48) == f"summary_{RN.parse_run_name(name).with_samples(48)}.json"
     assert RN.collective_folder_name("mini", ["real-data", "sim-noiseless"]) == "mini_collective_real-data+sim-noiseless"
-    assert RN.collective_table_path("mini_collective_real-data").as_posix() == "analysis/summaries/mini_collective_real-data.csv"
-    assert RN.collective_table_path("x", test=True).as_posix() == "analysis/tests/summaries/x.csv"
+    assert RN.collective_plots_dir("mini_collective_real-data").as_posix() == "analysis/plots+summaries/mini_collective_real-data"
+    assert RN.collective_plots_dir("x", test=True).as_posix() == "analysis/tests/plots+summaries/x"
+    assert RN.plots_dir("tests/test20_x").as_posix() == "analysis/tests/plots+summaries/test20_x"
     assert RN.parse_run_name(f"old_runs_full/{name}").device == "ibm-fez"   # a path ending in a run name
 
 
@@ -241,8 +254,8 @@ def test_duration_fmt_units():
 def test_collective_run_table(tmp_path):
     from source.core.analysis import collective_plots as CP
     def run(folder, **kw):
-        base = dict(run_folder=folder, n_samples=None, qpu_time_s=151.0, cost_eur=212.084, n_acc=19, n_max=19,
-                    emin_nmax=0.04512, best_ems_nmax="NEC+cRC")
+        base = dict(run_folder=folder, n_samples=None, sample_size=480, qpu_time_s=151.0, cost_eur=212.084, n_acc=19, n_max=19,
+                    emin_nmax=0.04512, best_ems_nmax="NEC+cRC", best_ems_nacc="cRC")
         base.update(kw)
         return base
     runs = [run("full_real-data_a"), run("full_sim_b", n_samples=10, qpu_time_s=None, cost_eur=None,
@@ -252,12 +265,12 @@ def test_collective_run_table(tmp_path):
     lines = path.read_text(encoding="utf-8").splitlines()
     assert len({line.index(";") for line in lines}) == 1                       # columns aligned as text
     rows = [[c.strip() for c in r] for r in csv.reader(lines, delimiter=";")]
-    assert rows[0] == ["run", "n_samples", "N_acc", "N_max", "E_min_Nmax", "best_scheme_Nmax",
+    assert rows[0] == ["run", "n_samples", "sample_size", "N_acc", "best_scheme_Nacc", "N_max", "E_min_Nmax", "best_scheme_Nmax",
                        "QPU_time_s", "QPU_time", "effective_cost_EUR"]
     assert [r[0] for r in rows[1:]] == ["A", "B", "C"]
-    assert rows[1] == ["A", "", "19", "19", "0.04512", "NEC+cRC", "151", "2.5 min", "212.08"]
-    assert rows[2][2:] == ["19", "19", "", "NEC+cRC", "", "", ""] and rows[2][1] == "10"
-    assert rows[3][2:5] == ["", "", ""]
+    assert rows[1] == ["A", "", "480", "19", "cRC", "19", "0.04512", "NEC+cRC", "151", "2.5 min", "212.08"]
+    assert rows[2][3:] == ["19", "cRC", "19", "", "NEC+cRC", "", "", ""] and rows[2][1] == "10"
+    assert rows[3][3] == "" and rows[3][5:7] == ["", ""]
     assert str(tmp_path) not in path.read_text(encoding="utf-8")
 
 
@@ -313,6 +326,7 @@ def test_run_filter_values_and_names():
     # the collective folder tells a filtered set from the whole one
     assert RN.collective_folder_name("mini", ["real-data"]) == "mini_collective_real-data"
     assert RN.collective_folder_name("mini", ["real-data"], RN.RunFilter()) == "mini_collective_real-data"
+    assert RN.collective_folder_name("mini", ["real-data"], latest_per_qpu=True) == "mini_collective_real-data_latest-per-qpu"
     f = mk(date="2026-09-01:2026-09-30", backends=["iqm-garnet", "ibm-fez"], layouts=["random"])
     assert RN.collective_folder_name("mini", ["real-data"], f) == (
         "mini_collective_real-data_dates-2026-09-01-to-2026-09-30_backends-ibm-fez+iqm-garnet_layouts-random")

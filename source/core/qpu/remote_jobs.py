@@ -105,7 +105,9 @@ def _is_transient_network_error(exc):
     """True for a connection/DNS/timeout-shaped error, walking __cause__/__context__. These are
     the only errors require_functional_health_check / submit_post_health_check retry — anything
     else (a degraded/failed job, an assertion, a bad response body) is not a network blip and is
-    not retried."""
+    not retried.
+    Unlike the chunk submission (_submit_error_kind), a timeout or reset whose answer was lost is
+    retried here too, so a health-check retry may leave a duplicate health-check job (accepted)."""
     transient_types = []
     try:
         import requests.exceptions as _rex

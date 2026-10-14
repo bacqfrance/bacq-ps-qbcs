@@ -9,7 +9,8 @@ QPU time and no LEXIS login.
      datafiles/<RUN_FOLDER>/ (vlq_calibration.json, calibration_snapshot.json).
      A rerun of an unfinished run reuses the files (with a warning; a finished run is
      followed by a new dated folder, which downloads fresh calibration); remove the
-     run folder to start over. With calibration_file=PATH (a run's vlq_calibration.json) that
+     run folder to start over. With calibration_file=PATH (a run's vlq_calibration.json, or that run's
+     calibration_snapshot.json with its vlq_calibration.json beside it) that
      calibration is used instead, and nothing is downloaded.
   2. Build an offline backend + Aer noise model from the snapshot. The resonator is
      folded into an all-to-all CZ (source/core/qpu/iqm_vlq.snapshot_from_calibration): error

@@ -321,8 +321,8 @@ def qpu_queue_breakdown(run_path, nchunks=None, service=None):
     from the records' timing blocks (old records: job_timing.legacy_record_timing()).
     A job shared by several chunks (batched IBM job) is counted once.
 
-    Queue time: jobs queue at the same time (IBM, IQM Resonance, EQE1 accept many jobs at
-    once), so their per-job waits overlap and their sum overstates the wait (EQE1: 480 jobs
+    Queue time: jobs queue at the same time (IBM, IQM Resonance, IQM VLQ and EQE1 accept many jobs
+    at once), so their per-job waits overlap and their sum overstates the wait (EQE1: 480 jobs
     submitted at once sum to ~7e6 s). There the queue time is the longest single wait over
     all chunk jobs and health checks. Synchronous services (job_timing.SYNCHRONOUS_SERVICES:
     AQT, the local simulator) run their jobs one after another (no overlap), so there the

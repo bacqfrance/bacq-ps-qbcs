@@ -35,7 +35,7 @@ def collect_health_checks(path, service, service_name, backend_name=None):
         print(f"  ⚠️  Health checks not available: {e}")
 
 
-def collect_and_analyze(path, service, service_name, bench, lnn, do_spam=True, backend_name=None, **collect_kw):
+def collect_and_analyze(path, service, service_name, bench, lnn, do_spam=True, backend_name=None, dt=DT, **collect_kw):
     """Collect the run's finished chunks (any order, no waiting for the rest), merge them and analyze.
     `bench`: the run's BenchmarkArgs; the chunk layout (6 circuits per depth) is the one submitted.
     collect_kw: passed on to collect_results() (e.g. poll_interval)."""
@@ -49,7 +49,7 @@ def collect_and_analyze(path, service, service_name, bench, lnn, do_spam=True, b
         error_mitigation_strategies = ["SPAM", "NEC", "RC+NEC", "cRC+NEC"] if do_spam else ["NEC", "RC+NEC", "cRC+NEC"],
         do_SPAM                     = do_spam,
         nshots                      = bench.nshots,
-        dt                          = DT,
+        dt                          = dt,
     )
     qbcs.collect_results(exp_results_folder_path=path, service=service, lang="qiskit",
                          service_name=service_name, backend_name=backend_name, **collect_kw)

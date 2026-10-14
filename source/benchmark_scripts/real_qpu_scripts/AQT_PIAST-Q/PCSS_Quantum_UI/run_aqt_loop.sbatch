@@ -14,7 +14,7 @@
 #   sbatch source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/PCSS_Quantum_UI/run_aqt_loop.sbatch backend=PIAST-Q mini    mini benchmark; backend= and the benchmark are required
 #   sbatch source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/PCSS_Quantum_UI/run_aqt_loop.sbatch backend=PIAST-Q full    full benchmark
 #   Layout: PIAST-Q reports no calibration, so without layout= / calibration_file= the run uses a RANDOM layout. Add
-#   layout=optimized calibration_file=calibration_input_files/PIAST-Q/<file>.json to optimize it, or layout=lowest / layout=15,14,21.
+#   layout=optimized calibration_file=calibration_input_files/PIAST-Q/<file>.json to optimize it, or layout=lowest / layout=15,14,12.
 #   Add --force-new-run to start a new run folder even if the latest run of these settings is unfinished (the whole job,
 #   with its retries and requeues, then works in that one folder).
 # (the arguments go to qbcs_real_submit_aqt_loop.py; without them the job prints that script's usage into its log and ends with exit code 2)
@@ -96,7 +96,7 @@ if [ $rc -eq 3 ]; then                   # time limit reached at a chunk boundar
     echo "  Requeueing job $SLURM_JOB_ID." | tee -a "$OUTPUT_LOG"
     scontrol requeue "$SLURM_JOB_ID" || exit 1
     sleep 600                            # Slurm stops the job within seconds; exiting first could end it as done
-    echo "  ❌ Requeue accepted but the job was not stopped within 10 min." | tee -a "$OUTPUT_LOG"
+    echo "  ❌ Requeue accepted but the job was not stopped within 10 min." | tee -a "$OUTPUT_LOG" >&2
     exit 1
 fi
 exit $rc

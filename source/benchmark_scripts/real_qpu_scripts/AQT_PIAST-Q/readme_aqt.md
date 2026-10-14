@@ -95,7 +95,7 @@ file. Therefore:
   mandatory with `optimized` here (an error without it). The file may be the provider's own,
   AQT/PCSS's `piastq_characterisation_<date>.json`, or an already converted snapshot; a provider file is converted automatically and saved in the run folder
   as `calibration_snapshot.json` (its `measured_at` is the file's own date). The latest provider file is in `calibration_input_files/PIAST-Q/`. A relative PATH is relative to the project root.
-- `layout=lowest` is the lexicographically lowest valid layout, and `layout=15,14,21` forces exactly those qubits
+- `layout=lowest` is the lexicographically lowest valid layout, and `layout=15,14,12` forces exactly those qubits
   (a layout the QPU cannot run ends the script with a one-line message, exit code 2).
 
 The run folder ends in `_layout-optimized`, `_layout-random`, `_layout-lowest` or `_layout-15-14-21`. After the layout comes the UTC date the run started and its number that day (`_2026-10-11_#1`). Rerunning the loop script continues the latest run of its settings while it is unfinished (some chunk not yet submitted), whatever its date, else starts a new folder dated today with the next run number; `--force-new-run` starts a new folder even while the latest is unfinished. The loop script also accepts `run_folder=` to pin the folder (the sbatch files use it).
@@ -437,7 +437,7 @@ wall time as queue time) before the error propagates; the retry copies it to
 health check records that whole list as `chunks`, each POST check the one chunk it
 follows. `P011` is the pass metric (`> 0.5`). `source/analysis_scripts/run_post_process.py`
 plots them next to the per-chunk time bars into
-`analysis/plots/<run_folder>/health_checks.png` (with hundreds of chunks set
+`analysis/plots+summaries/<run_folder>/health_checks.png` (with hundreds of chunks set
 `ZOOM_X` in `source/analysis_scripts/plot_health_checks.py`).
 
 `submit.log` (appended, never overwritten) holds one entry per submission, the same in every QPU folder

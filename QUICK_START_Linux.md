@@ -294,7 +294,7 @@ in it, followed by the date (`mini_…_layout-optimized_2026-10-11_#1`). **IQM E
 random layout** (a notice is printed). To optimize their layout instead, pass the latest provider calibration from the `calibration_input_files/` folder:
 
 ```
-layout=optimized calibration_file=calibration_input_files/Euro-Q-Exa/calibration_data_Euro-Q-Exa_20260827_active_qubits.json    # EQE1
+layout=optimized calibration_file=calibration_input_files/Euro-Q-Exa/calibration_data_Euro-Q-Exa_20261014_active_qubits.json    # EQE1
 layout=optimized calibration_file=calibration_input_files/PIAST-Q/piastq_characterisation_2026-09-29.json                        # PIAST-Q
 ```
 
@@ -366,11 +366,11 @@ stopped.
 python source/analysis_scripts/run_post_process.py mini --include-real-data
 ```
 
-Plots land in `analysis/plots/<run_folder>/`, the summary (timings, cost estimate) in
+Plots land in `analysis/plots+summaries/<run_folder>/`, the summary (timings, cost estimate) in
 `datafiles/<run_folder>/processed_results/summary.json`.
 
 Plots comparing all the runs — AWAE and cumulative AWAE of each run's best EMS vs $N_t$,
-QPU time and effective cost per QPU — land in `analysis/plots/mini_collective_real-data/` (the folder name says which kinds of runs it compares). Add
+QPU time and effective cost per QPU — land in `analysis/plots+summaries/mini_collective_real-data/` (the folder name says which kinds of runs it compares). Add
 `--include-simulations-real` / `--include-simulations-noiseless` to compare the QPUs with
 simulations too, `--date=FROM:TO`, `--backends=…`, `--services=…` or `--layouts=…` to analyze only some runs (USER_MANUAL §10), or
 `--individual-only` / `--collective-only` to make only one kind of plot; e.g.
@@ -458,5 +458,5 @@ python source/analysis_scripts/run_post_process.py full --include-real-data
 It also works on a run that is still being collected: it analyzes the chunks collected so far into
 separate files named after the number of chunks (`run_data+nsamples-<N>.json`, `summary+nsamples-<N>.json`, …), leaving the full run's files untouched.
 
-As in §5.3, the plots comparing all runs land in `analysis/plots/full_collective_real-data/`, and
+As in §5.3, the plots comparing all runs land in `analysis/plots+summaries/full_collective_real-data/`, and
 `--individual-only` / `--collective-only` make only one kind.

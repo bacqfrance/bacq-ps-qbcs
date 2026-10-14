@@ -515,7 +515,7 @@ def choose_vlq_layout(mode, roles, cal, qubits=None, seed=None):
         raise ValueError(f"unknown layout mode {mode!r}")
     n_cand = math.perm(len(usable), n_virtual)
     return dict(physical_qubits=chosen, qubit_names=[f"QB{q + 1}" for q in chosen], method=method, layout_mode=mode,
-                log_success=None, top_candidates=[], n_candidates=n_cand, gates=None, gate_roles=roles,
+                log_success=None, top_candidates=[], n_candidates=None if mode == "list" else n_cand, gates=None, gate_roles=roles,
                 calibration_set_id=cal.get("calibration_set_id"), calibration_source=cal.get("source"),
                 excluded_qubits=excluded, **({"seed": seed} if mode == "random" else {}))
 
@@ -584,7 +584,8 @@ def save_vlq_calibration(run_dir, cal):
 
 def use_run_calibration(run_dir, calibration_file=None, calibration_set="default"):
     """The calibration of a VLQ simulation run, saved in `run_dir` (a Path) as vlq_calibration.json and
-    calibration_snapshot.json. From `calibration_file` (a vlq_calibration.json a VLQ run saved) if given, else
+    calibration_snapshot.json. From `calibration_file` (a run's vlq_calibration.json, or that run's
+    calibration_snapshot.json with its vlq_calibration.json beside it) if given, else
     downloaded once from IT4I's API (`calibration_set`) and reused on a rerun. Problems the user can fix end
     the script through exit_with_error. Prints what was done. Returns (calibration dict, recorded source:
     the calibration file, project-relative or just its name when it lies outside the project; None without a file)."""
@@ -600,6 +601,22 @@ def use_run_calibration(run_dir, calibration_file=None, calibration_set="default
             file_cal = json.loads(src.read_text(encoding="utf-8"))
         except (OSError, ValueError) as e:
             exit_with_error(f"calibration_file {calibration_file}: cannot be read ({e})")
+        from source.core.qpu.calibration_input import detect_format
+        try:
+            is_snapshot = detect_format(file_cal) == "snapshot"
+        except ValueError:   # not a format of calibration_input (a raw VLQ file, or something else): checked below
+            is_snapshot = False
+        if is_snapshot:
+            # A snapshot has no coupler data for the layout choice: use the raw file beside it.
+            raw = src.parent / VLQ_CALIBRATION_FILENAME
+            if not raw.exists():
+                exit_with_error(f"calibration_file {calibration_file} is a calibration snapshot, which cannot give VLQ's "
+                                f"layout: pass the run's {VLQ_CALIBRATION_FILENAME} (the one in the real run's folder).")
+            src = raw
+            try:
+                file_cal = json.loads(src.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as e:
+                exit_with_error(f"calibration_file {src}: cannot be read ({e})")
         if not (isinstance(file_cal, dict) and {"dynamic_architecture", "metrics", "calibration_set"} <= file_cal.keys()):
             exit_with_error(f"calibration_file {calibration_file} is not a VLQ calibration: VLQ needs the "
                             f"vlq_calibration.json a VLQ run saves in its folder (datafiles/<run>/vlq_calibration.json).")

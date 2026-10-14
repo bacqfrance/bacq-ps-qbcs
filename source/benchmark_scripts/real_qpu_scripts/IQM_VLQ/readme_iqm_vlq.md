@@ -99,8 +99,8 @@ chooses the physical qubits (main USER_MANUAL §5.4). The resonator is always pa
 `lowest` choose among the three qubits (of those with complete calibration) that go with it, and a list names the
 three qubits (the script stops with a one-line message if one is not usable). `optimized` grades the qubits per role from IT4I's public
 calibration (§4.1); the submit script refuses `calibration_file=` (it always uses the live calibration). The simulate
-script takes `calibration_file=PATH` pointing at a `vlq_calibration.json` a VLQ run saved, to re-simulate that
-calibration. The run folder ends in `_layout-optimized`, `_layout-random`, `_layout-lowest` or `_layout-15-14-21`; the collect and status scripts take `layout=` too (optional), and so does the simulate script. After the layout comes the UTC date the run started and its number that day (`_2026-10-11_#1`). Rerunning the submit script continues the latest run of its settings while it is unfinished (some chunk not yet submitted), whatever its date, else starts a new folder dated today with the next run number; `--force-new-run` starts a new folder even while the latest is unfinished. Without `layout=` and `date=`, the collect and status scripts take every run of that benchmark with something left to collect in turn, all layouts and dates (each is reported, and a failure in one does not stop the others); `layout=` picks one run (its latest, or the one of `date=`), also a finished one; `date=YYYY-MM-DD` alone takes each layout's latest run of that day, and `date=YYYY-MM-DD_#N` each layout's run with that number (layouts without one are skipped).
+script takes `calibration_file=PATH` pointing at a run's `vlq_calibration.json`, or at that run's `calibration_snapshot.json` with its `vlq_calibration.json` beside it,
+to re-simulate that calibration. The run folder ends in `_layout-optimized`, `_layout-random`, `_layout-lowest` or `_layout-15-14-21`; the collect and status scripts take `layout=` too (optional), and so does the simulate script. After the layout comes the UTC date the run started and its number that day (`_2026-10-11_#1`). Rerunning the submit script continues the latest run of its settings while it is unfinished (some chunk not yet submitted), whatever its date, else starts a new folder dated today with the next run number; `--force-new-run` starts a new folder even while the latest is unfinished. Without `layout=` and `date=`, the collect and status scripts take every run of that benchmark with something left to collect in turn, all layouts and dates (each is reported, and a failure in one does not stop the others); `layout=` picks one run (its latest, or the one of `date=`), also a finished one; `date=YYYY-MM-DD` alone takes each layout's latest run of that day, and `date=YYYY-MM-DD_#N` each layout's run with that number (layouts without one are skipped).
 A submission also saves the QPU's current calibration in the run folder (`calibration_snapshot.json`, `vlq_calibration.json`), once per run — what the layout was chosen on (the snapshot's `measured_at` is when IT4I made the calibration, the end time of its calibration set). A layout the QPU cannot run ends the script with a one-line message (exit code 2) before anything is submitted.
 
 ## 4. Workflow
@@ -242,7 +242,7 @@ datafiles/<run_folder>/
 ```
 
 `source/analysis_scripts/run_post_process.py` plots them (with the QPU jobs, labelled by chunk numbers) into
-`analysis/plots/<run_folder>/health_checks.png`; see main USER_MANUAL §7 and §10. Health checks are collected
+`analysis/plots+summaries/<run_folder>/health_checks.png`; see main USER_MANUAL §7 and §10. Health checks are collected
 by the collect script; the submit script skips checks and submission if all chunks are already submitted.
 
 `submit.log` (appended, never overwritten) holds one entry per submission, the same in every QPU folder

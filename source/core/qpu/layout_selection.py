@@ -186,7 +186,7 @@ def select_physical_qubits(circuit, target, singles=None, placement_ok=None):
                        | "no_scored_placement"
       log_success      float | None     — log P of the chosen placement
       top_candidates   [[qubits, log P], …] — best few, for the record
-      n_candidates     int
+      n_candidates     int (choose_layout() records None for a forced list)
       gates            {"2q": name, "1q": name}
       n_1q             [single-qubit gates per virtual qubit], n_1q_source "transpiled" | "raw circuit"
     """

@@ -1,6 +1,6 @@
 """
 Compute BACQ derived quantities from run_data.json and, if the run has SPAM data, run_data_spam.json
-too (the best mitigation is picked out of all 12 candidates), and save the final summary in a json file.
+too (the best mitigation is picked out of 6 candidates, or 12 with SPAM data), and save the final summary in a json file.
 """
 
 import os
@@ -123,8 +123,8 @@ elif BACKEND_NAME in ("ibm-marrakesh", "ibm-kingston", "ibm-fez"):
 
 elif BACKEND_NAME == "iqm-eqe1":
     QPU_PROVIDER  = "IQM"
-    ARCHITECTURE  = "Crystal"
-    QPU_SERVICE   = "Euro HPC, Leibniz Supercomputing Centre"
+    ARCHITECTURE  = "Crystal 54"
+    QPU_SERVICE   = "EuroHPC, LRZ (Euro-Q-Exa, via MQSS)"
     PRICING       = ("aws", "Emerald")      # EQE1 is the same IQM model as Emerald (54 qubits)
     FREE_BECAUSE  = "of the free access to the machine within the EuroHPC project"
 
@@ -159,7 +159,7 @@ elif BACKEND_NAME == "iqm-vlq":
 elif BACKEND_NAME == "aqt-piast-q":
     QPU_PROVIDER  = "AQT"
     ARCHITECTURE  = "Trapped ion (20 qubits)"          # AQT IBEX-class system
-    QPU_SERVICE   = "EuroHPC, PSNC (Poznań Supercomputing and Networking Center)"
+    QPU_SERVICE   = "EuroHPC, PCSS (Poznań Supercomputing and Networking Center)"
     PRICING       = "scaleway_aqt"
     FREE_BECAUSE  = "of the free access to the machine within the EuroHPC project"
 
@@ -173,7 +173,9 @@ EXTRA_INFO   = PROTOCOLS
 if IS_SIM:
     EXTRA_INFO = PROTOCOLS + " Local simulation — no QPU cost."
 
-    # sim-qpu-noise runs (source/benchmark_scripts/real_qpu_scripts/*/qbcs_real_simulate_*.py): noisy, from a saved calibration
+    # Any simulation with a calibration_snapshot.json (sim-qpu-noise: source/benchmark_scripts/real_qpu_scripts/*/qbcs_real_simulate_*.py;
+    # sim-fake-fez): noisy, from a saved calibration. "downloaded" is the snapshot's downloaded_at (the conversion time
+    # for a file-based calibration).
     _snapshot_path = os.path.join("datafiles", RUN_FOLDER, "calibration_snapshot.json")
     if os.path.exists(_snapshot_path):
         with open(_snapshot_path, encoding="utf-8") as f:
@@ -233,10 +235,11 @@ else:
         n_tasks  = (sum(-(-k // per_task) for k in WORKLOAD["chunks_per_job"] + WORKLOAD["failed_chunks_per_job"])
                     + WORKLOAD["n_health_checks"] + n_failed_hc)
         EFFECTIVE_COST_USD = n_tasks * AWS_TASK_USD + (n_shots + n_failed_shots) * VLQ_SHOT_USD
-        model = (f"A synthetic estimate combining the IQM Resonance and Amazon Braket billing schemes (VLQ is not "
-                 f"sold commercially): Braket's ${AWS_TASK_USD:.2f} per task, and a per-shot price of "
+        _vlq = BACKEND_NAME == "iqm-vlq"
+        model = (f"A synthetic estimate combining the IQM Resonance and Amazon Braket billing schemes"
+                 f"{' (VLQ is not sold commercially)' if _vlq else ''}: Braket's ${AWS_TASK_USD:.2f} per task, and a per-shot price of "
                  f"${VLQ_SHOT_USD:.5f} — Braket's IQM Emerald price (${AWS_SHOT_USD['Emerald']}, {AWS_PRICING_URL}) "
-                 f"scaled by IQM Resonance's credits per QPU second for Sirius, a Star 24 machine like VLQ "
+                 f"scaled by IQM Resonance's credits per QPU second for Sirius{', a Star 24 machine like VLQ' if _vlq else ''} "
                  f"({RESONANCE_CREDITS_PER_S['Sirius']}), over Emerald's ({RESONANCE_CREDITS_PER_S['Emerald']}) "
                  f"({RESONANCE_PRICING_URL}). Each job counts as the program sets of up to "
                  f"{AWS_MAX_CIRCUITS_PER_TASK} circuits its whole chunks fill ({per_task} chunks of "

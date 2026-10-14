@@ -146,7 +146,7 @@ already in `SIMULATED_QPUS` of `RUN_THESE`; `--layouts=<mode>` narrows it), or w
 
 ```bash
 python source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/qbcs_real_simulate_iqm_eqe1.py backend=EQE1 mini layout=random
-python source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/qbcs_real_simulate_iqm_eqe1.py backend=EQE1 mini layout=optimized calibration_file=calibration_input_files/Euro-Q-Exa/calibration_data_Euro-Q-Exa_20260827_active_qubits.json
+python source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/qbcs_real_simulate_iqm_eqe1.py backend=EQE1 mini layout=optimized calibration_file=calibration_input_files/Euro-Q-Exa/calibration_data_Euro-Q-Exa_20261014_active_qubits.json
 ```
 
 What the noise model contains, and what it doesn't:
@@ -196,7 +196,7 @@ datafiles/<run_folder>/
 ```
 
 `source/analysis_scripts/run_post_process.py` plots them (with the QPU jobs, labelled by chunk numbers) into
-`analysis/plots/<run_folder>/health_checks.png`; see main USER_MANUAL §7 and §10. Health checks are collected
+`analysis/plots+summaries/<run_folder>/health_checks.png`; see main USER_MANUAL §7 and §10. Health checks are collected
 by the collect script; the submit script skips checks and submission if all chunks are already submitted.
 
 `submit.log` (appended, never overwritten) holds one entry per submission, the same in every QPU folder

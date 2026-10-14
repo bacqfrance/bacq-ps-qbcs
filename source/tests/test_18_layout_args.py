@@ -9,7 +9,8 @@ layouts in source/core/qpu/iqm_vlq.py):
     QPU (optimized; random without a calibration file for AQT / EQE1, which report no calibration), the errors
     (layout=optimized without a file for AQT / EQE1, calibration_file with another layout, a repeated qubit, a
     missing layout for an AQT / EQE1 simulation with its explanation) and the run-folder tag layout-<mode>;
-    parse_benchmark_args leaves the layout arguments alone;
+    parse_benchmark_args leaves the layout arguments alone; the FakeFez local simulation takes layout= but
+    refuses calibration_file=;
   - choose_layout on synthetic targets — a chain with a dead qubit, and AQT's coupling-free target (global
     operations, all-to-all): lowest, random (reproducible from its recorded seed), a forced list and every way
     it can be impossible (wrong length, repeated or missing qubit, no coupler, outside AQT's 20 qubits);
@@ -172,6 +173,19 @@ def test_live_calibration_submissions_refuse_a_calibration_file(capsys):
     assert BA.parse_layout_args(["layout=random"], live_calibration="IBM").mode == "random"
     assert BA.parse_layout_args(["layout=random", "calibration_file=x.json"], calibration_any_layout=True).calibration_file == "x.json"
     assert BA.parse_layout_args(["layout=optimized", "calibration_file=x.json"], calibration_required=True).calibration_file == "x.json"
+
+
+def test_fake_fez_simulation_takes_a_layout_but_no_calibration_file(capsys):
+    """benchmark_fake_fez_lnn.py: layout= (default optimized) is accepted, calibration_file= refused with its own usage."""
+    script = PROJECT / "source/benchmark_scripts/local_simulation_scripts/benchmark_fake_fez_lnn.py"
+    assert BA.parse_benchmark_args(["mini", "layout=random"]).tag == "mini"
+    assert BA.parse_layout_args(["mini"], no_calibration_file=True).tag == "layout-optimized"
+    assert BA.parse_layout_args(["mini", "layout=15,14,21"], no_calibration_file=True).tag == "layout-15-14-21"
+    capsys.readouterr()
+    assert _exits(["mini", "layout=random", "calibration_file=x.json"], no_calibration_file=True) == 2
+    assert "FakeFez's built-in calibration" in capsys.readouterr().err
+    usage = BA.make_usage(script, "x", backend=False, layout="simulate_builtin")
+    assert "layout=optimized" in usage and "calibration_file=PATH" not in usage
 
 
 # ── choosing the layout ───────────────────────────────────────────────────────
