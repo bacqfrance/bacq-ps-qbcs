@@ -35,7 +35,7 @@ def calc_expval_measurement_dict(measurement_counts):
 
     Returns:
         - avg_value_array (np.ndarray): Shape (n_jobs, n_rc_circuits, 7) 
-        - per-circuit expectation values (np.ndarray): Shape (n_jobs, 7) — expectation values averaged over RC circuits per job.
+        - per-job expectation values (np.ndarray): Shape (n_jobs, 7) — expectation values averaged over RC circuits per job.
     """
     n_jobs = len(measurement_counts)
     circuit_counts = {job_key: len(rc_dict) for job_key, rc_dict in measurement_counts.items()}
@@ -408,7 +408,6 @@ def post_processing_and_saving(CONFIG, roles=None, use_circuit_LNN=False, filena
     exact_values = load_exact_observables(CONFIG, list(mitigated_results), use_circuit_LNN)
     for nt, results in mitigated_results.items():
         # ── Exact observables for this specific depth ─────────────────────
-        T_nt = nt * CONFIG["dt"]
         exact_obs_values_nt = exact_values[int(nt)]
         Z_exact_nt = float(np.sum(np.abs(exact_obs_values_nt)))
 

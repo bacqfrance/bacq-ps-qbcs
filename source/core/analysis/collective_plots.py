@@ -111,7 +111,7 @@ def _load_run(run_folder, n_samples):
 
 
 def run_order(run):
-    """Sort key of the runs in the collective plots: by QPU, then layout, then date and run number (oldest first)."""
+    """Sort key of the runs in the collective plots: by device label (QPU name, data type), then layout, then date and run number (oldest first)."""
     return (run["name"], run["layout"] or "", run["date"] or "", run["run_number"] or 0)
 
 

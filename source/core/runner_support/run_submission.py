@@ -12,14 +12,71 @@ Light at import (no qiskit, no myQLM): everything heavy is imported inside submi
 
 import contextlib
 import sys
+import time
+from pathlib import Path
 
-from source.core.common import print_done_block
+from source.core.common import exit_with_error, print_done_block
 from source.core.runner_support.benchmark_args import DT
+
+
+def health_check_retry_folder(undated, root="datafiles"):
+    """The run folder of `--retry-health-check`: the latest one of these settings, finished or not (never a new
+    one, which dated_run_folder() would pick for a finished run). Exits with code 2 when there is none."""
+    from source.core.records.run_names import latest_run_folder
+    folder = latest_run_folder(undated, root)
+    if folder is None:
+        exit_with_error(f"--retry-health-check: no run folder of these settings exists in {root}/.")
+    return folder
+
+
+def _retry_post_health_check(*, run_folder, backend_name, service_name, real_backend, n_chunks, nshots, session):
+    """--retry-health-check: the chunks of the run are all submitted, the health check after them is not (its
+    submission failed: exit code 11 or 12 of the first launch). Submits that health check again, for the chunks of the
+    run's newest health-check record, and logs it. Exits 0 when the newest record is a submitted check after the
+    submission already, 2 when chunks are still unsubmitted or the run has no health check, else like submit_async_run."""
+    from source.core.common import rel_path
+    from source.core.health_check import submit_post_health_check
+    from source.core.qpu.providers import ACCOMPANYING_HEALTH_CHECK_NSHOTS
+    from source.core.records.health_check_records import (EXIT_HC_NOT_SUBMITTED, append_submit_log, format_chunk_range,
+                                                          load_health_checks)
+    from source.core.records.job_records import chunks_without_submission
+    run_path = f"datafiles/{run_folder}"
+    left = chunks_without_submission(run_path, n_chunks)
+    if left:
+        exit_with_error(f"--retry-health-check: chunks {format_chunk_range(left)} of {run_folder} are not submitted yet; "
+                        f"start the script without it.")
+    checks = [c for c in load_health_checks(run_path) if c.get("chunks")]
+    if not checks:
+        exit_with_error(f"--retry-health-check: {run_folder} has no health check to repeat.")
+    last = checks[-1]
+    if last.get("after_submission") and last.get("status") != "failed":
+        print(f"\n✅ Health check #{last['number']} after the submission is already submitted — nothing to do.")
+        sys.exit(0)
+    chunks = list(last["chunks"])
+    print(f"  Health check after the submission of chunks {format_chunk_range(chunks)} ({len(chunks)}): submitting it again")
+    with session() as hc_kwargs:
+        ok, numbers = submit_post_health_check(
+            run_folder=run_folder, backend=real_backend, service_name=service_name, backend_name=backend_name,
+            nshots=ACCOMPANYING_HEALTH_CHECK_NSHOTS, reps=1, chunks=chunks, **hc_kwargs)
+    log_path = append_submit_log(run_path, backend=backend_name, chunks=[], n_chunks=n_chunks, nshots=nshots,
+                                 extra_lines=[f"Retry of the POST health check for chunks {format_chunk_range(chunks)}"],
+                                 post_hc_ok=ok, post_hc_numbers=numbers)
+    print(f"   Log saved:   {rel_path(log_path)}")
+    if not ok:
+        sys.exit(EXIT_HC_NOT_SUBMITTED)
+
+
+def _seconds_since_last_submission(run_path):
+    """Seconds since the run's latest submitted job (chunk or health check); None for a run without one."""
+    from source.core.runner_support.submit_with_retries import submitted_jobs
+    times = [t for t, _, _ in submitted_jobs(run_path) if t > 0]
+    return max(0.0, time.time() - max(times)) if times else None
 
 
 def submit_async_run(*, run_folder, backend_name, service_name, real_backend, collect_service, bench, layout, lnn,
                      chunks_to_submit=None, do_spam=True, dt=DT, submit_kwargs=None, config_extra=(), log_extra_lines=(),
-                     health_check_session=None, after_layout=None, collect_script=None):
+                     health_check_session=None, after_layout=None, collect_script=None, retry_health_check=False,
+                     skip_pre_check_within_s=None):
     """Submit run_folder's chunks without a submission record to real_backend; exits with
     EXIT_HC_NOT_SUBMITTED when the health check after the submission could not be submitted.
 
@@ -31,7 +88,10 @@ def submit_async_run(*, run_folder, backend_name, service_name, real_backend, co
     the submission (a list or a function returning one); health_check_session(): a context manager yielding
     the provider's extra keyword arguments for one health check (IBM: a fresh Batch and its sampler);
     after_layout(run_qubits): a hook run once the qubits are chosen; collect_script: the script named in the
-    final hint. Returns the run folder path."""
+    final hint; retry_health_check: only submit the health check after the already submitted chunks again
+    (_retry_post_health_check(); run_folder comes from health_check_retry_folder());
+    skip_pre_check_within_s: no health check before the submission when the run's latest job (chunk or health check)
+    was submitted less than this many seconds ago (None: always check). Returns the run folder path."""
     from source.core.qbcs import bacq_ps_qbcs
     from source.core.common import rel_path
     from source.core.health_check import require_functional_health_check, submit_post_health_check
@@ -47,6 +107,12 @@ def submit_async_run(*, run_folder, backend_name, service_name, real_backend, co
     print_run_config(run_folder, nshots=nshots, sample_size=sample_size, lnn=lnn, do_spam=do_spam,
                      list_times=list_times, chunk_size=chunk_size,
                      extra=[("Chunks to submit", f"{n_wanted} / {sample_size}"), *config_extra])
+
+    if retry_health_check:
+        _retry_post_health_check(run_folder=run_folder, backend_name=backend_name, service_name=service_name,
+                                 real_backend=real_backend, n_chunks=n_wanted, nshots=nshots,
+                                 session=health_check_session or (lambda: contextlib.nullcontext({})))
+        return Path("datafiles") / run_folder
 
     # ── The chunks this run submits: those without a 'submitted' / 'complete' record (new, or of failed ──
     # ── jobs; may have gaps). Both health checks and submit() get exactly this list. ──
@@ -84,18 +150,23 @@ def submit_async_run(*, run_folder, backend_name, service_name, real_backend, co
     # ── Health check before the submission (saved in <run>/health_checks/, auto-numbered) ──
     # Blocking, with bounded retry on transient network errors; each attempt is its own numbered
     # record. Never returns unless the QPU is confirmed functional — see source/core/health_check.py.
-    with session() as hc_kwargs:
-        require_functional_health_check(
-            run_folder      = run_folder,
-            backend         = real_backend,
-            service_name    = service_name,
-            collect_service = collect_service,
-            nshots          = ACCOMPANYING_HEALTH_CHECK_NSHOTS,
-            reps            = 1,
-            chunks          = todo,
-            backend_name    = backend_name,
-            **hc_kwargs,
-        )
+    age_s = _seconds_since_last_submission(f"datafiles/{run_folder}") if skip_pre_check_within_s else None
+    if age_s is not None and age_s < skip_pre_check_within_s:
+        print(f"  Health check before the submission skipped: the run's last job was submitted {age_s / 60:.1f} min ago "
+              f"(< {skip_pre_check_within_s / 60:g} min)")
+    else:
+        with session() as hc_kwargs:
+            require_functional_health_check(
+                run_folder      = run_folder,
+                backend         = real_backend,
+                service_name    = service_name,
+                collect_service = collect_service,
+                nshots          = ACCOMPANYING_HEALTH_CHECK_NSHOTS,
+                reps            = 1,
+                chunks          = todo,
+                backend_name    = backend_name,
+                **hc_kwargs,
+            )
 
     # ── Submit (async) ────────────────────────────────────────────────────────────
     run_folder_path = qbcs.submit(

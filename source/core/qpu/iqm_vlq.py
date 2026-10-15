@@ -292,18 +292,16 @@ def backend_calibration_set_id(backend):
 
 def qpu_status():
     """IT4I's public VLQ status JSON (QPU_status, QCCW_status, total_status, timestamp)."""
-    def get():
-        with urllib.request.urlopen(STATUS_URL, timeout=15) as r:
-            return json.load(r)
-    return call("public status", get)
+    return _get_json(STATUS_URL, "public status", 15)
 
 
 # ── Calibration (public API, no authentication) ───────────────────────────────
-def _get_json(url):
+def _get_json(url, what="calibration download", timeout=60):
+    """The JSON at `url`, fetched through call() (logged and time-limited by the label `what`)."""
     def get():
-        with urllib.request.urlopen(url, timeout=60) as r:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
             return json.load(r)
-    return call("calibration download", get, url.rsplit("/star24/", 1)[-1])
+    return call(what, get, url.rsplit("/star24/", 1)[-1] if what == "calibration download" else "")
 
 
 def fetch_calibration(calibration_set_id="default"):
@@ -500,8 +498,9 @@ def choose_vlq_layout(mode, roles, cal, qubits=None, seed=None):
         qubits = list(qubits)
         bad = [q for q in qubits if q not in usable]
         if len(qubits) != n_virtual or len(set(qubits)) != n_virtual or bad:
+            usable_range = f"{usable[0]}…{usable[-1]}" if usable else "(none)"
             raise ValueError(f"layout {qubits} is not valid on VLQ: needs {n_virtual} distinct qubits from the usable ones "
-                             f"{usable[0]}…{usable[-1]} (without {[physical_index(q) for q in excluded]}); the resonator "
+                             f"{usable_range} (without {[physical_index(q) for q in excluded]}); the resonator "
                              f"is always included" + (f"; not usable: {bad}" if bad else ""))
         chosen, method = qubits, "user"
     elif mode == "lowest":

@@ -278,9 +278,9 @@ script runs a PRE health check, aborts if the QPU is degraded, submits, and subm
 | QPU | venv | Commands | Jobs | Circuits (executions) | Shots | QPU time |
 |---|---|---|---|---|---|---|
 | IBM | `ibm.venv` | `python .../IBM/qbcs_real_submit_ibm.py backend=ibm_marrakesh mini`,<br>later `python .../IBM/qbcs_real_collect_ibm.py backend=ibm_marrakesh mini` | 1 (all 8 chunks) + 2 health checks | 160 + 2 | 32,000 + 200 | **15 s billed**, measured on Fez, Kingston and Marrakesh (QPU execution alone ~8.5 s) |
-| IQM EQE1 | `iqm_eqe1.venv` | `python .../IQM_EQE1/qbcs_real_submit_iqm_eqe1.py backend=EQE1 mini`,<br>later `python .../IQM_EQE1/qbcs_real_collect_iqm_eqe1.py backend=EQE1 mini` | 3 (≤ 70 circuits each: 3 + 3 + 2 chunks) + 2 | 160 + 2 | 32,000 + 200 | **~146 s** modelled (0.9 s per circuit × 162 circuits; EQE1 reports no QPU time) |
+| IQM EQE1 | `iqm_eqe1.venv` | `python .../IQM_EQE1/qbcs_real_submit_iqm_eqe1_with_retries.py backend=EQE1 mini`,<br>later `python .../IQM_EQE1/qbcs_real_collect_iqm_eqe1.py backend=EQE1 mini` | 3 (≤ 70 circuits each: 3 + 3 + 2 chunks) + 2 | 160 + 2 | 32,000 + 200 | **~146 s** modelled (0.9 s per circuit × 162 circuits; EQE1 reports no QPU time) |
 | IQM Resonance | `iqm_resonance.venv` | `python .../IQM_RESONANCE/qbcs_real_submit_iqm_resonance.py backend=emerald mini`,<br>later `python .../IQM_RESONANCE/qbcs_real_collect_iqm_resonance.py backend=emerald mini` | 2 (≤ 100 circuits each: 5 + 3 chunks) + 2 | 160 + 2 | 32,000 + 200 | **billed: Emerald 18 s, Garnet 14 s, Sirius 15 s** (QPU execution alone: 14, 10 and 11 s) |
-| IQM VLQ | `iqm_vlq.venv` | `python .../IQM_VLQ/qbcs_real_submit_iqm_vlq.py backend=VLQ mini`,<br>later `python .../IQM_VLQ/qbcs_real_collect_iqm_vlq.py backend=VLQ mini` | 1 (all 8 chunks) + 2 | 160 + 2 | 32,000 + 200 | **15 s** (IQM Resonance-equivalent billed time; QPU execution alone ~12 s) |
+| IQM VLQ | `iqm_vlq.venv` | `python .../IQM_VLQ/qbcs_real_submit_iqm_vlq_with_retries.py backend=VLQ mini`,<br>later `python .../IQM_VLQ/qbcs_real_collect_iqm_vlq.py backend=VLQ mini` | 1 (all 8 chunks) + 2 | 160 + 2 | 32,000 + 200 | **15 s** (IQM Resonance-equivalent billed time; QPU execution alone ~12 s) |
 | AQT PIAST-Q | `aqt.venv` | on the PCSS cluster, `sbatch source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/PCSS_Quantum_UI/run_aqt_loop.sbatch backend=PIAST-Q mini` \* (synchronous, no collect step) | 8 chunks (1 batch each) + 9 health checks (1 PRE + 1 after each chunk) | 160 circuits, **160 executions** (200 shots fit AQT's limit of 200 per circuit, so each chunk runs once) + 9 | 32,000 + 900 | **~41 min** estimated (160 executions × 15 s at 200 shots = 40 min, plus 9 health checks ≈ 1¼ min; AQT reports no QPU time), measured on 2026-10-02: 5 h wallclock including queue |
 
 `...` = `source/benchmark_scripts/real_qpu_scripts`.
@@ -294,7 +294,7 @@ in it, followed by the date (`mini_…_layout-optimized_2026-10-11_#1`). **IQM E
 random layout** (a notice is printed). To optimize their layout instead, pass the latest provider calibration from the `calibration_input_files/` folder:
 
 ```
-layout=optimized calibration_file=calibration_input_files/Euro-Q-Exa/calibration_data_Euro-Q-Exa_20261014_active_qubits.json    # EQE1
+layout=optimized calibration_file=calibration_input_files/Euro-Q-Exa/calibration_data_Euro-Q-Exa_20261015_active_qubits.json    # EQE1
 layout=optimized calibration_file=calibration_input_files/PIAST-Q/piastq_characterisation_2026-09-29.json                        # PIAST-Q
 ```
 
@@ -444,6 +444,8 @@ For the AQT full run, keep the session alive for the duration: start the loop sc
 `screen` (or with `nohup … &`) so that closing the terminal or a dropped SSH connection doesn't stop it, and
 keep the machine from suspending. On the PCSS cluster, run the loop script through Slurm with `AQT_PIAST-Q/PCSS_Quantum_UI/run_aqt_loop.sbatch` instead, which
 pauses and requeues itself between chunks (`readme_aqt.md` §4.3).
+
+For the IQM EQE1 and IQM VLQ full runs, submit with `python .../IQM_EQE1/qbcs_real_submit_iqm_eqe1_with_retries.py backend=EQE1 full` and `python .../IQM_VLQ/qbcs_real_submit_iqm_vlq_with_retries.py backend=VLQ full`, and collect with the plain collect scripts as above. These scripts submit the run and retry a failed submission instead of stopping. The VLQ one waits for the last submitted job to finish on the provider before each submission attempt and gives up after 48 h without progress (exit code 14); the EQE1 one does not wait, retries a failed submission at once and then every 1 min, and gives up after 20 min without progress (exit code 14). If every chunk is submitted and only the health check after them could not be submitted, it repeats just that health check, at most 3 times (never a new run). Stop it with Ctrl-C and start it again with the same arguments to resume. Keep the session open as described above.
 
 The layout arguments of §5.2 apply to the full run too: IBM, IQM Resonance and IQM VLQ default to `layout=optimized`; IQM EQE1
 and AQT PIAST-Q run on a random layout unless you pass `layout=optimized calibration_file=calibration_input_files/<provider>/<file>.json`, `layout=lowest`

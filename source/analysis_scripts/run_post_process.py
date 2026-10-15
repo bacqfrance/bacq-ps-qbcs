@@ -22,6 +22,7 @@ and nothing is done):
   python source/analysis_scripts/run_post_process.py full --include-real-data   the full benchmark, real-QPU runs
   python source/analysis_scripts/run_post_process.py mini nshots_per_circuit=N --include-real-data
   python source/analysis_scripts/run_post_process.py nshots_per_circuit=N n_samples=M n_depths=K --include-real-data
+                                     (nt_list=... instead of n_depths=K for an explicit list of depths)
                                      the runs made with these source/benchmark_scripts/ arguments
                                      (source/core/runner_support/benchmark_args.py): run folders with that <benchmark> field
   python source/analysis_scripts/run_post_process.py nshots_per_circuit=N --include-real-data   every run with N shots per circuit
@@ -59,7 +60,6 @@ import json
 import re
 import shutil
 import subprocess
-import numpy as np
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))   # the project root, for the source.* imports
@@ -67,17 +67,11 @@ os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))   # 
 
 from pathlib import Path
 from source.core.common import section
-from source.core.qbcs import bacq_ps_qbcs
 from source.core.records.run_info import load_run_info
 from source.core.runner_support.benchmark_args import parse_benchmark_args, usage_if_requested
-from source.core.qpu.layout_selection import run_layout_warnings
-from source.core.records.health_check_records import load_health_checks
-from source.core.analysis.collective_plots import make_collective_plots
-from source.core.records.chunk_scope import uncollected_chunks
-from source.core.records.timestamps import TIMESTAMP_FILENAME
-from source.core.records.health_check_records import format_chunk_range
-from source.core.runner_support.venvs import venv_python
 from source.core.common import exit_with_error, PROJECT_ROOT
+# The pipeline, plotting and provider modules (myQLM, matplotlib, …) are imported inside the functions that use
+# them, so a wrong argument prints the usage before those heavy imports.
 from source.core.records.run_names import (collective_folder_name, collective_plots_dir, entry_data_type, is_run_name, make_run_filter,
                                    parse_run_name, run_summary_name, subset_suffix, summary_name, plots_dir)
 
@@ -186,7 +180,8 @@ USAGE = """usage: python source/analysis_scripts/run_post_process.py SELECTION I
   mini                   the mini benchmark (RUN_THESE["mini"])
   full                   the full benchmark (RUN_THESE["full"])
   BENCHMARK ARGUMENTS    as the source/benchmark_scripts/ take them (without layout= / calibration_file=), e.g.
-                         mini nshots_per_circuit=100 or nshots_per_circuit=50 n_samples=8 n_depths=3:
+                         mini nshots_per_circuit=100 or nshots_per_circuit=50 n_samples=8 n_depths=3
+                         (nt_list=... instead of n_depths=K):
                          every run folder with that <benchmark> field
   nshots_per_circuit=N   every run in datafiles/ with N shots per circuit (N a positive integer)
 
@@ -412,6 +407,12 @@ def merge_and_analyze(run_folder, n_samples_override=None):
     Returns (ok, n_samples) — ok=False means skipped (no data yet, or an
     invalid override); n_samples=None means the full run's own unsuffixed
     files apply (either just analyzed, or already analyzed)."""
+    import numpy as np
+    from source.core.qbcs import bacq_ps_qbcs
+    from source.core.records.chunk_scope import uncollected_chunks
+    from source.core.records.timestamps import TIMESTAMP_FILENAME
+    from source.core.records.health_check_records import format_chunk_range
+
     backend_name = run_folder   # for the messages
     is_sim     = parse_run_name(run_folder).is_simulation
     run_path   = PROJECT_ROOT / "datafiles" / run_folder
@@ -502,6 +503,8 @@ def analyzed_data(run_folder, n_samples_override=None):
 
 def run_script(script_name, run_folder, n_samples, extra_env=None):
     """Stages 2-5 — run one of the source/analysis_scripts/ post-processing scripts, parameterized via env vars."""
+    from source.core.runner_support.venvs import venv_python
+
     env = os.environ.copy()
     env.update(extra_env or {})
     env["QPU_RUN_FOLDER"] = run_folder   # the scripts read the run's own settings from it
@@ -529,6 +532,9 @@ def analyze_run(run_folder, n_samples_override=None):
     """Stages 1-5 for one run. Returns (ok, run_folder, n_samples): ok is True if every
     stage that ran succeeded; run_folder/n_samples identify the analyzed benchmark data
     (run_folder None if there is none, e.g. a health-check-only run)."""
+    from source.core.qpu.layout_selection import run_layout_warnings
+    from source.core.records.health_check_records import load_health_checks
+
     backend_name = run_folder   # for the messages
     for msg in run_layout_warnings(PROJECT_ROOT / "datafiles" / run_folder):
         print(f"⚠️  {backend_name}: {msg}")
@@ -657,6 +663,7 @@ def main():
         print("\n✅ Pipeline complete.")
         return
     section("Collective plots")
+    from source.core.analysis.collective_plots import make_collective_plots
     selection = f"any+nshots-{value}" if mode == "nshots" else value
     data_types = [KIND_DATA_TYPES[k][0] for k in KIND_DATA_TYPES if k in kinds]
     try:

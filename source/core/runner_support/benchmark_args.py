@@ -23,7 +23,9 @@ of date=YYYY-MM-DD (the day's latest run) or date=YYYY-MM-DD_#N (parse_date_arg(
 every run of the benchmark with something left to collect is handled (find_collect_run_folders()).
 
 The submit scripts take the word --force-new-run (pop_force_new_run_flag()): start a new run folder even if
-the latest run of those settings is unfinished.
+the latest run of those settings is unfinished. The retrying submit scripts (*_with_retries.py) also use the word
+--retry-health-check (pop_retry_health_check_flag(), not in the usage): resubmit only the health check after
+the last chunks of the latest run, which are already submitted.
 
 No qiskit and no myQLM (only numpy): every venv imports it.
 """
@@ -200,6 +202,14 @@ def pop_force_new_run_flag(argv):
     """(whether `--force-new-run` is in argv, argv without it) — to be called before the benchmark/backend
     argument parsers, which do not know the word."""
     return FORCE_NEW_RUN_WORD in argv, [a for a in argv if a != FORCE_NEW_RUN_WORD]
+
+
+RETRY_HEALTH_CHECK_WORD = "--retry-health-check"   # bare word of the EQE1 / VLQ submit scripts, given by their *_with_retries.py
+
+
+def pop_retry_health_check_flag(argv):
+    """(whether `--retry-health-check` is in argv, argv without it) — like pop_force_new_run_flag()."""
+    return RETRY_HEALTH_CHECK_WORD in argv, [a for a in argv if a != RETRY_HEALTH_CHECK_WORD]
 
 
 def _fail(msg):

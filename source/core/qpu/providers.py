@@ -25,7 +25,13 @@ def job_state_of_status(status):
     """"done" | "failed" | "pending" from a provider's job-status text (an enum's repr or value). A cancelled
     job counts as failed, like an errored one; anything not final (queued, running, validating, …) is pending.
     Collection, the IBM health-check wait and the status report map a status to its job state here;
-    job_status_check.classify() only refines the failed states into ERROR vs CANCELLED."""
+    job_status_check.classify() only refines the failed states into ERROR vs CANCELLED.
+    Known literals: IBM and IQM Resonance statuses as their SDKs report them; EQE1 (MQSS): COMPLETED, PENDING and CANCELLED
+    observed live (a PENDING job cancelled with cancel_job() then reads CANCELLED), WAITING and FAILED from the client's
+    enum only (not observed). VLQ (qiskit JobStatus via
+    HEAppE): DONE, RUNNING, ERROR observed live (a HEAppE "Failed" job reads ERROR). A job cancelled with cancel() reads
+    ERROR when queried through a fresh backend object: qaas reports CANCELLED only through the object that issued the cancel
+    (qaas/client/backend.py). QUEUED, INITIALIZING and VALIDATING not observed."""
     s = str(status).upper()
     if "DONE" in s or "COMPLETED" in s:
         return "done"
