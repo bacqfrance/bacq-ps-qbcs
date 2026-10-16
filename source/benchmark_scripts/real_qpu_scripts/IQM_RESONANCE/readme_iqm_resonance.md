@@ -116,6 +116,7 @@ qbcs_real_submit_iqm_resonance.py      qbcs_real_collect_iqm_resonance.py
   pending / error / cancelled / unavailable) and the QPU's health. Resonance has no job listing, so
   "recent jobs" is not available. Same report as the IBM and other IQM scripts
   (`source/core/qpu/job_status_check.py`).
+- **`cancel_real_qpu_jobs_iqm_resonance.py`** — cancels the jobs of a run folder that are still queued or running on IQM Resonance, after reading their live status. Same arguments as the status script (`backend=NAME`, mini/full, …, `layout=`/`date=`; without them every run with something left to collect is handled in turn); add the word `health_check` to cancel the backend's latest standalone health-check job instead. Jobs that already ended are left alone, a job shared by several chunks is cancelled once, and the records on disk are not changed: run the collect script afterwards (same arguments) to update their status. Exit code `2` when a cancellation fails. (Shared code in `source/core/qpu/job_cancel.py`.)
 - **`health_check_real_iqm_resonance.py`** — a standalone submit-and-collect health check in one script,
   unrelated to any benchmark run (its own run folder, wiped before every submission); it blocks until
   the job finishes, like the other QPUs' health-check scripts. `backend=NAME` is required. The script's

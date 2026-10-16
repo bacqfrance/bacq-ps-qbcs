@@ -6,6 +6,7 @@ something left to collect is reported in turn.
 
   backend=NAME            required (EQE1)
   health_check            check the standalone health check of that backend instead of a benchmark run
+  layout=... / date=...   optional: that one run; without them, every run of the benchmark with something left to collect (all layouts and dates)
 
 Benchmark size (required — there is no default), from the command line (source/core/runner_support/benchmark_args.py; readme: "Benchmark size and run folders"):
   mini · full · mini|full nshots_per_circuit=N ·

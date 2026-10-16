@@ -1,7 +1,8 @@
 """
 check_real_qpu_job_status_iqm_vlq.py
 Check the status of a run's jobs on IQM VLQ (HEAppE) against the job records on disk.
-Does not wait and changes nothing.
+Does not wait and changes nothing. Without layout= and date=, every run of the benchmark with
+something left to collect is reported in turn.
 
   backend=NAME            required (VLQ)
   health_check            check the standalone health check of that backend instead of a benchmark run

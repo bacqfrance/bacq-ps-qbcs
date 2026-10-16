@@ -111,8 +111,8 @@ inline** — there is no separate collect script.
 ```
 qbcs_real_submit_aqt_loop.py           (synchronous — one submit() call per chunk)
   load the cached circuits (once)
-  STOP file in the run folder → exit 4, before the PRE check
   choose the layout (once per run)     → recorded in transpiled_circuits/physical_qubits.json
+  STOP file in the run folder → exit 4, before the PRE check
   record the run (run_info.json)       → an aborted run stays analyzable (health checks only)
   PRE health check (once, before the loop; exit 10 degraded, 12 not submitted, 13 task timed out)
   for n in CHUNK_START..CHUNK_STOP:    (1-based; chunk index nc = n - 1)

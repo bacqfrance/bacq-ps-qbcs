@@ -101,7 +101,7 @@ Quantum_Benchmarking_project/
 │   │   │   ├── chunk_scope.py           #   which chunks a run covers / still lacks
 │   │   │   └── circuit_check.py         #   executed-vs-submitted circuit check — see §7
 │   │   ├── qpu/                         #   provider access and QPU data
-│   │   │   ├── providers.py             #   constants the QPU scripts share (IQM Resonance URL, health-check shots, standalone health check), `job_state_of_status()` (done / failed / pending from a job-status text) and `ibm_batch()`, the IBM Batch + sampler that is always closed
+│   │   │   ├── providers.py             #   constants the QPU scripts share (IQM Resonance URL, health-check shots, standalone health check), `connect_ibm()` (the IBM connection), `job_state_of_status()` (done / failed / pending from a job-status text) and `ibm_batch()`, the IBM Batch + sampler that is always closed
 │   │   │   ├── tokens.py                #   read_token() / token_path(): the provider tokens and access files in tokens/
 │   │   │   ├── iqm_vlq.py               #   IQM VLQ (LEXIS/HEAppE) login, upload and calibration
 │   │   │   ├── qpu_snapshot.py          #   calibration snapshot → offline backend + Aer noise model — see §7
@@ -109,7 +109,8 @@ Quantum_Benchmarking_project/
 │   │   │   ├── layout_selection.py      #   picks a run's physical qubits (optimized / random / lowest / given) — see §5.4
 │   │   │   ├── aqt.py                   #   AQT PIAST-Q: QPU time per circuit, resilient job with retries and shot split
 │   │   │   ├── remote_jobs.py           #   live job state, submit-error kinds and retries (shared by qbcs and health_check)
-│   │   │   └── job_status_check.py      #   live job status vs. the records on disk
+│   │   │   ├── job_status_check.py      #   live job status vs. the records on disk
+│   │   │   └── job_cancel.py            #   cancels the jobs of a run (or health check) that are still queued or running
 │   │   ├── runner_support/              #   shared by the scripts users run
 │   │   │   ├── benchmark_args.py        #   the shared command line (benchmark size, backend=, layout=, calibration_file=)
 │   │   │   ├── run_simulation.py        #   the shared steps of the simulate scripts (simulate_run(), after the calibration snapshot)
@@ -146,7 +147,7 @@ Quantum_Benchmarking_project/
 │   │       └── AQT_PIAST-Q/    + readme_aqt.md
 │   │           └── PCSS_Quantum_UI/  # sbatch files for running the AQT benchmark on the PCSS cluster, and aqt_run_folder.py (prints a run folder; readme_aqt.md §4.3)
 │   └── tests/                           # validation scripts (§9)
-├── analysis/                            # analysis output only
+├── analysis/                            # analysis output only (the whole folder is git-ignored)
 │   ├── plots+summaries/                 #   per run and per collective set: the figures and a copy of the summary JSON(s); the collective run table (CSV)
 │   └── tests/                           #   test output (git-ignored)
 ├── calibration_input_files/             # the latest provider calibration files (PIAST-Q, Euro-Q-Exa) for calibration_file= — see §5.4
@@ -251,10 +252,10 @@ run this from the project root, with `local_sim.venv` active:
 ```bash
 pytest source/tests/
 ```
-Runs `test_00`/`test_01`/`test_07`/`test_08`/`test_10`/`test_11`/`test_12`/`test_13`/`test_14`/`test_15`/`test_16`/`test_17`/`test_18`/`test_19`/`test_20`/`test_21`/`test_22`/`test_23`/`test_24`/`test_25`/`test_26`/`test_27` (§9) —
+Runs `test_00`/`test_01`/`test_07`/`test_08`/`test_10`/`test_11`/`test_12`/`test_13`/`test_14`/`test_15`/`test_16`/`test_17`/`test_18`/`test_19`/`test_20`/`test_21`/`test_22`/`test_23`/`test_24`/`test_25`/`test_26`/`test_27`/`test_28`/`test_29` (§9) —
 fundamental checks that confirm the circuits are built correctly, a full
 local-sim pipeline + post-processing integration check, and unit tests of the
-executed-circuit check and the timing bookkeeping — in 5 to 10 minutes (325 tests; longer on slower machines).
+executed-circuit check and the timing bookkeeping — in 5 to 10 minutes (349 tests; longer on slower machines).
 **Two venvs are needed**: `local_sim.venv` runs the suite (the run stops at once with instructions if `venvs/local_sim.venv` is missing; `test_10` also starts a child process in it), and `test_12` runs itself in `aqt.venv` — it fails with an error telling you to create `venvs/aqt.venv` (`source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/readme_aqt.md` §1, `requirements_aqt.txt`, which includes `pytest`) or to run `venvs/aqt.venv/Scripts/python -m pip install pytest` (`bin/python` on Linux) if only `pytest` is missing there.
 All tests passing (no failures, no errors) means the base venv, myQLM↔Qiskit
 translation, local Aer simulation, and `source/analysis_scripts/run_post_process.py` all work
@@ -401,12 +402,13 @@ explicitly transpiled to that backend — without it, `AerSamplerV2` silently
 cancels twirl gates.
 
 ```python
-from qiskit_ibm_runtime import QiskitRuntimeService
+from source.core.qpu.providers import connect_ibm
+from source.core.qpu.tokens import read_token
 from qiskit_aer import AerSimulator
 from qiskit_aer.noise import NoiseModel
 from qiskit_aer.primitives import SamplerV2 as AerSamplerV2
 
-service      = QiskitRuntimeService(channel="ibm_quantum_platform")
+service, _   = connect_ibm(read_token("ibm_token"), None, "ibm_fez")   # None: the account's Open Plan instance (readme_IBM.md §2)
 real_backend = service.backend("ibm_fez")
 noise_model  = NoiseModel.from_backend(real_backend)
 
@@ -858,7 +860,7 @@ per circuit), `full` the full one (480 chunks, Nt = 1…19, 10 shots per circuit
 `nshots_per_circuit=… n_samples=… n_depths=…` a custom one. Every real-QPU script (submit, collect, simulate, status, health check) requires the machine as
 `backend=NAME`, e.g. `backend=ibm_marrakesh` or `backend=emerald`; there is no default, and neither is there a default benchmark for the scripts that take one: it must be named too (the standalone `health_check_real_*.py` scripts take only `backend=`). Called without any argument (exit code 2) or with `--help` (exit code 0), every script — also the local simulation scripts and `source/analysis_scripts/run_post_process.py` — prints its usage, before any provider SDK is loaded, and does nothing; the usage has the same sections everywhere. The allowed names
 are listed in the `backends.json` of each QPU folder, together with each machine's topology (`"lnn"`:
-linear-nearest-neighbour or all-to-all circuits), which sets `LNN` for the run. A collect or status script takes the
+linear-nearest-neighbour or all-to-all circuits), which sets `LNN` for the run. Every IBM script also takes an optional `instance=NAME`, the IBM Quantum Platform instance (default: the account's free Open Plan instance; the QPUs an instance lists differ, and a run stays on the instance recorded in its `run_info.json`: `source/benchmark_scripts/real_qpu_scripts/IBM/readme_IBM.md` §2). A collect or status script takes the
 same arguments as its submission, `backend=` included (`layout=` is optional: without `layout=` and `date=` every run of that benchmark with something left to collect is collected (or reported) in turn, all layouts and dates; give `layout=` to pick one run, including an already finished one; `date=YYYY-MM-DD` alone takes each layout's latest run of that day, `date=YYYY-MM-DD_#N` each layout's run with that number),
 and with `layout=` or `date=` reads the latest run of that layout, or the one of `date=YYYY-MM-DD` or `date=YYYY-MM-DD_#N`. The
 run folder names the benchmark, the QPU, the layout and the date (§5.4),
@@ -1029,7 +1031,7 @@ copy is submitted every time. Its transpile time (the sum over the variants in
 `health_check_transpiled.json`) is counted once in the run's CPU time; a subset analysis includes this whole-run time.
 
 Each backend folder has a `qbcs_real_submit_*.py`, a standalone `health_check_real_*.py` and a
-`readme_*.md`. IBM and IQM also have a separate `qbcs_real_collect_*.py` and a job-status script; AQT
+`readme_*.md`. IBM and IQM also have a separate `qbcs_real_collect_*.py`, a job-status script and a `cancel_real_qpu_jobs_*.py` script (it cancels the jobs of a run, or of the latest standalone health check with `health_check`, that are still queued or running; run the collect script afterwards to update the records); AQT
 runs synchronously, so its submit script runs the accompanying health checks and merges the results itself.
 
 | QPU | Scripts folder | Submit / collect | Manual |
@@ -1090,6 +1092,10 @@ datafiles/<run_folder>/
 ├── job_records/failed_attempts/               # records of submissions that failed and were retried
 ├── health_checks/                             # one numbered record per health-check attempt (PRE / POST)
 ├── circuit_drawings/                          # drawings of the run's circuits
+├── iqm_vlq_connection.log                     # optional — IQM VLQ runs: the log of the connection to the VLQ service
+├── output.log                                 # optional — AQT sbatch runs: the sbatch files' log
+├── retry_state                                # optional — AQT retry sbatch run, while it is retrying
+├── STOP                                       # optional — AQT loop: made with `touch`, ends the loop before its next chunk (exit code 4)
 ├── run_info.json                              # what the run was: shots, samples, depths, dt, topology, SPAM (§10.2)
 ├── calibration_snapshot.json                  # real runs: the calibration the layout was chosen with (§5.4)
 ├── transpiled_circuits/                       # backend-specific ISA circuits (per-run): chunks, SPAM,
@@ -1167,6 +1173,8 @@ The numbered tests skip 02-06 and 09 (those numbers belong to retired tests).
 | `source/tests/test_25_health_check_qubit_set.py` | an explicit health-check `qubit_set` is checked against the backend before anything is transpiled: a coupled set passes; an uncoupled, repeated, unusable or wrong-length set exits with code 2 and one line; no `qubit_set` and a local run without a layout backend are not checked; a VLQ-like all-to-all target accepts any distinct in-range qubits; the message names the backend the script passes (`backend_name`), else the backend object's own name |
 | `source/tests/test_26_awae_helpers.py` | `cumulative_awae()` (the Z-weighted cumulative AWAE) equals the form the summary uses bit for bit and agrees with the other forms of it; NaN propagates; `EPSILON` is 0.05 and the default of `compute_derived_quantities`; `best_schemes()` lists the best scheme at $N_{max}$ and the one at $N_{acc}$ when different, skipping a missing one |
 | `source/tests/test_27_submit_with_retries.py` | the retry loop of the EQE1 and VLQ `*_with_retries.py` submit scripts (`submit_with_retries.py`) with fake status and launch: the latest job (chunk or health check), the final statuses that launch and every other status that waits, the 10 min steps, the 48 h budget and its restart on progress, a folder that never appears, the exit codes, `--force-new-run` only until the folder exists, progress on a new run, and the final health check (repeated 3 times with `--retry-health-check`, never a new run; a failed check before the submission keeps the normal wait), and the EQE1 setting (no job wait, the first retry at once, 1 min waits, a 20 min budget) with the 21 min age below which the check before the submission is skipped |
+| `source/tests/test_28_ibm_instance.py` | the explicit IBM instance choice with a fake service: the default is the Open Plan instance (not the first one listed), a named instance is found by name or CRN, an unknown name, no Open Plan instance or several exit with code 2 and one line; `connect_ibm()` builds one service, limited to Open Plan by default or for the named instance, refuses an unknown name (listing the instances) and a QPU the instance does not list; a run's recorded instance wins, a different `instance=` for it and runs on different instances exit with code 2; `run_info.json` records the instance, keeps it through later writes and leaves it out for other providers; `parse_instance_arg()` and the usage text |
+| `source/tests/test_29_job_cancel.py` | the shared body of the `cancel_real_qpu_jobs_*.py` scripts (`job_cancel.py`) with fake status and cancellation: only queued or running jobs are cancelled, a job shared by chunks once, records without a job and ended jobs are left alone, the standalone health check, records unchanged on disk, and exit code 2 when a cancellation or a status query fails (the next run folder still runs) |
 
 ### 9.1 Your circuit caches are safe during `pytest source/tests/`
 
@@ -1178,7 +1186,7 @@ run while a benchmark script is running, and nothing needs restoring after an in
 
 Everything else the tests write stays in test folders too: their run folders in `datafiles/tests/`
 (`tests/test<NN>…`), and their plots and summaries in `analysis/tests/plots+summaries/`.
-Both `datafiles/tests/` and `analysis/tests/` are git-ignored, and your own runs, plots and summaries are
+`datafiles/tests/` and the whole `analysis/` folder are git-ignored, and your own runs, plots and summaries are
 never touched.
 
 ---
@@ -1433,7 +1441,7 @@ own number, which the NEC analysis needs (a sample's NEC input state is its chun
 health check plot, an uncollected health check is a red cross and an uncollected chunk job a purple cross,
 both at their submission time.
 
-**Cost in the summary.** The benchmark's runs used free access, so `actual_cost_EUR` is 0. `effective_cost_EUR` is what the
+**Cost in the summary.** The benchmark's runs used free access, so `actual_cost_EUR` is 0 — except an IBM run on a pay-as-you-go instance (`instance=` of the IBM scripts; the plan is recorded in the run's `run_info.json`), whose actual cost equals its effective cost. `effective_cost_EUR` is what the
 run would have cost at public list prices. It is computed from the run's own records (`source/core/analysis/run_timing.py: qpu_workload`):
 
 - jobs: chunks sharing a job id count once;
@@ -1443,7 +1451,7 @@ run would have cost at public list prices. It is computed from the run's own rec
 - failed jobs, and their circuits and shots (results lost, not counted as jobs above): added to the cost of every backend and named in `cost_explanation`, by the rules in §7 (AQT: the circuits finished before the failure; the other backends: failed jobs that reached the provider, in full);
 - submissions that may have run on the provider and jobs never collected: not counted, named in `cost_explanation` with their cost unknown.
 
-`cost_explanation` gives the reason the actual cost is 0, the pricing model with links, and the result.
+`cost_explanation` gives the reason the actual cost is 0 (or that it was billed on the named instance), the pricing model with links, and the result.
 VAT is excluded. The prices and the exchange rate are hard-coded at the top of the script, with the date they
 were looked up (2026-09-27; the IQM Resonance credits, used for the VLQ/Sirius estimate, 2026-09-28).
 

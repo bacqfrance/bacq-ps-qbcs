@@ -114,12 +114,17 @@ if IS_SIM:
     PRICING       = None
     FREE_BECAUSE  = None
 
-elif BACKEND_NAME in ("ibm-marrakesh", "ibm-kingston", "ibm-fez"):
+elif BACKEND_NAME in ("ibm-marrakesh", "ibm-kingston", "ibm-fez", "ibm-boston", "ibm-pittsburgh", "ibm-aachen", "ibm-phoenix"):
     QPU_PROVIDER  = "IBM"
-    ARCHITECTURE  = "Heron R2"
+    ARCHITECTURE  = {"ibm-boston": "Heron R3", "ibm-pittsburgh": "Heron R3", "ibm-aachen": "Heron R3", "ibm-phoenix": "Nighthawk R2"}.get(BACKEND_NAME, "Heron R2")
     QPU_SERVICE   = "IBM Quantum Platform (cloud)"
     PRICING       = "ibm_payg"
-    FREE_BECAUSE  = "the benchmark fits within the free IBM allocation of the IBM Quantum Open Plan"
+    if INFO.instance is None or INFO.instance_plan is None:   # every IBM run records the instance that received its jobs (run_info.json)
+        exit_with_error(f"datafiles/{RUN_FOLDER}/run_info.json records no IBM instance, so the run's cost cannot be told "
+                        f"(free Open Plan or billed pay-as-you-go)")
+    IBM_BILLED    = INFO.instance_plan != "open"   # any plan but the free Open Plan is paid at the pay-as-you-go price
+    FREE_BECAUSE  = None if IBM_BILLED else (f"the benchmark fits within the free IBM allocation of the IBM Quantum Open Plan "
+                                             f"(instance {INFO.instance})")
 
 elif BACKEND_NAME == "iqm-eqe1":
     QPU_PROVIDER  = "IQM"
@@ -186,7 +191,7 @@ if IS_SIM:
         EXTRA_INFO  = (EXTRA_INFO + f" Noisy simulation from a calibration snapshot of {_snap['backend']} "
                        f"({_snap['downloaded_at']}) — not a hardware result.")
 
-# ── Cost: what this run would cost at list prices; actually paid: 0 ───────────
+# ── Cost: what this run would cost at list prices; actually paid: 0, except an IBM run on a pay-as-you-go instance (its list price) ──
 # Priced from the run's own records (the analysed subset, health checks included): source/core/analysis/run_timing.py: qpu_workload.
 ACTUAL_COST_EUR = 0
 EFFECTIVE_COST_USD = EXCHANGE_RATE = None      # written only for USD-priced backends
@@ -262,12 +267,17 @@ else:
                   f"{EXCHANGE_RATE} EUR per USD (mid-market rate on 2026-09-27)")
     else:
         result = f"would cost €{EFFECTIVE_COST_EUR:,.2f}"
-    COST_EXPLANATION = f"The actual cost is 0 because {FREE_BECAUSE}. {model} {result}.{NO_VAT}"
+    if FREE_BECAUSE is None:   # IBM run on a pay-as-you-go instance: the list price is what was billed
+        ACTUAL_COST_EUR  = EFFECTIVE_COST_EUR
+        COST_EXPLANATION = (f"The actual cost equals the effective cost: the run was billed on the IBM instance {INFO.instance} "
+                            f"({INFO.instance_plan}). {model} {result}.{NO_VAT}")
+    else:
+        COST_EXPLANATION = f"The actual cost is 0 because {FREE_BECAUSE}. {model} {result}.{NO_VAT}"
 COST_FIELDS = {
     **({"effective_cost_USD": round(EFFECTIVE_COST_USD, 2)} if EFFECTIVE_COST_USD is not None else {}),
     **({"exchange_rate_EUR_per_USD": EXCHANGE_RATE} if EXCHANGE_RATE is not None else {}),
     "effective_cost_EUR": round(EFFECTIVE_COST_EUR, 2),
-    "actual_cost_EUR":    ACTUAL_COST_EUR,
+    "actual_cost_EUR":    round(ACTUAL_COST_EUR, 2),
     "cost_explanation":   COST_EXPLANATION,
 }
 

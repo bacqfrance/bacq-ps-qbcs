@@ -33,21 +33,38 @@ Keep myQLM out of this venv as a design rule.
 
 ```python
 from source.core.qpu.tokens import read_token
-from qiskit_ibm_runtime import QiskitRuntimeService
+from source.core.qpu.providers import connect_ibm
 
 token   = read_token("ibm_token")   # tokens/ibm_token
-service = QiskitRuntimeService(channel="ibm_quantum_platform", token=token)
+service, instance = connect_ibm(token, None, "ibm_marrakesh")   # None: the Open Plan instance; or an instance name
 real_backend = service.backend("ibm_marrakesh")   # or another name listed in `backends.json`
 ```
 
-Every script in this folder that connects to IBM authenticates this way,
-reading `tokens/ibm_token`.
+Every script in this folder that connects to IBM authenticates this way, reading `tokens/ibm_token`, and always
+chooses the IBM **instance** explicitly (an instance is a plan-bound resource of your IBM Quantum Platform account,
+listed with its name and plan on the platform): the account's free Open Plan instance by default, another one with
+`instance=NAME` (its name as the platform shows it). Left to itself, the library may pick a paid
+instance, so the scripts never do. The scripts print the instance they use and every instance of the account (the names `instance=NAME` accepts), and `qbcs_real_submit_ibm.py` records it
+(name and plan) in the run's `run_info.json` and `submit.log`.
+
+Instances differ in two ways that matter here:
+
+- **The QPUs they list.** A QPU not listed on the chosen instance stops the script with a one-line message (exit
+  code 2) saying which ones are. `backends.json` holds every QPU any instance of the account may list; the Open Plan
+  instance lists `ibm_marrakesh`, `ibm_fez` and `ibm_kingston`, so the others, which are listed only on paid instances, need `instance=NAME` (a run on a paid instance is billed, §5). Calibration
+  downloads (`qbcs_real_simulate_ibm.py`) work through any instance that lists the QPU.
+- **The jobs they hold.** A job is found only through the instance that received it. A run therefore stays on the
+  instance recorded in its `run_info.json`: collect, status and a continued submission use it, and an `instance=NAME`
+  naming another instance for that run stops the script (exit code 2). Runs on different instances in one call (a
+  collect without `layout=` and `date=`) stop it too: narrow them with `layout=` or `date=`. The standalone health
+  check keeps no record, so its status script takes the same `instance=` as `health_check_real_ibm.py` (default: the Open Plan instance).
 
 ## 3. Config knobs (top of each script)
 
 | Knob | Meaning |
 |---|---|
 | `BACKEND_NAME` | `backend=NAME` on the command line — **required** by `qbcs_real_submit_ibm.py`, `qbcs_real_collect_ibm.py`, `qbcs_real_simulate_ibm.py` and `check_real_qpu_job_status_ibm.py` (they stop with a usage line without it), e.g. `backend=ibm_marrakesh`. The name must be listed in [`backends.json`](backends.json) (and be visible under your account/instance); add a line there to use another device. Pass the same `backend=` to submit/collect/status for a given run — the run folder name is derived from it, which is how they find the run on disk. `health_check_real_ibm.py` requires it too — there is no default. |
+| `INSTANCE` | `instance=NAME` on the command line, optional, accepted by every script here: the IBM instance to use (§2). Default: the account's Open Plan instance; for a run that already has one recorded in its `run_info.json`, that one. |
 | run size (shots, RC samples, evolution times) | the preset or sizes given on the command line (below), not edited in the script |
 | `LNN` | `True` = linear-nearest-neighbour transpilation, matching the device's local coupling. Taken from the chosen backend's `"lnn"` entry in `backends.json`. IBM's own backends are all heavy-hex (locally connected), so `true` is right for every one listed; a device with different connectivity needs its own `"lnn"` value there (see `readme_iqm_resonance.md` §3 for why it matters). |
 | `DO_SPAM` | also run SPAM calibration |
@@ -118,6 +135,7 @@ qbcs_real_submit_ibm.py                qbcs_real_collect_ibm.py
   (done / pending / error / cancelled / unavailable), the backend's queue and your 10 most recent
   IBM jobs. Useful for checking on a run without doing a full collect. (Same report as the IQM scripts;
   shared code in `source/core/qpu/job_status_check.py`.)
+- **`cancel_real_qpu_jobs_ibm.py`** — cancels the jobs of a run folder that are still queued or running on IBM, after reading their live status. Same arguments as the status script (`backend=NAME`, mini/full, …, `layout=`/`date=`; without them every run with something left to collect is handled in turn); add the word `health_check` to cancel the backend's latest standalone health-check job instead. Jobs that already ended are left alone, a job shared by several chunks is cancelled once, and the records on disk are not changed: run the collect script afterwards (same arguments) to update their status. `instance=NAME` as in the other IBM scripts. Exit code `2` when a cancellation fails. (Shared code in `source/core/qpu/job_cancel.py`.)
 - **`health_check_real_ibm.py`** — a standalone submit-and-collect health check in one script, unrelated to
   any benchmark run (its own run folder, wiped before every submission); it blocks until the job finishes,
   like the other QPUs' health-check scripts. `backend=NAME` is required. Exit codes: `0` functional, `10` degraded, `2` for a problem you can fix (no argument, a missing or unknown `backend=`, a missing token), `1` for any other error (a provider or SDK error, a failed submission, collection or job); `11` and `12` come only from the accompanying checks of the submit scripts.
@@ -160,6 +178,7 @@ the usual circuit build.
 Every chunk and health-check record gets a `timing` block and a `circuit_check`:
 
 - **QPU time** (`qpu_s`): the time IBM bills, `usage.qpu_charge_time_seconds` of the job. IBM bills per job: a failed job that reached IBM (it has a `job_id`) counts in full in the summary's QPU time and cost (all its chunks' circuits × `nshots`, once if several chunks share it); a submission failure without a `job_id`, and a job never collected, are not counted and are named in the cost text (main USER_MANUAL §7).
+- **Cost** (summary): the job carries no money amount (IBM reports the billed seconds and abstract resource units), so the effective cost is the QPU time at the Pay-As-You-Go list price. A run on the Open Plan instance was free (actual cost 0); a run on any other (pay-as-you-go) instance was billed that price, so the summary's actual cost equals its effective cost. Which one applies comes from the run's recorded instance plan.
 - **Queue time** (`queue_s`): from the job's creation to the start of its first execution span.
 - **Circuit check**: the circuits IBM ran (`job.inputs["pubs"]`) compared gate by gate with the submitted ISA
   circuits in `transpiled_circuits/`. A mismatch is warned about and recorded, never fatal.

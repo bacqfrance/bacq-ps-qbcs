@@ -70,6 +70,7 @@ TIMEOUTS = {
     "get_backend":          300,    # submits HEAppE's backend_init job (30 s walltime) and polls it
     "retrieve_job":         120,
     "job status":           120,
+    "job cancel":           120,
     "result download":      900,    # the job has finished; fetching a 12-chunk job's counts
     "executed circuits":    600,    # job.get_transpiled_circuits() for the circuit check
     "job submission":       3600,   # upload of up to 816 circuits. After a timeout the upload may still
@@ -257,6 +258,11 @@ def retrieve_job(backend, job_id):
 def job_status(job, job_id=""):
     """job.status() (qiskit JobStatus), logged and time-limited."""
     return call("job status", job.status, f"HEAppE job {job_id}")
+
+
+def cancel_job(job, job_id=""):
+    """job.cancel() (HEAppE only accepts the request; True when it did), logged and time-limited."""
+    return call("job cancel", job.cancel, f"HEAppE job {job_id}")
 
 
 def run(backend, circuits, detail="", **kw):
@@ -719,6 +725,7 @@ def wait_for_result(job, job_id="", timeout_s=None):
 
 if __name__ == "__main__":   # quick look: python -m source.core.qpu.iqm_vlq [calibration_set_id]
     sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     cal = fetch_calibration(sys.argv[1] if len(sys.argv) > 1 else "default")
     for q, v in qubit_metrics(cal).items():
         print(q, {k: (round(x, 5) if isinstance(x, float) else x) for k, x in v.items()})

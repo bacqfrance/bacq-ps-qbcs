@@ -38,19 +38,18 @@ os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
 from source.core.runner_support.benchmark_args import make_usage, usage_if_requested   # light (numpy only): the usage is printed before anything else loads
 from source.core.records.run_names import qpu_run_name, dated_run_folder
 from source.core.qpu.tokens import read_token
-usage_if_requested(sys.argv[1:], make_usage(__file__, "Run the BACQ benchmark on the local Aer simulator with a real IBM QPU's calibration: same circuits, settings and qubit selection as qbcs_real_submit_ibm.py, but no QPU time.", layout="simulate"))   # no arguments or --help: print the usage and do nothing
+usage_if_requested(sys.argv[1:], make_usage(__file__, "Run the BACQ benchmark on the local Aer simulator with a real IBM QPU's calibration: same circuits, settings and qubit selection as qbcs_real_submit_ibm.py, but no QPU time.", layout="simulate", instance=True))   # no arguments or --help: print the usage and do nothing
 from pathlib import Path
 
-from qiskit_ibm_runtime import QiskitRuntimeService
-
-from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args
+from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args, parse_instance_arg
+from source.core.qpu.providers import connect_ibm
 from source.core.qpu.calibration_input import use_calibration_file
 from source.core.runner_support.run_simulation import simulate_run
 from source.core.qpu.qpu_snapshot import SNAPSHOT_FILENAME, save_calibration_snapshot, reuse_calibration_snapshot
 
 # ── Config ────────────────────────────────────────────────────────────────────
 BACKEND_NAME, BACKEND_CFG = parse_backend_config(sys.argv[1:], Path(__file__).parent)   # required backend=NAME, checked against backends.json
-BENCH            = parse_benchmark_args(sys.argv[1:], extra_keys=("backend",))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
+BENCH            = parse_benchmark_args(sys.argv[1:], extra_keys=("backend", "instance"))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
 LAYOUT           = parse_layout_args(sys.argv[1:], calibration_any_layout=True)   # layout=... [calibration_file=...] — see source/core/runner_support/benchmark_args.py
 LNN              = BACKEND_CFG["lnn"]   # the backend's topology, from backends.json
 DO_SPAM          = True
@@ -65,7 +64,7 @@ if LAYOUT.calibration_file:   # calibration_file=: the noise data of the simulat
     _, _, CAL_SOURCE = use_calibration_file(LAYOUT.calibration_file, Path("datafiles") / RUN_FOLDER, BACKEND_NAME)
 elif not reuse_calibration_snapshot(snapshot_path):   # a rerun warns and reuses the saved calibration
     token        = read_token("ibm_token")
-    service      = QiskitRuntimeService(channel="ibm_quantum_platform", token=token)
+    service, _   = connect_ibm(token, parse_instance_arg(sys.argv[1:]), BACKEND_NAME)   # only the calibration is downloaded: any instance listing the QPU will do; default the Open Plan one
     real_backend = service.backend(BACKEND_NAME)
     save_calibration_snapshot(real_backend, snapshot_path)
 

@@ -1,8 +1,12 @@
 {
-  "_comment": "QPUs the IBM scripts may run on. Every script requires backend=NAME. \"lnn\": true = linear-nearest-neighbour circuits, false = all-to-all.",
+  "_comment": "QPUs the IBM scripts may run on (every QPU any instance of the account lists; the Open Plan instance lists ibm_marrakesh, ibm_fez and ibm_kingston, the others are listed only on paid instances and need instance=NAME). Every script requires backend=NAME. \"lnn\": true = linear-nearest-neighbour circuits, false = all-to-all.",
   "backends": {
     "ibm_marrakesh": {"lnn": true},
     "ibm_fez": {"lnn": true},
-    "ibm_kingston": {"lnn": true}
+    "ibm_kingston": {"lnn": true},
+    "ibm_boston": {"lnn": true},
+    "ibm_pittsburgh": {"lnn": true},
+    "ibm_aachen": {"lnn": true},
+    "ibm_phoenix": {"lnn": true}
   }
 }

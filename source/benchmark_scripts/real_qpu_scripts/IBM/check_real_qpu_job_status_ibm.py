@@ -6,6 +6,7 @@ something left to collect is reported in turn.
 
   backend=NAME            required, one of the backends in backends.json
   health_check            check the standalone health check of that backend instead of a benchmark run
+  layout=... / date=...   optional: that one run; without them, every run of the benchmark with something left to collect (all layouts and dates)
 
 Benchmark size (required — there is no default), from the command line (source/core/runner_support/benchmark_args.py; readme: "Benchmark size and run folders"):
   mini · full · mini|full nshots_per_circuit=N ·
@@ -24,16 +25,16 @@ from source.core.runner_support.benchmark_args import make_usage, usage_if_reque
 from source.core.qpu.providers import STANDALONE_HEALTH_CHECK_REPS, STANDALONE_HEALTH_CHECK_NSHOTS
 from source.core.records.run_names import qpu_run_prefix, health_check_run_name, latest_run_folder
 from source.core.qpu.tokens import read_token
-usage_if_requested(sys.argv[1:], make_usage(__file__, "Check the live status of a run's jobs on IBM against the job records on disk. Waits for nothing and changes nothing.", health_check_flag=True, layout="collect"))   # no arguments or --help: print the usage and do nothing
+usage_if_requested(sys.argv[1:], make_usage(__file__, "Check the live status of a run's jobs on IBM against the job records on disk. Waits for nothing and changes nothing.", health_check_flag=True, layout="collect", instance=True))   # no arguments or --help: print the usage and do nothing
 
-from qiskit_ibm_runtime import QiskitRuntimeService
-from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args, find_collect_run_folders, parse_date_arg
+from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args, find_collect_run_folders, parse_date_arg, parse_instance_arg
+from source.core.qpu.providers import connect_ibm, ibm_instance_for_runs
 from source.core.qpu.job_status_check import pop_health_check_flag, run_status_checks
 
 # ── Config — must match the submit and health-check scripts ───────────────────
 HEALTH_CHECK, ARGV = pop_health_check_flag(sys.argv[1:])
 BACKEND_NAME, BACKEND_CFG = parse_backend_config(ARGV, Path(__file__).parent)   # required backend=NAME, checked against backends.json
-BENCH        = parse_benchmark_args(ARGV, extra_keys=("backend", "date"), required=not HEALTH_CHECK)   # full / mini / custom; none (None) for a health check
+BENCH        = parse_benchmark_args(ARGV, extra_keys=("backend", "date", "instance"), required=not HEALTH_CHECK)   # full / mini / custom; none (None) for a health check
 LAYOUT       = parse_layout_args(ARGV, collect=True)   # layout=... / date=... pick the run folder(s) (date= alone: each layout's run of that date); None: every run with something left to collect
 LNN          = BACKEND_CFG["lnn"]   # the backend's topology, from backends.json
 DO_SPAM      = True
@@ -43,7 +44,7 @@ HC_FOLDER    = latest_run_folder(health_check_run_name("IBM", BACKEND_NAME, STAN
 # ── Connect ───────────────────────────────────────────────────────────────────
 print(f"\n[{BACKEND_NAME} — connection]")
 token   = read_token("ibm_token")
-service = QiskitRuntimeService(channel="ibm_quantum_platform", token=token)
+service, INSTANCE = connect_ibm(token, ibm_instance_for_runs(parse_instance_arg(ARGV), RUN_FOLDERS), BACKEND_NAME)   # the runs' recorded instance (the standalone health check has none: instance= or the Open Plan one)
 
 def overview():
     status = service.backend(BACKEND_NAME).status()

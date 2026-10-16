@@ -21,17 +21,16 @@ os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
 from source.core.runner_support.benchmark_args import make_usage, usage_if_requested   # light (numpy only): the usage is printed before anything else loads
 from source.core.records.run_names import qpu_run_prefix, service_name
 from source.core.qpu.tokens import read_token
-usage_if_requested(sys.argv[1:], make_usage(__file__, "Collect the results of a BACQ benchmark run from IBM: every job that has finished, in any order, then merge and analyze. Run it again later for the rest. Needs the same arguments as the submit script.", layout="collect"))   # no arguments or --help: print the usage and do nothing
+usage_if_requested(sys.argv[1:], make_usage(__file__, "Collect the results of a BACQ benchmark run from IBM: every job that has finished, in any order, then merge and analyze. Run it again later for the rest. Needs the same arguments as the submit script.", layout="collect", instance=True))   # no arguments or --help: print the usage and do nothing
 
-from qiskit_ibm_runtime import QiskitRuntimeService
-
-from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args, find_collect_run_folders, parse_date_arg
+from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args, find_collect_run_folders, parse_date_arg, parse_instance_arg
+from source.core.qpu.providers import connect_ibm, ibm_instance_for_runs
 from source.core.runner_support.run_collection import collect_runs
 
 # ── Config — must match submit script ────────────────────────────────────────
 BACKEND_NAME, BACKEND_CFG = parse_backend_config(sys.argv[1:], Path(__file__).parent)   # required backend=NAME, checked against backends.json
 SERVICE_NAME = service_name("IBM")   # the access platform, as records and qbcs call it (source/core/records/run_names.py)
-BENCH        = parse_benchmark_args(sys.argv[1:], extra_keys=("backend", "date"))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
+BENCH        = parse_benchmark_args(sys.argv[1:], extra_keys=("backend", "date", "instance"))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
 LAYOUT       = parse_layout_args(sys.argv[1:], collect=True)   # layout=... / date=... pick the run folder(s) (date= alone: each layout's run of that date); None: every run with something left to collect
 LNN          = BACKEND_CFG["lnn"]   # the backend's topology, from backends.json
 DO_SPAM      = True
@@ -41,7 +40,7 @@ PATHS        = [f"datafiles/{folder}" for folder in RUN_FOLDERS]   # oldest firs
 # ── Connect to IBM ────────────────────────────────────────────────────────────
 print(f"\n[{BACKEND_NAME} — connection]")
 token   = read_token("ibm_token")
-service = QiskitRuntimeService(channel="ibm_quantum_platform", token=token)
+service, INSTANCE = connect_ibm(token, ibm_instance_for_runs(parse_instance_arg(sys.argv[1:]), RUN_FOLDERS), BACKEND_NAME)   # the runs' recorded instance (jobs are found only through it)
 
 # ── Health checks, then the finished chunks (non-blocking), merge, analyze (source/core/runner_support/run_collection.py) ──
 collect_runs(PATHS, service, SERVICE_NAME, BACKEND_NAME, BENCH, LNN, DO_SPAM)

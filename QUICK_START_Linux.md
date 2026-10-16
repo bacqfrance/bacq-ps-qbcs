@@ -27,7 +27,10 @@ root by itself, so it can also be started from any other directory. On Windows, 
 > 🆓 **IBM Quantum Open Plan.** IBM's free Open Plan gives 10 minutes of QPU time per month. That is enough
 > to run all the IBM examples in this guide — the health check (seconds), the mini benchmark (well under
 > a minute) and the full benchmark (~2 min) — a few times each month at no cost. Use it for the IBM steps
-> if you have no paid IBM plan.
+> if you have no paid IBM plan. An IBM *instance* is a plan-bound resource of your IBM Quantum Platform account (its name is shown in the
+> platform's Instances list; an Open Plan account has the free `open-instance`). The IBM scripts use your account's
+> Open Plan instance by default and never pick a paid instance on their own; `instance=NAME` selects another one
+> (then the run is billed at the list price).
 >
 > 🆓 **IQM Resonance free allocation.** IQM Resonance gives 30 credits per month for free — enough for the
 > mini benchmark on Emerald, Garnet and Sirius (§5.2), not for the full one.
@@ -173,8 +176,9 @@ each file holds and where to get it):
 | AQT PIAST-Q (PCSS) | `aqt_piast-q_token` | `AQT_PIAST-Q/health_check_real_aqt.py` | `aqt.venv` |
 
 Every script needs the QPU named on the command line with `backend=NAME` — there is no default. The
-allowed names are in the `backends.json` next to the scripts (IBM: `ibm_marrakesh`, `ibm_fez`, `ibm_kingston`;
-IQM Resonance: `emerald`, `garnet`, `sirius`; IQM EQE1: `EQE1`; IQM VLQ: `VLQ`; AQT: `PIAST-Q`). Run it in its venv, e.g.
+allowed names are in the `backends.json` next to the scripts (IBM: `ibm_marrakesh`, `ibm_fez` and `ibm_kingston` on the free Open Plan instance, which the IBM scripts use unless
+given `instance=NAME`, and `ibm_boston`, `ibm_pittsburgh`, `ibm_aachen` and `ibm_phoenix`, which are listed only on paid
+instances; IQM Resonance: `emerald`, `garnet`, `sirius`; IQM EQE1: `EQE1`; IQM VLQ: `VLQ`; AQT: `PIAST-Q`). Run it in its venv, e.g.
 
 ```bash
 source venvs/ibm.venv/bin/activate
@@ -294,7 +298,7 @@ in it, followed by the date (`mini_…_layout-optimized_2026-10-11_#1`). **IQM E
 random layout** (a notice is printed). To optimize their layout instead, pass the latest provider calibration from the `calibration_input_files/` folder:
 
 ```
-layout=optimized calibration_file=calibration_input_files/Euro-Q-Exa/calibration_data_Euro-Q-Exa_20261015_active_qubits.json    # EQE1
+layout=optimized calibration_file=calibration_input_files/Euro-Q-Exa/calibration_data_Euro-Q-Exa_20261016_active_qubits.json    # EQE1
 layout=optimized calibration_file=calibration_input_files/PIAST-Q/piastq_characterisation_2026-09-29.json                        # PIAST-Q
 ```
 

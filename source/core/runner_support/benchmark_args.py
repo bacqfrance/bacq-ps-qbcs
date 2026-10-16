@@ -94,7 +94,12 @@ USAGE = f"""usage: <script>.py BENCHMARK
 _active_usage = None   # the running script's own usage, set by usage_if_requested(); what its argument errors print
 
 
-def make_usage(script_file, description, backend=True, benchmark=True, health_check_flag=False, layout=None):
+INSTANCE_USAGE = """instance=NAME          the IBM Quantum Platform instance (default: the account's Open Plan instance, which is free).
+                         The QPUs listed differ per instance, and a job is found only through the instance that received it,
+                         so a run's recorded instance is always used: a different instance=NAME for an existing run is an error."""
+
+
+def make_usage(script_file, description, backend=True, benchmark=True, health_check_flag=False, layout=None, instance=False):
     """The uniform usage text of a script in source/benchmark_scripts/: the command line, the description, then
     the sections that apply — BACKEND (names from the folder's backends.json), BENCHMARK, for the
     job-status scripts (health_check_flag) HEALTH CHECK, and LAYOUT. `layout` selects its form:
@@ -105,18 +110,21 @@ def make_usage(script_file, description, backend=True, benchmark=True, health_ch
       "simulate_builtin"  layout= (default optimized), no calibration_file=: the simulated QPU's calibration is bundled (FakeFez)
       "simulate_required"  layout= is required (simulating AQT, EQE1); calibration_file= defaults to the newest in calibration_input_files/
       "collect"        layout= and date= are optional: they name the run folder; without them every run of the
-                       benchmark with something left to collect is handled"""
+                       benchmark with something left to collect is handled
+    `instance` adds the optional instance=NAME of the IBM scripts."""
     script = Path(script_file).resolve()
     path = script.relative_to(Path(__file__).resolve().parents[3]).as_posix()
     bench = "BENCHMARK" if not health_check_flag else "(BENCHMARK | health_check)"
     lay_syn = {"submit_live": "[LAYOUT]", "submit_no_live": "[LAYOUT]", "simulate": "[LAYOUT]", "simulate_builtin": "[LAYOUT]", "simulate_required": "LAYOUT", "collect": "[layout=...]"}.get(layout, "")
-    synopsis = " ".join(filter(None, ["backend=NAME" if backend else "", bench if benchmark else "", lay_syn]))
+    synopsis = " ".join(filter(None, ["backend=NAME" if backend else "", "[instance=NAME]" if instance else "", bench if benchmark else "", lay_syn]))
     blocks = [f"usage: python {path} {synopsis}",
               textwrap.fill(description, width=110, initial_indent="  ", subsequent_indent="  ")]
     if backend:
         backends = json.loads((script.parent / "backends.json").read_text(encoding="utf-8"))["backends"]
         blocks.append("  BACKEND — the QPU to use (required):\n"
                       f"  backend=NAME           one of: {', '.join(backends)}")
+    if instance:
+        blocks.append(f"  INSTANCE — the IBM instance (optional):\n  {INSTANCE_USAGE}")
     if benchmark:
         what = " to run (required):" if not health_check_flag else "'s run to check (required, unless health_check is given):"
         blocks.append(f"  BENCHMARK — which benchmark{what}\n  {BENCHMARK_USAGE}")
@@ -428,6 +436,18 @@ def parse_date_arg(argv):
     if dates and not re.fullmatch(r"\d{4}-\d{2}-\d{2}(_#[1-9]\d*)?", dates[0]):
         _fail(f"date must be YYYY-MM-DD or YYYY-MM-DD_#N, got {dates[0]!r}")
     return dates[0] if dates else None
+
+
+def parse_instance_arg(argv):
+    """The instance=NAME argument of the IBM scripts (None without one): the IBM Quantum Platform instance to use
+    (source/core/qpu/providers.py: connect_ibm(); default the account's Open Plan instance). The IBM scripts pass
+    "instance" in parse_benchmark_args(extra_keys=...). A run's own recorded instance wins (ibm_instance_for_runs())."""
+    names = [a.split("=", 1)[1] for a in argv if a.startswith("instance=")]
+    if len(names) > 1:
+        _fail("instance given twice")
+    if names and not names[0].strip():
+        _fail("instance is empty")
+    return names[0] if names else None
 
 
 def parse_run_folder_arg(argv, undated):

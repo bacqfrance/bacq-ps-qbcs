@@ -29,6 +29,8 @@ class RunInfo:
     do_spam:      bool
     chunk_size:   int
     circuits_qiskit_v13_qpy: bool = False   # chunks from chunks_qiskit_v13_qpy/ (all_to_all builds) — see qbcs.build()
+    instance:      str = None   # IBM only: the name of the IBM instance that received the run's jobs (never the CRN) and its plan; left out of the manifest when None
+    instance_plan: str = None
     source:       str = field(default="manifest", compare=False)   # written into every manifest; compare=False only removes it from dataclass equality, write_run_info()'s rewrite check compares the whole dict, so a manifest holding another source is rewritten; load_run_info() drops it
 
     @property
@@ -36,15 +38,36 @@ class RunInfo:
         return list(ALL_EMS) if self.do_spam else [e for e in ALL_EMS if e != "SPAM"]
 
 
-def write_run_info(config, run_folder_path, lnn, circuits_qiskit_v13_qpy=False):
+def _manifest_dict(info):
+    d = asdict(info)
+    for key in ("instance", "instance_plan"):
+        if d[key] is None:
+            del d[key]
+    return d
+
+
+def recorded_instance(run_folder, root="datafiles"):
+    """(instance name, plan) recorded in root/<run_folder>/run_info.json, (None, None) without a manifest or a record."""
+    try:
+        d = json.loads((Path(root) / run_folder / MANIFEST_NAME).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None, None
+    return d.get("instance"), d.get("instance_plan")
+
+
+def write_run_info(config, run_folder_path, lnn, circuits_qiskit_v13_qpy=False, instance=None, instance_plan=None):
     """Called by bacq_ps_qbcs.submit() on every call (and by record_run_info()), once the run folder is known. Writes the manifest
     if missing, leaves it untouched if it already holds the same info, and rewrites it in place if it
     differs. The write itself is atomic (temp file + os.replace()), so a crash mid-write can't leave a
     truncated manifest. Skipping unchanged writes is what avoids the Windows problem: replacing the same
     file on every per-chunk submit() raced with Windows file locks (PermissionError); a short retry
-    covers the rare lock that still coincides with a real change."""
+    covers the rare lock that still coincides with a real change.
+    instance / instance_plan (IBM): the run's instance; None keeps what the manifest already records, so a later call
+    without them (the per-chunk submit()) never drops it."""
     run_folder_path = Path(run_folder_path)
     run_folder_path.mkdir(parents=True, exist_ok=True)
+    if instance is None:
+        instance, instance_plan = recorded_instance(run_folder_path.name, run_folder_path.parent)
     info = RunInfo(
         run_folder  = run_folder_path.name,
         nshots      = int(config["shots"]),
@@ -55,16 +78,18 @@ def write_run_info(config, run_folder_path, lnn, circuits_qiskit_v13_qpy=False):
         do_spam     = bool(config.get("SPAM_correction", False)),
         chunk_size  = int(config["chunk_size"]),
         circuits_qiskit_v13_qpy = bool(circuits_qiskit_v13_qpy),
+        instance      = instance,
+        instance_plan = instance_plan,
     )
     manifest = run_folder_path / MANIFEST_NAME
     if manifest.exists():
         try:
-            if json.loads(manifest.read_text(encoding="utf-8")) == asdict(info):
+            if json.loads(manifest.read_text(encoding="utf-8")) == _manifest_dict(info):
                 return info
         except (json.JSONDecodeError, OSError):
             pass   # unreadable/corrupt manifest — rewrite it below
     tmp = run_folder_path / (MANIFEST_NAME + ".tmp")
-    tmp.write_text(json.dumps(asdict(info), indent=2), encoding="utf-8")
+    tmp.write_text(json.dumps(_manifest_dict(info), indent=2), encoding="utf-8")
     for attempt in range(5):
         try:
             os.replace(tmp, manifest)

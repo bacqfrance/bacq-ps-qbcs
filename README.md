@@ -36,7 +36,7 @@ Based on:
 │   └── README.md                    #   lists every token file, with its format and where to obtain it
 ├── venvs/                           # create all virtual environments here; contains requirements for the base environment
 ├── datafiles/                       # created by the runs: run folders and circuit caches
-├── analysis/                        # created by the post-processing: plots and summaries (plus git-ignored tests/ output of the test suite)
+├── analysis/                        # created by the post-processing: plots and summaries (the whole folder is git-ignored; its tests/ holds the test suite's output)
 ├── USER_MANUAL.md                   # the full user manual
 ├── QUICK_START_Windows.md           # step-by-step guide from a fresh clone to QPU runs (Windows)
 ├── QUICK_START_Linux.md             # the same for Linux/macOS

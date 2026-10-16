@@ -152,6 +152,7 @@ class bacq_ps_qbcs:
         self._fake_job_registry          = {}
         self._verbose                    = verbose   # gates per-chunk/per-sample detail prints; progress bars show regardless
         self._qiskit_v13_qpy             = False   # set by build(): True for all_to_all circuits
+        self.run_instance                = (None, None)   # IBM: (instance name, plan) of the run, recorded in run_info.json; set by submit_async_run()
         self._last_transpile             = {"transpile_s": None, "transpile_reused": False}   # set by transpile_chunk_for_backend_to_isa()
 
         suggested_chunk_size = len(self.roles) * self.n_depths
@@ -857,7 +858,8 @@ class bacq_ps_qbcs:
         # only touches the file when it is missing or its contents differ, so repeated per-chunk calls
         # don't hammer an unchanged file (which raced with file locks on Windows).
         write_run_info(self.CONFIG, self.CONFIG["folder_path"], self.CONFIG["lnn_architecture"],
-                       circuits_qiskit_v13_qpy=self._qiskit_v13_qpy)
+                       circuits_qiskit_v13_qpy=self._qiskit_v13_qpy,
+                       instance=self.run_instance[0], instance_plan=self.run_instance[1])
         assert hasattr(self, "chunk_paths"), (
             "interleave_job_batches() must be called before submit()."
         )
@@ -893,14 +895,15 @@ class bacq_ps_qbcs:
 
         elif lang == "qiskit" and service == IBM_CLOUD:
             # ── ASYNCHRONOUS (submits and returns; collect_results() later) ─────
-            from qiskit_ibm_runtime import QiskitRuntimeService
-            from source.core.qpu.providers import ibm_batch
+            from source.core.qpu.providers import ibm_batch, connect_ibm, ibm_instance_for_runs
+            from source.core.qpu.tokens import read_token
 
             real_backend = backend
             ibm_service  = None
             if "fake" not in type(backend).__module__.lower() and isinstance(backend, str):
-                ibm_service  = QiskitRuntimeService(channel="ibm_quantum_platform")
-                real_backend = ibm_service.backend(backend)
+                # a backend given by name: connect to the run's recorded instance, else the Open Plan one
+                ibm_service, _ = connect_ibm(read_token("ibm_token"), ibm_instance_for_runs(self.run_instance[0], [run_folder]), backend)
+                real_backend   = ibm_service.backend(backend)
 
             self.resolve_physical_qubits(real_backend, physical_qubits)
             if self.CONFIG["SPAM_correction"]:
@@ -2282,7 +2285,8 @@ class bacq_ps_qbcs:
         if self.CONFIG.get("folder_path") is None:
             self.CONFIG["folder_path"] = os.path.join(PROJECT_ROOT, "datafiles", run_folder)
         write_run_info(self.CONFIG, os.path.join(PROJECT_ROOT, "datafiles", run_folder),
-                       self.CONFIG["lnn_architecture"], circuits_qiskit_v13_qpy=self._qiskit_v13_qpy)
+                       self.CONFIG["lnn_architecture"], circuits_qiskit_v13_qpy=self._qiskit_v13_qpy,
+                       instance=self.run_instance[0], instance_plan=self.run_instance[1])
 
     def resolve_physical_qubits(self, backend, physical_qubits=None, run_folder=None, layout=None,
                                 layout_backend=None, calibration_source=None):

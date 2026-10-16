@@ -744,12 +744,12 @@ def _active_seconds(intervals, min_gap_s):
 def derive_date_time_from_data(run_folder, n_samples=None, service=None):
     """Derive the run's date/time window from its job records (n_samples subset scoping below).
     Requires job_records/job_record_chunk_*.json (submitted_at / finished_at): every real-QPU
-    run, and local (service="local") runs simulated since local job records were added — older
-    local runs have none.
+    run, and simulated runs (the caller passes service=None) since local job records were added —
+    older simulated runs have none.
 
     n_samples: if given, scope the run window to the first n_samples
     collected chunks (chunk_scope) instead of every collected chunk.
-    service: the run's service name; PCSS (AQT, synchronous) uses the longer dead-time threshold.
+    service: the run's service name (None for a simulation); PCSS (AQT, synchronous) uses the longer dead-time threshold.
 
     Returns (date_qc_start, date_qc_end, submission_to_results_s, without_dead_time_s): the run window as
     formatted strings (earliest submission, latest finish over the chunk, failed-attempt and health-check

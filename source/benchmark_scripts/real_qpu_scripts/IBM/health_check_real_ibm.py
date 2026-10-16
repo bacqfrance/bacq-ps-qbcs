@@ -19,15 +19,16 @@ from source.core.runner_support.benchmark_args import make_usage, usage_if_reque
 from source.core.qpu.providers import STANDALONE_HEALTH_CHECK_REPS, STANDALONE_HEALTH_CHECK_NSHOTS, ibm_batch
 from source.core.records.run_names import health_check_run_name, service_name, dated_run_folder
 from source.core.qpu.tokens import read_token
-usage_if_requested(sys.argv[1:], make_usage(__file__, "Health check of a real IBM QPU: submit and collect in one go. Standalone, unrelated to any benchmark run.", benchmark=False))   # no arguments or --help: print the usage and do nothing
+usage_if_requested(sys.argv[1:], make_usage(__file__, "Health check of a real IBM QPU: submit and collect in one go. Standalone, unrelated to any benchmark run.", benchmark=False, instance=True))   # no arguments or --help: print the usage and do nothing
 
-from qiskit_ibm_runtime import QiskitRuntimeService
-from source.core.runner_support.benchmark_args import parse_backend_config
+from source.core.runner_support.benchmark_args import parse_backend_config, parse_instance_arg
+from source.core.qpu.providers import connect_ibm
 from source.core.health_check import submit_health_check, collect_health_check, print_standalone_summary
 from source.core.common import rel_path
 
 # ── Config ────────────────────────────────────────────────────────────────────
-BACKEND_NAME = parse_backend_config(sys.argv[1:], Path(__file__).parent, others_ok=False)[0]   # required backend=NAME, checked against backends.json
+INSTANCE_ARG = parse_instance_arg(sys.argv[1:])   # instance=NAME, default the Open Plan instance
+BACKEND_NAME = parse_backend_config([a for a in sys.argv[1:] if not a.startswith("instance=")], Path(__file__).parent, others_ok=False)[0]   # required backend=NAME, checked against backends.json
 SERVICE_NAME = service_name("IBM")   # the access platform, as records and qbcs call it (source/core/records/run_names.py)
 NSHOTS       = STANDALONE_HEALTH_CHECK_NSHOTS
 REPS         = STANDALONE_HEALTH_CHECK_REPS
@@ -38,7 +39,7 @@ shutil.rmtree(f"datafiles/{RUN_FOLDER}", ignore_errors=True)   # fresh submissio
 # ── Connect to IBM ────────────────────────────────────────────────────────────
 print(f"\n[{BACKEND_NAME} — connection]")
 token        = read_token("ibm_token")
-service      = QiskitRuntimeService(channel="ibm_quantum_platform", token=token)
+service, INSTANCE = connect_ibm(token, INSTANCE_ARG, BACKEND_NAME)
 real_backend = service.backend(BACKEND_NAME)
 
 print(f"  Channel:  ibm_quantum_platform")

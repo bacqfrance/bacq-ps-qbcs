@@ -7,7 +7,7 @@ with a one-line message naming the file (exit code 2).
 
 | File | Provider | What goes in it | Where to get the token/the information |
 |---|---|---|---|
-| `ibm_token` | IBM Quantum Platform | the API key, one line | [IBM Quantum Platform](https://quantum.cloud.ibm.com/): create an API key on your account's dashboard |
+| `ibm_token` | IBM Quantum Platform | the API key, one line | [IBM Quantum Platform](https://quantum.cloud.ibm.com/): create an API key on your account's dashboard; the scripts use the account's Open Plan instance unless given `instance=NAME` |
 | `iqm_resonance_token` | IQM Resonance | the API token, one line | [IQM Resonance](https://resonance.iqm.tech/): generate an API token in your account settings |
 | `iqm_eqe_token` | IQM EQE1 (MQSS, LRZ) | the MQSS token, one line | LRZ's MQSS (Munich Quantum Software Stack) access for your EuroHPC project |
 | `aqt_piast-q_token` | AQT PIAST-Q (PCSS) | the PCSS API token, one line | PCSS (PSNC) quantum access for your EuroHPC project |

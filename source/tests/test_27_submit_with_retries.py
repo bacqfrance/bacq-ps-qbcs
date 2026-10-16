@@ -16,10 +16,11 @@ sys.stderr.reconfigure(encoding="utf-8")
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))   # the project root, for the source.* imports
 os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))   # datafiles/ paths are relative to the project root
 
+from source.core.records.run_names import today_utc
 from source.core.runner_support import submit_with_retries as SWR
 
 UNDATED = "full_real-data_iqm-eqe1_lnn-True_service-mqss-lrz_spam-True_layout-optimized"   # the settings of a run, without its date
-TODAY   = "2026-10-15"
+TODAY   = today_utc()   # the date the loop gives a new run's folder (a fixed date made two tests fail once UTC passed it)
 FOLDER  = f"{UNDATED}_{TODAY}_#1"
 
 

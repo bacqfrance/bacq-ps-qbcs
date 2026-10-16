@@ -76,7 +76,7 @@ def _seconds_since_last_submission(run_path):
 def submit_async_run(*, run_folder, backend_name, service_name, real_backend, collect_service, bench, layout, lnn,
                      chunks_to_submit=None, do_spam=True, dt=DT, submit_kwargs=None, config_extra=(), log_extra_lines=(),
                      health_check_session=None, after_layout=None, collect_script=None, retry_health_check=False,
-                     skip_pre_check_within_s=None):
+                     skip_pre_check_within_s=None, instance=None):
     """Submit run_folder's chunks without a submission record to real_backend; exits with
     EXIT_HC_NOT_SUBMITTED when the health check after the submission could not be submitted.
 
@@ -91,7 +91,8 @@ def submit_async_run(*, run_folder, backend_name, service_name, real_backend, co
     final hint; retry_health_check: only submit the health check after the already submitted chunks again
     (_retry_post_health_check(); run_folder comes from health_check_retry_folder());
     skip_pre_check_within_s: no health check before the submission when the run's latest job (chunk or health check)
-    was submitted less than this many seconds ago (None: always check). Returns the run folder path."""
+    was submitted less than this many seconds ago (None: always check); instance: IBM's (instance name, plan), recorded in the
+    run's run_info.json (an existing record is kept). Returns the run folder path."""
     from source.core.qbcs import bacq_ps_qbcs
     from source.core.common import rel_path
     from source.core.health_check import require_functional_health_check, submit_post_health_check
@@ -137,6 +138,8 @@ def submit_async_run(*, run_folder, backend_name, service_name, real_backend, co
         dt                          = dt,
     )
     qbcs.build(circuit_transpilation_LNN=lnn)
+    if instance is not None:
+        qbcs.run_instance = tuple(instance)
 
     # ── Physical qubits for this run — before the first health check, so it runs on them too ──
     # (recorded in <run>/transpiled_circuits/physical_qubits.json; submit() reuses the record)
