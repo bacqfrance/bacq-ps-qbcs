@@ -1,7 +1,7 @@
 """
 test_27_submit_with_retries.py
 The loop of the qbcs_real_submit_<qpu>_with_retries.py scripts (source/core/runner_support/submit_with_retries.py):
-which job is the latest, when a launch is made, how the waits and the 48 h budget behave (and the EQE1 setting: no waits for jobs, the first retry at once, a 20 min budget), the exit codes, and which
+which job is the latest, when a launch is made, how the waits and the 48 h budget behave (and the EQE1 setting: no waits for jobs, the first retry at once, a 20 min budget; the VLQ setting: a retry at once only after a launch that submitted a chunk), the exit codes, and which
 run folder a --force-new-run launch works in (also across midnight). No provider, no sleeping: the status and the
 launch are fakes, the clock is a counter that sleep() advances. Works in a temporary folder, not in datafiles/.
 """
@@ -313,6 +313,31 @@ def test_first_retry_at_once_then_waits(tmp_path):
     assert _run(launch, _status_sequence("COMPLETED"), tmp_path, clock, wait_after_failed_s=60,
                 first_retry_at_once=True) == 0
     assert len(launch.calls) == 3 and clock.sleeps == [60]
+
+
+def test_vlq_style_retries_at_once_only_after_progress(tmp_path):
+    # retry_at_once_after_progress=True, 10 min wait: launches 1 and 3 submit a chunk and fail (retried at once),
+    # launch 2 submits nothing and fails (waits 600 s), launch 4 succeeds
+    _write_run_info(tmp_path, 4)
+    _write_chunk(tmp_path, 0, "100", "2026-10-15T07:00:00Z")
+    def progress(n):
+        if n == 1:
+            _write_chunk(tmp_path, 1, "101", "2026-10-15T07:10:00Z")
+        if n == 3:
+            _write_chunk(tmp_path, 2, "102", "2026-10-15T07:20:00Z")
+    clock, launch = Clock(), _launcher(1, 1, 1, 0, on_call=progress)
+    assert _run(launch, _status_sequence("COMPLETED"), tmp_path, clock, retry_at_once_after_progress=True) == 0
+    assert len(launch.calls) == 4 and clock.sleeps == [600]       # only after the launch without progress
+
+
+def test_vlq_style_retries_without_progress_always_wait_and_give_up_after_the_budget(tmp_path):
+    _write_run_info(tmp_path, 2)
+    _write_chunk(tmp_path, 0, "100", "2026-10-15T07:00:00Z")
+    clock, launch = Clock(), _launcher(1)
+    assert _run(launch, _status_sequence("COMPLETED"), tmp_path, clock, limit_hours=2,
+                retry_at_once_after_progress=True) == SWR.EXIT_GAVE_UP
+    assert clock.sleeps and set(clock.sleeps) == {600}            # never a launch right after a failure
+    assert len(launch.calls) == len(clock.sleeps) + 1
 
 
 def test_pre_check_skip_age_of_the_latest_job(tmp_path):

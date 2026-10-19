@@ -3,7 +3,8 @@ qbcs_real_submit_iqm_vlq_with_retries.py
 Submit a BACQ benchmark run to IT4Innovations' VLQ (LEXIS/HEAppE) and keep retrying until every chunk is submitted:
 the Python counterpart of PCSS_Quantum_UI/run_aqt_loop_with_retries.sbatch (VLQ has no Slurm). Before each launch of
 qbcs_real_submit_iqm_vlq.py it waits until the latest job submitted to the run (chunk or health check) has finished
-on HEAppE, checking every 10 min. After a failed launch it retries at once (the status gate still applies). It gives up
+on HEAppE, checking every 10 min. After a failed launch that submitted a chunk it retries at once (the status gate still applies); after one that
+submitted none it waits 10 min first. It gives up
 after 48 h without progress (exit code 14). Same arguments as qbcs_real_submit_iqm_vlq.py (backend=…, mini/full, layout=, …).
 
 Logs in like the submit script: with the saved LEXIS token, else through the browser page, so start it from a session
@@ -28,7 +29,7 @@ from source.core.runner_support.benchmark_args import parse_benchmark_args, pars
 from source.core.runner_support.submit_with_retries import run_with_retries, launch_submit_script, PAUSE_S
 
 SUBMIT_SCRIPT = Path(__file__).parent / "qbcs_real_submit_iqm_vlq.py"
-WAIT_AFTER_FAILED_SUBMIT_S = 0   # VLQ: a failed launch is retried at once; the status gate before each launch still waits
+WAIT_AFTER_FAILED_SUBMIT_S = PAUSE_S   # VLQ: a failed launch that submitted no chunk waits this long; one that submitted a chunk is retried at once (the status gate before each launch still waits)
 
 # ── Config: the same arguments as qbcs_real_submit_iqm_vlq.py, which decide the run folder ──
 FORCE_NEW_RUN, ARGV = pop_force_new_run_flag(sys.argv[1:])   # --force-new-run: only for the first launch (a new folder); later passes resume it
@@ -63,7 +64,7 @@ print(f"\n[{BACKEND_NAME} — connection]")
 print(f"  Checking the latest job every {PAUSE_S // 60} min; gives up after 48 h without progress.", flush=True)
 try:
     rc = run_with_retries(UNDATED, status_of, launch, ARGV, wait_after_failed_s=WAIT_AFTER_FAILED_SUBMIT_S,
-                          new_run=FORCE_NEW_RUN)
+                          new_run=FORCE_NEW_RUN, retry_at_once_after_progress=True)
 except KeyboardInterrupt:
     print("\n  Stopped (Ctrl-C). Run it again with the same arguments to resume.", file=sys.stderr)
     rc = 130

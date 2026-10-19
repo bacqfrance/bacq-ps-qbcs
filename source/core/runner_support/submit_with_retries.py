@@ -4,7 +4,7 @@ The loop of the qbcs_real_submit_<qpu>_with_retries.py scripts (IQM EQE1, IQM VL
 run_aqt_loop_with_retries.sbatch for QPUs without Slurm. It runs the QPU's submit script, which stops on the first
 provider error, again and again until every chunk is submitted. By default (VLQ) it waits before each launch until the latest job
 already submitted to the run has left the provider's queue; with wait_for_jobs=False (EQE1) it relaunches without
-waiting for any job. After a failed launch it waits a QPU-specific time.
+waiting for any job. After a failed launch it waits a QPU-specific time (VLQ: only when the launch submitted no chunk).
 
 Light at import (no qiskit, no myQLM, no provider SDK): the provider enters as a status callable.
 """
@@ -91,7 +91,7 @@ def launch_submit_script(venv_name, script, args, needed_for):
 
 def run_with_retries(undated, status_of, launch, args, *, wait_after_failed_s, pause_s=PAUSE_S,
                      limit_hours=RETRY_LIMIT_HOURS, sleep=time.sleep, clock=time.time, new_run=False, root="datafiles",
-                     wait_for_jobs=True, first_retry_at_once=False):
+                     wait_for_jobs=True, first_retry_at_once=False, retry_at_once_after_progress=False):
     """Run the loop for the run of the settings `undated` (qpu_run_name() without its date); returns the exit code
     of the wrapper script.
 
@@ -107,6 +107,8 @@ def run_with_retries(undated, status_of, launch, args, *, wait_after_failed_s, p
     wait_after_failed_s        pause before the next pass after a launch that failed (0: none)
     wait_for_jobs              False: no status query and no wait for the run's latest job to leave the queue
     first_retry_at_once        True: the first retry after a failure follows at once, the later ones after the pause
+    retry_at_once_after_progress  True: a failed launch that submitted a chunk is followed at once, one that submitted
+                               none after the pause
     The budget (limit_hours) starts at the first wait or failed launch and restarts after a launch that submitted a chunk."""
     before     = set(dated_run_folders(undated, root))   # folders of these settings that exist before the first launch
     series     = None                       # when the current series of waits / failures began
@@ -205,14 +207,16 @@ def run_with_retries(undated, status_of, launch, args, *, wait_after_failed_s, p
             return retry_final_health_check(used)      # not the pre-check: that one left chunks, and is retried below
         folder_after = used
         path_after   = Path(root) / folder_after if folder_after else None
-        if _chunks_left(path_after) < todo_before or _n_submitted(path_after) > sent_before:
+        progressed = _chunks_left(path_after) < todo_before or _n_submitted(path_after) > sent_before
+        if progressed:
             series = None                   # progress (a chunk submitted): the budget starts again
             failures = 0
         failures += 1
         series = clock() if series is None else series
         if clock() - series >= limit_hours * 3600:
             return _give_up(folder_after, last_label, last_status, limit_hours)
-        if wait_after_failed_s and not (first_retry_at_once and failures == 1):
+        at_once = (first_retry_at_once and failures == 1) or (retry_at_once_after_progress and progressed)
+        if wait_after_failed_s and not at_once:
             print(f"  Retrying in {_minutes(wait_after_failed_s)}.", flush=True)
             sleep(wait_after_failed_s)
 
