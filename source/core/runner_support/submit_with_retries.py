@@ -33,11 +33,11 @@ HC_RETRIES        = 3       # launches of the health check after the last chunks
 RETRY_HC_ARGUMENT = RETRY_HEALTH_CHECK_WORD
 
 EXIT_MEANING = {
-    0:  "all chunks submitted",
-    2:  "unusable arguments",
-    10: "the health check found the QPU degraded",
-    11: "a health check was submitted but not collected",
-    12: "a health check could not be submitted (QPU health unknown)",
+    0:                       "all chunks submitted",
+    EXIT_ARGUMENTS:          "unusable arguments",
+    EXIT_DEGRADED:           "the health check found the QPU degraded",
+    EXIT_HC_NOT_COLLECTED:   "a health check was submitted but not collected",
+    EXIT_HC_NOT_SUBMITTED:   "a health check could not be submitted (QPU health unknown)",
 }
 
 

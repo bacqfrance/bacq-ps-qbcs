@@ -17,7 +17,10 @@ Unit tests (no simulator, no QPU, no network) for
     (older records: `jobs` / `prior_chunks`, still read);
   - best_ems skips NaN and is None when no scheme beats 1; one reading of the job status texts (state and report);
   - the health check plot of an incomplete run: +nsamples-N file names, the uncollected health
-    checks and chunk jobs listed.
+    checks and chunk jobs listed;
+  - the run banner of a collection (RUN COMPLETE, or RUN INCOMPLETE with its pending, failed and unsubmitted
+    chunks), the closing summary banner when several runs are collected, and collect_runs() on a run with
+    nothing collected yet (the incomplete banner, no failure).
 """
 
 import sys, os
@@ -382,3 +385,45 @@ def test_health_check_plot_of_an_incomplete_run():
     finally:
         shutil.rmtree(run, ignore_errors=True)
         shutil.rmtree(plots, ignore_errors=True)
+
+
+def test_run_banner_says_complete_or_lists_pending_failed_and_unsubmitted_chunks(tmp_path, capsys):
+    from source.core.runner_support.run_collection import print_run_status
+    _write(tmp_path / "raw_results" / "results_counts.json", {"chunk_0": {}, "chunk_1": {}})
+    for nc, status in ((2, "submitted"), (3, "failed")):
+        _write(tmp_path / "job_records" / f"job_record_chunk_{nc}.json", {"chunk_id": nc, "status": status})
+    st = print_run_status(tmp_path, 5)                                    # chunk 4 has no record
+    out = capsys.readouterr().out
+    assert st == {"collected": [0, 1], "failed": [3], "unsubmitted": [4], "pending": [2]}
+    assert "RUN INCOMPLETE — 2 of 5 chunks collected" in out
+    assert "Pending  (chunks 2)" in out and "Failed   (chunks 3)" in out and "Not submitted (chunks 4)" in out
+    print_run_status(tmp_path, 2)
+    assert "RUN COMPLETE — all 2 chunks collected" in capsys.readouterr().out
+
+
+def test_collect_runs_prints_a_summary_of_all_runs_only_when_there_are_several(tmp_path, capsys, monkeypatch):
+    from source.core.runner_support import run_collection as RC
+    from source.core.runner_support.benchmark_args import parse_benchmark_args
+    bench = parse_benchmark_args(["mini"])
+    n = bench.sample_size
+    ok  = {"collected": list(range(n)), "failed": [], "unsubmitted": [], "pending": []}
+    bad = {"collected": [], "failed": [], "unsubmitted": [], "pending": list(range(n))}
+    monkeypatch.setattr(RC, "collect_run", lambda path, *a, **k: ok if path == "A" else bad)
+    RC.collect_runs(["A"], object(), "IBM_Cloud", "ibm_fez", bench, True)
+    assert "runs complete" not in capsys.readouterr().out
+    RC.collect_runs(["A", "B"], object(), "IBM_Cloud", "ibm_fez", bench, True)
+    out = capsys.readouterr().out
+    assert "1 of 2 runs complete" in out and f"A: {n} of {n} chunks collected, 0 failed" in out and f"B: 0 of {n} chunks collected, 0 failed, {n} pending" in out
+
+
+def test_collect_runs_on_a_run_with_nothing_collected_yet_ends_with_the_incomplete_banner(pending_run, capsys, monkeypatch):
+    from source.core.runner_support import run_collection as RC
+    from source.core.runner_support.benchmark_args import parse_benchmark_args
+    bench = parse_benchmark_args(["mini"])
+    q, run, states, queried = pending_run
+    monkeypatch.setattr(RC, "collect_health_checks", lambda *a, **k: None)
+    monkeypatch.setattr(Q.bacq_ps_qbcs, "collect_results", lambda self, *a, **k: [])      # nothing collected: CONFIG["folder_path"] stays unset
+    RC.collect_runs([run], object(), "IBM_Cloud", "ibm_fez", bench, True)               # no exception, no SystemExit
+    out = capsys.readouterr().out
+    assert "Nothing to analyze yet" in out
+    assert f"RUN INCOMPLETE — 0 of {bench.sample_size} chunks collected" in out

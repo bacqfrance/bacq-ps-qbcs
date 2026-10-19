@@ -182,6 +182,16 @@ def cpu_time_breakdown(run_path, nchunks, lnn, list_times, dt, total_chunks=None
                                            the SPAM circuits once; 0 if no AQT run logged it. Their
                                            qpu_chunk interval is not used (it holds result handling
                                            and waits, not transpilation); submission is 0 (synchronous).
+      transpile_estimate                   the estimate behind transpile_estimated_s (rate_s_per_circuit,
+                                           n_circuits, n_chunks, from_runs, method), None when no
+                                           converted old AQT chunk is in scope
+      n_chunks_legacy_cpu                  number of chunks counted in legacy_transpile_submit_s
+      run_timestamp_source                 which timestamp log the run's own labels came from (None if none)
+      build_scaled_to_subset               True when the build times were scaled by nchunks/total_chunks
+      build_timestamp_source               which timestamp log the build times came from
+      total_s                              the sum of build_total_s, transpile_s, spam_transpile_s,
+                                           submit_s, legacy_transpile_submit_s, health_check_transpile_s,
+                                           health_check_submit_s and transpile_estimated_s
     """
 
     run_path       = Path(run_path)

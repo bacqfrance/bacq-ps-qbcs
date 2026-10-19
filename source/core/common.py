@@ -2,8 +2,8 @@
 common.py
 myQLM-free helpers shared by the pipeline: run/circuit-cache folder paths,
 NEC target bitstrings, path scrubbing (scrub_paths), exit_with_error, rel_path,
-the print helpers (section, print_done_block, print_chunk_saved, format_retry),
-require_myqlm and the circuit-cache config check. Split out of main.py (which re-exports them) so that
+the print helpers (section, print_done_block, print_run_status_banner, print_chunk_saved, format_retry),
+read_json_or_none, require_myqlm and the circuit-cache config check. Split out of main.py (which re-exports them) so that
 qbcs.py and the modules it uses can be imported without
 loading myQLM — the real-QPU venvs only need these, never the circuit builders.
 """
@@ -80,6 +80,16 @@ def print_done_block(title, rows):
     print(f"\n✅ {title}")
     for label, value in rows:
         print(f"   {(label + ':').ljust(width)} {value}")
+
+
+def print_run_status_banner(title, lines, complete):
+    """Print the verdict on a run at the end of a collection, between two ruled lines so it stands out in a long
+    log: `✅ title` for a complete run, `⚠️  title` for an incomplete one, then one indented line per entry of `lines`."""
+    rule = "═" * 72
+    print(f"\n{rule}\n{'✅' if complete else '⚠️ '} {title}")
+    for line in lines:
+        print(f"   {line}")
+    print(rule)
 
 
 def print_chunk_saved(nc, n_spam, n_counts, n_fid):

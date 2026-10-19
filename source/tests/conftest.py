@@ -1,6 +1,7 @@
 """
 conftest.py — the pytest session setup for source/tests/: project root on sys.path and as the
-working directory, the non-interactive matplotlib backend, and the tests' own circuit caches.
+working directory, the non-interactive matplotlib backend, and the tests' own circuit caches. The session
+stops with a pytest.UsageError when venvs/local_sim.venv is missing.
 """
 import os
 import sys

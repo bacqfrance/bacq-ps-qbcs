@@ -665,7 +665,7 @@ def main():
                 if do_nsamples:
                     nsamples_comparison(done_folder, n_samples)
         except Exception as e:
-            print(f"❌ {run_folder}: merge/analyze failed — {e}", file=sys.stderr)
+            print(f"❌ {run_folder}: post-processing failed — {e}", file=sys.stderr)
 
     if not do_collective:
         print("\n✅ Pipeline complete.")
