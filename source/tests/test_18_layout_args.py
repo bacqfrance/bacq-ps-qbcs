@@ -206,6 +206,95 @@ def test_lowest_random_and_forced_on_a_chain_with_a_dead_qubit():
     assert choose_layout("optimized", qc, t)["method"] == "scored"
 
 
+def _timed_chain_target(t1_t2, d_1q=24e-9, d_2q=50e-9):
+    """_chain_target(4, …) with the same errors everywhere, a duration on every gate and T1/T2 per qubit (seconds)."""
+    from qiskit.providers.backend import QubitProperties
+    t = Target(num_qubits=4, qubit_properties=[QubitProperties(t1=a, t2=b) for a, b in t1_t2])
+    t.add_instruction(RGate(Parameter("a"), Parameter("b")), {(q,): InstructionProperties(error=1e-3, duration=d_1q) for q in range(4)}, name="r")
+    t.add_instruction(Measure(), {(q,): InstructionProperties(error=1e-2) for q in range(4)})
+    t.add_instruction(CZGate(), {e: InstructionProperties(error=1e-2, duration=d_2q)
+                                 for a, b in [(0, 1), (1, 2), (2, 3)] for e in ((a, b), (b, a))})
+    return t
+
+
+def test_idle_decay_log_is_the_exact_relaxation_fidelity():
+    import math
+    from source.core.qpu.layout_selection import idle_decay_log
+    assert idle_decay_log(50e-6, 30e-6, 0.0) == pytest.approx(0.0)
+    f = (1 + 2 * math.exp(-10 / 30) + math.exp(-10 / 50)) / 4
+    assert idle_decay_log(50e-6, 30e-6, 10e-6) == pytest.approx(math.log(f))
+    assert idle_decay_log(10e-6, 100e-6, 5e-6) == pytest.approx(idle_decay_log(10e-6, 20e-6, 5e-6))   # T2 capped at 2·T1
+    assert idle_decay_log(50e-6, 30e-6, 1e-3) > math.log(0.25) - 1e-9                              # bounded, no negative fidelity
+    assert idle_decay_log(None, 30e-6, 1e-6) is None and idle_decay_log(50e-6, 0, 1e-6) is None
+
+
+def test_optimized_layout_avoids_the_short_lived_qubit():
+    """Equal gate and readout errors everywhere: only T1/T2 differ, so the chain 3-qubit circuit avoids qubit 0."""
+    qc = _chain3()
+    long_lived, short = (200e-6, 150e-6), (20e-6, 8e-6)
+    rec = select_physical_qubits(qc, _timed_chain_target([short, long_lived, long_lived, long_lived]))
+    assert rec["decoherence_included"] and rec["t_circuit_s"] > 0
+    assert 0 not in rec["physical_qubits"] and sorted(rec["physical_qubits"]) == [1, 2, 3]
+    flat = select_physical_qubits(qc, _timed_chain_target([long_lived] * 4))   # nothing to separate: the lowest placement
+    assert flat["physical_qubits"] == [0, 1, 2]
+
+
+def test_decoherence_term_is_left_out_without_durations_or_coherence_times():
+    qc = _chain3()
+    no_t = _chain_target(4, [(0, 1), (1, 2), (2, 3)])                          # no qubit_properties, no durations
+    rec = select_physical_qubits(qc, no_t)
+    assert rec["method"] == "scored" and not rec["decoherence_included"] and rec["t_circuit_s"] is None
+    timed_target = _timed_chain_target([(20e-6, 8e-6), (200e-6, 150e-6), (200e-6, 150e-6), (200e-6, 150e-6)])
+    assert not select_physical_qubits(qc, _chain_target(4, [(0, 1), (1, 2), (2, 3)]))["decoherence_included"]
+    # a Target with T1/T2 but no durations
+    bare = _timed_chain_target([(20e-6, 8e-6)] + [(200e-6, 150e-6)] * 3, d_1q=None, d_2q=None)
+    assert not select_physical_qubits(qc, bare)["decoherence_included"]
+    assert select_physical_qubits(qc, timed_target)["decoherence_included"]
+
+
+def test_snapshot_simulation_schedules_circuits_so_idle_qubits_decay():
+    """A calibration-snapshot backend whose gates all have durations is transpiled scheduled (delays on waiting qubits)
+    and Aer relaxes those delays with T1/T2; a snapshot gate without a duration, or a real QPU, stays unscheduled."""
+    from qiskit import transpile
+    from source.core.qpu.qpu_snapshot import (EQE1_TYPICAL_DURATIONS, backend_from_snapshot, noisy_sampler_from_snapshot,
+                                              scheduling_method, snapshot_from_iqm_eqe1_json)
+    data = json.loads((PROJECT / EQE1_FILE).read_text(encoding="utf-8"))
+    snap = snapshot_from_iqm_eqe1_json(data, EQE1_FILE)
+    assert {e["duration"] for e in snap["operations"]["cz"]} == {EQE1_TYPICAL_DURATIONS["cz"]}   # the file lists none
+    backend, _, sampler = noisy_sampler_from_snapshot(snap, seed=1)
+    assert backend.schedule_idle and scheduling_method(backend) == "alap" and "delay" in backend.target.operation_names
+    qc = _chain3()
+    qc.id(0)                                       # circuits arrive in the default "dt" unit; the scheduler needs integer delays
+    qc.measure_all()
+    isa = transpile(qc, backend, optimization_level=1, initial_layout=[0, 1, 2], scheduling_method=scheduling_method(backend))
+    assert isa.count_ops().get("delay", 0) > 0
+    assert backend.target.dt == 1e-9 and all(isinstance(i.operation.params[0], int) for i in isa.data if i.operation.name == "delay")
+    from qiskit.qpy import dump, load
+    import io
+    buf = io.BytesIO()
+    dump(isa, buf)                                 # the run saves the scheduled circuits as QPY (qiskit 2.1 could not read floats)
+    buf.seek(0)
+    assert load(buf)[0].count_ops() == isa.count_ops()
+    # one X, then a wait of several T1: the qubit has relaxed to 0 before the measurement
+    idle = QuantumCircuit(1, 1)
+    idle.x(0)
+    idle.delay(10 * snap["qubit_properties"][0]["t1"], 0, unit="s")
+    idle.measure(0, 0)
+    counts = sampler.run([transpile(idle, backend, optimization_level=0, initial_layout=[0])], shots=500).result()[0].data.c.get_counts()
+    assert counts.get("0", 0) > 0.9 * 500
+    no_duration = json.loads(json.dumps(snap))
+    no_duration["operations"]["cz"][0]["duration"] = None
+    assert scheduling_method(backend_from_snapshot(no_duration)) is None
+    no_data = json.loads(json.dumps(snap))                                  # IQM Resonance: a coupler and ops without any data
+    no_data["operations"]["cz"][0].update(duration=None, error=None)
+    no_data["operations"]["reset"] = [{"qargs": [q], "error": None, "duration": None} for q in (0, 1, 2)]
+    assert scheduling_method(backend_from_snapshot(no_data)) == "alap"
+    ibm_like = json.loads(json.dumps(snap))                                  # IBM lists a delay without a duration: no gate
+    ibm_like["operations"]["delay"] = [{"qargs": [q], "error": None, "duration": None} for q in (0, 1, 2)]
+    assert scheduling_method(backend_from_snapshot(ibm_like)) == "alap"
+    assert scheduling_method(SimpleNamespace(name="ibm_fez")) is None
+
+
 @pytest.mark.parametrize("qubits, why", [
     ([0, 1], "has 2 qubits"),                 # wrong count
     ([0, 1, 1], "repeats"),                   # a qubit twice

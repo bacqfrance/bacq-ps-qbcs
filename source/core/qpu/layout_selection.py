@@ -96,6 +96,37 @@ def _errors(target, name):
             for q, p in target[name].items() if q is not None}
 
 
+def idle_decay_log(t1, t2, t_idle):
+    """log of the process fidelity of a qubit left idle for t_idle seconds (T1 relaxation and dephasing, exact for any
+    t_idle): F = (1 + 2·exp(−t/T2) + exp(−t/T1)) / 4 — the diagonal of the Pauli transfer matrix (X and Y decay with T2,
+    Z with T1). T2 is capped at 2·T1, its physical limit. None if T1 or T2 is missing or not positive."""
+    if not t1 or not t2 or t1 <= 0 or t2 <= 0:
+        return None
+    t2 = min(t2, 2.0 * t1)
+    return math.log((1.0 + 2.0 * math.exp(-t_idle / t2) + math.exp(-t_idle / t1)) / 4.0)
+
+
+def _durations(target, name):
+    """{qargs: duration in s} of one operation, the entries that have one. {} if name is None."""
+    if name is None:
+        return {}
+    out = {}
+    for q, p in target[name].items():
+        if q is None:
+            continue
+        if p is not None and p.duration is not None:
+            out[tuple(q)] = p.duration
+    return out
+
+
+def _coherence_times(target):
+    """{physical qubit: (T1, T2) in s} of a Target's qubit_properties; {} if it has none."""
+    props = getattr(target, "qubit_properties", None)
+    if not props:
+        return {}
+    return {q: (p.t1, p.t2) for q, p in enumerate(props) if p is not None and p.t1 and p.t2}
+
+
 def _placements(n_virtual, pairs, neighbors, n_physical):
     """Yield every injective virtual→physical map in which each interacting
     virtual pair lands on a coupled physical pair (subgraph monomorphism, DFS)."""
@@ -189,6 +220,16 @@ def select_physical_qubits(circuit, target, singles=None, placement_ok=None):
       n_candidates     int (choose_layout() records None for a forced list)
       gates            {"2q": name, "1q": name}
       n_1q             [single-qubit gates per virtual qubit], n_1q_source "transpiled" | "raw circuit"
+      decoherence_included  bool — whether log_success contains the idle-decay term (see below)
+      t_circuit_s      the chosen placement's estimated circuit duration in s (None without the term)
+
+    Idle decay. The gate and readout errors are measured fidelities, so they already hold the decay during a gate or a
+    measurement. What they miss is a qubit waiting while the others work. With T1/T2 (Target.qubit_properties) and gate
+    durations, each placement also gets  Σ_qubits log F(t_idle; T1, T2)  (idle_decay_log()), where the 2q gates of the
+    3-qubit circuit run one after another, so  T = Σ 2q durations + the longest single-qubit run of one qubit  and
+    t_idle(v) = T − (v's own gate time). A placement missing a T1, T2 or duration is dropped from the scored ones; if
+    none has the data (AQT: one device-wide T1/T2, so the term would be the same everywhere; or no durations at all),
+    the term is left out for every placement.
     """
     n_virtual = circuit.num_qubits
     name_2q   = _pick_op(target, _PREFERRED_2Q, 2)
@@ -201,6 +242,7 @@ def select_physical_qubits(circuit, target, singles=None, placement_ok=None):
     singles     = raw_singles if singles is None else singles
     base      = dict(gates={"2q": name_2q, "1q": name_1q}, log_success=None,
                      top_candidates=[], n_candidates=0,
+                     decoherence_included=False, t_circuit_s=None,
                      n_1q=[int(singles.get(v, 0)) for v in range(n_virtual)], n_1q_source=n_1q_source)
 
     if not err_2q:
@@ -217,6 +259,24 @@ def select_physical_qubits(circuit, target, singles=None, placement_ok=None):
         return err_2q.get((a, b), err_2q.get((b, a)))
 
     has_data = any(e is not None for e in (*err_2q.values(), *err_ro.values(), *err_1q.values()))
+
+    coherence = _coherence_times(target)
+    dur_1q    = _durations(target, name_1q)
+    dur_2q    = _durations(target, name_2q)
+
+    def idle_terms(phys):
+        """(Σ log F of the idle qubits, T in s) of one placement; None if a T1, T2 or duration is missing."""
+        d1   = [dur_1q.get((phys[v],)) for v in range(n_virtual)]
+        d2   = {pair: (dur_2q.get((phys[pair[0]], phys[pair[1]])) or dur_2q.get((phys[pair[1]], phys[pair[0]])))
+                for pair in pairs}
+        if any(phys[v] not in coherence for v in range(n_virtual)) or any(d is None for d in d2.values()):
+            return None
+        if any(d1[v] is None for v in range(n_virtual) if singles.get(v)):
+            return None
+        own_1q = [singles.get(v, 0) * (d1[v] or 0.0) for v in range(n_virtual)]
+        busy   = [own_1q[v] + sum(n * d2[pair] for pair, n in pairs.items() if v in pair) for v in range(n_virtual)]
+        t_circ = sum(n * d2[pair] for pair, n in pairs.items()) + max(own_1q, default=0.0)
+        return sum(idle_decay_log(*coherence[phys[v]], max(t_circ - busy[v], 0.0)) for v in range(n_virtual)), t_circ
 
     scored = []
     any_placement = False
@@ -245,6 +305,17 @@ def select_physical_qubits(circuit, target, singles=None, placement_ok=None):
         return dict(base, physical_qubits=None,
                     method="no_swap_free_placement" if not any_placement else "no_scored_placement")
 
+    t_circuit = {}
+    if has_data and coherence and dur_1q and dur_2q:
+        with_idle = []
+        for phys, log_p in scored:
+            idle = idle_terms(phys)
+            if idle is not None:
+                with_idle.append((phys, log_p + idle[0]))
+                t_circuit[phys] = idle[1]
+        if with_idle:
+            scored = with_idle
+
     scored.sort(key=lambda s: (-s[1], s[0]))
     best, best_log = scored[0]
     return dict(
@@ -254,6 +325,8 @@ def select_physical_qubits(circuit, target, singles=None, placement_ok=None):
         log_success     = best_log if has_data else None,
         top_candidates  = [[list(p), s] for p, s in scored[:N_TOP_CANDIDATES_RECORDED]],
         n_candidates    = len(scored),
+        decoherence_included = bool(t_circuit),
+        t_circuit_s     = t_circuit.get(best),
     )
 
 

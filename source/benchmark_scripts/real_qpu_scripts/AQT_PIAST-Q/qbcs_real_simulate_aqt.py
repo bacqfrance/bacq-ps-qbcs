@@ -10,7 +10,8 @@ same circuits and settings as qbcs_real_submit_aqt_loop.py, but no QPU time.
      that copy (it must be the same calibration) and resumes an unfinished run (a finished
      one is followed by a new dated folder); remove the run folder to start over.
   2. Build an offline backend + Aer noise model from the snapshot (depolarizing
-     gate errors, T1/T2 relaxation over gate durations, readout errors).
+     gate errors, T1/T2 relaxation over gate durations and while a qubit waits for the others,
+     readout errors).
   3. build(), then pick the run's physical qubits (ions 0…19) as layout= says, on the
      snapshot's Target.
   4. Health check before and after the simulation, like the submit script, under

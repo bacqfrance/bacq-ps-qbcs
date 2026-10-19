@@ -82,7 +82,7 @@ The circuits must be cached for the same depth list first: run `source/benchmark
 
 **Qubit layout.** `layout=optimized` (the default), `random`, `lowest` or a list such as `layout=15,14,21`
 chooses the physical qubits (main USER_MANUAL §5.4): the placement with the best estimated success probability
-from the live calibration, a random valid one (the seed is recorded in `physical_qubits.json`), the
+from the live calibration (gate and readout errors, plus the T1/T2 decay of qubits idling while others work), a random valid one (the seed is recorded in `physical_qubits.json`), the
 lexicographically lowest valid one, or exactly the given qubits — the script stops with a one-line message (exit code 2) if this QPU cannot run them.
 The submit script always scores with the live calibration and refuses `calibration_file=` (exit code 2, with an
 explanation). The run folder
@@ -155,7 +155,7 @@ calibration, and costs no QPU time:
    downloads fresh calibration); to start over, remove the run folder
    `datafiles/<benchmark>_sim-qpu-noise_<provider>-<backend>_…/`;
 2. builds an offline backend + Aer noise model from it (depolarizing gate
-   errors, T1/T2 relaxation over gate durations, readout errors —
+   errors, T1/T2 relaxation over gate durations and while a qubit waits for the others, readout errors —
    `source/core/qpu/qpu_snapshot.py`);
 3. picks the physical qubits from the snapshot exactly as a real submission
    would, runs every chunk (SPAM on the same qubits), and analyzes the results.

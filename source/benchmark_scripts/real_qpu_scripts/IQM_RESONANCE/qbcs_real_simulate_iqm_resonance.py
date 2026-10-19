@@ -11,7 +11,8 @@ qbcs_real_submit_iqm_resonance.py, but no QPU time.
      downloads fresh calibration); remove the run folder to start over. With calibration_file=PATH
      the snapshot is taken from that file instead, and nothing is downloaded.
   2. Build an offline backend + Aer noise model from the snapshot (depolarizing
-     gate errors, T1/T2 relaxation over gate durations, readout errors).
+     gate errors, T1/T2 relaxation over gate durations and while a qubit waits for the others,
+     readout errors).
   3. build(), then pick the run's physical qubits from the snapshot exactly as a
      real submission would choose them.
   4. Health check before and after the simulation, like the submit script: the

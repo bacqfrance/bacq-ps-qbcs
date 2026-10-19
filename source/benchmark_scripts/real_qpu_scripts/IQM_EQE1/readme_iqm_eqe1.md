@@ -72,7 +72,7 @@ file. Therefore:
 - `layout=optimized calibration_file=PATH` scores the placements with a calibration file. `calibration_file=` is
   mandatory with `optimized` here (an error without it). The file may be the provider's own,
   the operators' `calibration_data_Euro-Q-Exa_<date>_active_qubits.json`, or an already converted snapshot; a provider file is converted automatically and saved in the run folder
-  as `calibration_snapshot.json` (its `measured_at` is the file's own date). The latest provider file is in `calibration_input_files/Euro-Q-Exa/`. A relative PATH is relative to the project root.
+  as `calibration_snapshot.json` (its `measured_at` is the file's own date). The layout score also includes the T1/T2 decay of qubits idling while others work, with the assumed gate durations of the noise model below. The latest provider file is in `calibration_input_files/Euro-Q-Exa/`. A relative PATH is relative to the project root.
 - `layout=lowest` is the lexicographically lowest valid layout, and `layout=15,14,21` forces exactly those qubits.
   A layout the QPU cannot run ends the script with a one-line message (exit code 2) before anything is submitted;
   so does `layout=optimized` when the QPU has no placement of the circuits without SWAPs, like `random` and `lowest`.
@@ -153,8 +153,9 @@ python source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/qbcs_real_simulate_iqm
 
 What the noise model contains, and what it doesn't:
 
-- Gate errors on `r` and `cz`, and readout errors. **No T1/T2 relaxation:** the source
-  file has no gate durations. The T2 stored is the Ramsey value.
+- Gate errors on `r` and `cz`, and readout errors, with T1/T2 relaxation during gates and while a qubit waits for the others
+  (the circuits are transpiled scheduled, with delays). **The gate durations are assumed:** the source file has none, so IQM
+  Emerald's are used (24 ns `r`, 50 ns `cz`, 360 ns `measure`). The T2 stored is the Ramsey value.
 - The **topology of the calibration file**, not the live backend's. Dead couplers and
   qubits change over time, so qubit numbering and couplings may differ from today's
   device.

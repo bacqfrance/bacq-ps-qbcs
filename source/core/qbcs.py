@@ -27,6 +27,7 @@ from source.core.records import circuit_check as CC
 from source.core.qpu import iqm_vlq as VLQ
 from source.core.qpu.providers import job_state_of_status
 from source.core.qpu.layout_selection import drop_identity_final_layout
+from source.core.qpu.qpu_snapshot import scheduling_method
 from source.core.qpu.aqt import _aqt_run, aqt_circuit_qpu_us
 from source.core.qpu.remote_jobs import _failed_job_timing, _remote_job_state, _submit_error_kind, _warn_circuit_check, ChunkSubmitError, SUBMIT_RETRY_BACKOFF_S, print_job_line
 import warnings
@@ -2472,7 +2473,8 @@ class bacq_ps_qbcs:
         self._log_timestamp(f"chunk{nc}_transpile_start")
         t0 = time.perf_counter()
         isa_circuits = transpile(qk_circuits, backend, optimization_level=1,
-                                 initial_layout=getattr(self, "_physical_qubits", None))
+                                 initial_layout=getattr(self, "_physical_qubits", None),
+                                 scheduling_method=scheduling_method(backend))
         if not isinstance(isa_circuits, list):
             isa_circuits = [isa_circuits]
         self._check_transpiled(f"Chunk {nc}", qk_circuits, isa_circuits)
@@ -2527,7 +2529,8 @@ class bacq_ps_qbcs:
         self._log_timestamp("spam_transpile_start")
         t0 = time.perf_counter()
         isa_spam = transpile(self._qk_spam_circuits, backend, optimization_level=1,
-                             initial_layout=getattr(self, "_physical_qubits", None))
+                             initial_layout=getattr(self, "_physical_qubits", None),
+                             scheduling_method=scheduling_method(backend))
         if not isinstance(isa_spam, list):
             isa_spam = [isa_spam]
         self._check_transpiled("SPAM", self._qk_spam_circuits, isa_spam, check_2q=False)

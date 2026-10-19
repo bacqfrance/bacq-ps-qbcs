@@ -255,7 +255,7 @@ pytest source/tests/
 Runs `test_00`/`test_01`/`test_07`/`test_08`/`test_10`/`test_11`/`test_12`/`test_13`/`test_14`/`test_15`/`test_16`/`test_17`/`test_18`/`test_19`/`test_20`/`test_21`/`test_22`/`test_23`/`test_24`/`test_25`/`test_26`/`test_27`/`test_28`/`test_29` (§9) —
 fundamental checks that confirm the circuits are built correctly, a full
 local-sim pipeline + post-processing integration check, and unit tests of the
-executed-circuit check and the timing bookkeeping — in 5 to 10 minutes (354 tests; longer on slower machines).
+executed-circuit check and the timing bookkeeping — in 5 to 10 minutes (359 tests; longer on slower machines).
 **Two venvs are needed**: `local_sim.venv` runs the suite (the run stops at once with instructions if `venvs/local_sim.venv` is missing; `test_10` also starts a child process in it), and `test_12` runs itself in `aqt.venv` — it fails with an error telling you to create `venvs/aqt.venv` (`source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/readme_aqt.md` §1, `requirements_aqt.txt`, which includes `pytest`) or to run `venvs/aqt.venv/Scripts/python -m pip install pytest` (`bin/python` on Linux) if only `pytest` is missing there.
 All tests passing (no failures, no errors) means the base venv, myQLM↔Qiskit
 translation, local Aer simulation, and `source/analysis_scripts/run_post_process.py` all work
@@ -387,7 +387,7 @@ It makes no network calls and needs no token. It follows the same path as
 `source/benchmark_scripts/real_qpu_scripts/IBM/qbcs_real_simulate_ibm.py`: the fake backend's target is saved
 to `datafiles/<run>/calibration_snapshot.json`, an Aer noise model is built from
 it, the run's physical qubits are picked from it, and every chunk is transpiled
-onto them. It needs **`venvs/ibm.venv`** (that's where `qiskit-ibm-runtime`
+onto them, scheduled so that waiting qubits decay as in the IBM simulation. It needs **`venvs/ibm.venv`** (that's where `qiskit-ibm-runtime`
 lives) and no myQLM, so the LNN circuits must already be cached — run
 `benchmark_noiseless_lnn.py` (with the same benchmark arguments) in `local_sim.venv` first.
 The snapshot is years older than today's device, so treat the results as
@@ -637,7 +637,13 @@ readout and 1q-gate errors) over all SWAP-free placements — see
 `source/core/qpu/layout_selection.py`. The gate counts are those of the transpiled circuit: the
 circuit is transpiled (locally) once onto any SWAP-free placement, and each virtual qubit's
 native single-qubit gates are counted, virtual-Z `rz` excluded (the counts are the same on
-every placement). IQM VLQ's star is scored per role instead — each virtual qubit's `prx`
+every placement). Where the calibration gives T1/T2 and gate durations (IBM, IQM Resonance, IQM VLQ; IQM EQE1 with typical
+durations of 24 ns for `r`, 50 ns for `cz` and 360 ns for `measure`, since its calibration file lists none) the score also holds the decay of
+each qubit while it waits for the others: with `F = (1 + 2·exp(−t/T2) + exp(−t/T1))/4` for the idle time `t` (the gates'
+own decay is already in their measured fidelities, so it is not added again). The 2q gates of the 3-qubit circuit run
+one after another, so the circuit lasts the sum of their durations plus the longest single-qubit run. AQT reports one
+device-wide T1/T2, so the term cannot tell its ions apart. `physical_qubits.json` records `decoherence_included` and the
+estimated `t_circuit_s`. IQM VLQ's star is scored per role instead — each virtual qubit's `prx`
 gates, MOVE pairs and CZs with the resonator, over every ordered choice of qubits with
 complete calibration (`source/core/qpu/iqm_vlq.py`, `readme_iqm_vlq.md` §4.1). Backends that report no error data
 (IQM EQE1 via MQSS, AQT) are scored from a calibration file instead (below). Transpilation asserts that the 2q-gate count is unchanged and that all
@@ -884,7 +890,8 @@ For IBM, IQM Resonance and IQM VLQ it downloads the device's calibration to
 `datafiles/<benchmark>_sim-qpu-noise_<provider>-<backend>_…_layout-<mode>_<YYYY-MM-DD>_#<N>/calibration_snapshot.json` (for VLQ the download is `vlq_calibration.json`, from which the snapshot is built; a rerun warns and reuses it; remove
 the run folder to download fresh calibration), builds an Aer noise model from
 it, and runs the whole benchmark locally on the physical qubits a real submission would
-pick (`source/core/qpu/qpu_snapshot.py`; details in each backend readme). Its data type `sim-qpu-noise` means
+pick (`source/core/qpu/qpu_snapshot.py`; details in each backend readme). The circuits are transpiled scheduled (`scheduling_method="alap"`),
+so the simulation also decays qubits that wait for the others, as the layout score assumes; a real QPU's circuits stay unscheduled. Its data type `sim-qpu-noise` means
 `source/analysis_scripts/run_post_process.py` treats it like any local run; its summary JSON names the
 snapshot's backend and date. IQM EQE1 and AQT report no calibration data through
 their SDKs, so their simulate scripts take a calibration file — `calibration_file=PATH`, the provider's file

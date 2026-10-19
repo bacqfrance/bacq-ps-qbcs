@@ -60,7 +60,7 @@ BENCHMARK_USAGE = """mini                   the mini benchmark: 8 samples, Nt = 
   (A preset's samples and depths cannot be changed. n_samples must be a multiple of 8 for uniform
     SPAM (readout error) calibration across all possible bitstrings on 3 qubits.)"""
 
-LAYOUT_USAGE = """layout=optimized       the qubits with the best calibrated success probability (scorer in source/core/qpu/layout_selection.py; IQM VLQ: source/core/qpu/iqm_vlq.py)
+LAYOUT_USAGE = """layout=optimized       the qubits with the best calibrated success probability, idle T1/T2 decay included (scorer in source/core/qpu/layout_selection.py; IQM VLQ: source/core/qpu/iqm_vlq.py)
   layout=random          any valid 3-qubit layout on the QPU, drawn once at random (the seed is recorded in the run)
   layout=lowest          the lexicographically lowest valid layout
   layout=15,14,21        exactly these three physical qubits (virtual qubit i -> the i-th number); an error if the QPU cannot run them

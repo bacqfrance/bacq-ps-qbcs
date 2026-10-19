@@ -18,6 +18,7 @@ from source.core.common import exit_with_error, PROJECT_ROOT, rel_path, scrub_pa
 from source.core.qpu import iqm_vlq as VLQ
 from source.core.qpu.aqt import _aqt_run, AQTTaskTimeout
 from source.core.qpu.layout_selection import check_forced_layout, drop_identity_final_layout
+from source.core.qpu.qpu_snapshot import scheduling_method
 from source.core.qpu.providers import ACCOMPANYING_HEALTH_CHECK_NSHOTS, job_state_of_status
 from source.core.qpu.remote_jobs import _is_transient_network_error, _remote_job_state, _warn_circuit_check, HealthCheckSubmitError, print_job_line, SUBMIT_RETRY_BACKOFF_S
 from source.core.records import circuit_check as CC
@@ -416,7 +417,8 @@ def _health_check_isa(run_path, circuit, target, qubit_set, reps):
             return isa, v["file"], None
 
     t0  = time.perf_counter()
-    isa = transpile(circuit, target, optimization_level=1, initial_layout=qubit_set)
+    isa = transpile(circuit, target, optimization_level=1, initial_layout=qubit_set,
+                    scheduling_method=scheduling_method(target))
     transpile_s = time.perf_counter() - t0
     n     = len(meta["variants"])
     fname = "health_check_transpiled.qpy" if n == 0 else f"health_check_transpiled_{n}.qpy"

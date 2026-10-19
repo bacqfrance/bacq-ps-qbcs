@@ -175,7 +175,12 @@ reports (`select_vlq_qubits()` in `source/core/qpu/iqm_vlq.py`; `star_roles` is 
    (1 − (1 − F_Clifford)/1.875), the MOVE-pair fidelity (interleaved RB with two MOVEs) and the
    interleaved-RB CZ fidelity. A qubit missing any of these metrics (e.g. QB12, for which the
    calibration had no MOVE data) is excluded: a calibration gap signals a problem with the qubit.
-3. **Choice.** Every ordered choice of three distinct usable qubits is scored (23·22·21 = 10,626) and the best
+3. **Idle decay.** The fidelities hold the decay during a gate, not a qubit waiting for the others. The resonator
+   serializes the CZs and MOVEs, so the circuit lasts T = Σ_v (2·n_move(v)·t_move + n_cz(v)·t_cz) + max_v n_prx(v)·t_prx,
+   and each qubit idles for T minus its own gate time (durations from the calibration set). A choice's score gets
+   Σ_v log F(t_idle; T1, T2) with F = (1 + 2·exp(−t/T2) + exp(−t/T1))/4 (T2 capped at 2·T1). If a usable qubit has no
+   T1, T2 or duration, the term is left out for every choice.
+4. **Choice.** Every ordered choice of three distinct usable qubits is scored (23·22·21 = 10,626) and the best
    sum is recorded in `<run>/transpiled_circuits/physical_qubits.json`, with the roles, each chosen
    qubit's grade and metrics and the calibration set id.
 

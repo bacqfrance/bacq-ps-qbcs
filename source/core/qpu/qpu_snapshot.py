@@ -120,6 +120,13 @@ def snapshot_from_aqt_json(data, source_file):
     return snap
 
 
+# EQE1's calibration file lists no gate durations: assumed are the figures of IQM Emerald's live Target (IQM Resonance,
+# 2026-10-19: r 24 ns on every qubit, cz 40-60 ns, measure 360 ns), the same hardware family (cz: the midpoint).
+# They give the layout selection and the Aer noise model (relaxation during gates, idle decay) their time scale.
+SCHEDULING_DT = 1e-9   # the Target's dt where a snapshot has none (VLQ, EQE1, AQT): durations become whole numbers of ns
+EQE1_TYPICAL_DURATIONS = {"r": 24e-9, "cz": 50e-9, "measure": 360e-9}
+
+
 def snapshot_from_iqm_eqe1_json(data, source_file):
     """Snapshot dict from an IQM Euro-Q-Exa (EQE1) calibration JSON
     (calibration_data_Euro-Q-Exa_<date>_active_qubits.json: per-qubit lists T1/T2 in µs,
@@ -127,8 +134,7 @@ def snapshot_from_iqm_eqe1_json(data, source_file):
 
     Native gates as the EQE1 backend's Target has them: r (prx), cz on the listed pairs, and
     measure. T2 is the Ramsey value (the circuits use no dynamical decoupling). The file has
-    no gate durations, so none are set: the Aer noise model then has no T1/T2 relaxation
-    term — only depolarizing gate errors and readout errors. A qubit with NaN or missing (None) in any field
+    no gate durations, so EQE1_TYPICAL_DURATIONS are set on every gate (assumed, from IQM Emerald). A qubit with NaN or missing (None) in any field
     used (T1, T2, 1q_fidelity, readout_fidelity) is left out of the Target entirely — no
     r / cz / measure entries — so neither the layout selection nor the transpiler can place
     anything on it; it is listed under "excluded_qubits"."""
@@ -149,16 +155,16 @@ def snapshot_from_iqm_eqe1_json(data, source_file):
         pairs += [([a, b], 1 - fid), ([b, a], 1 - fid)]   # cz is symmetric: both directions
 
     snap["operations"] = {
-        "r":       [{"qargs": [q], "error": 1 - data["1q_fidelity"][q], "duration": None} for q in ok],
-        "cz":      [{"qargs": qa, "error": e, "duration": None} for qa, e in pairs],
-        "measure": [{"qargs": [q], "error": 1 - data["readout_fidelity"][q], "duration": None} for q in ok],
+        "r":       [{"qargs": [q], "error": 1 - data["1q_fidelity"][q], "duration": EQE1_TYPICAL_DURATIONS["r"]} for q in ok],
+        "cz":      [{"qargs": qa, "error": e, "duration": EQE1_TYPICAL_DURATIONS["cz"]} for qa, e in pairs],
+        "measure": [{"qargs": [q], "error": 1 - data["readout_fidelity"][q], "duration": EQE1_TYPICAL_DURATIONS["measure"]} for q in ok],
     }
     snap["qubit_properties"] = [None if q in excluded else
                                 {"t1": data["T1"][q] * 1e-6, "t2": data["T2"][q] * 1e-6, "frequency": None}
                                 for q in range(n)]
     snap["excluded_qubits"] = excluded
     snap["notes"] = [
-        "no gate durations in the source file: no T1/T2 relaxation in the noise model",
+        "no gate durations in the source file: typical ones assumed (EQE1_TYPICAL_DURATIONS, from IQM Emerald)",
         "T2: Ramsey (not echo)",
         "excluded_qubits: NaN or missing (None) in T1, T2, 1q_fidelity or readout_fidelity — left out of the Target",
     ]
@@ -316,6 +322,22 @@ def backend_from_snapshot(snapshot):
             props[qargs] = InstructionProperties(error=e["error"], duration=e["duration"]) if has else None
         target.add_instruction(mapping[name], props if props != {None: None} else None, name=name)
 
+    # Idle qubits get explicit delays when circuits are scheduled; the Target has to list the delay for them to pass the
+    # basis translation. Aer relaxes a delay with the qubit's T1/T2.
+    from qiskit.circuit import Delay
+    measured = sorted({q[0] for q in (target["measure"] if "measure" in target.operation_names else {}) if q})
+    if measured and "delay" not in target.operation_names:   # IBM snapshots list their own
+        target.add_instruction(Delay(0.0), {(q,): None for q in measured}, name="delay")
+    # An entry with neither error nor duration is an operation or coupler the provider reports no data for (IQM's id and
+    # reset, a coupler missing from the calibration): the layout never uses it, so it does not block scheduling.
+    schedulable = bool(measured) and all(
+        e["duration"] is not None for name, entries in snapshot["operations"].items() if name != "delay"
+        for e in entries if e["error"] is not None or e["duration"] is not None)
+    if schedulable and target.dt is None:
+        # Scheduled circuits need integer delays in dt units: with no dt, qiskit's scheduler fails on float durations (2.5) and
+        # writes delays that QPY cannot read back (2.1). Every duration of the snapshots here is a whole number of ns.
+        target.dt = SCHEDULING_DT
+
     class SnapshotBackend(BackendV2):
         def __init__(self):
             super().__init__(name=f"{snapshot['backend']}_snapshot",
@@ -330,6 +352,12 @@ def backend_from_snapshot(snapshot):
         def max_circuits(self):
             return None
 
+        @property
+        def schedule_idle(self):
+            """True if every gate of the Target that has calibration data also has a duration, so the circuits can be scheduled (scheduling_method()):
+            the Aer noise model then relaxes waiting qubits too."""
+            return schedulable
+
         @classmethod
         def _default_options(cls):
             return Options()
@@ -341,12 +369,20 @@ def backend_from_snapshot(snapshot):
     return SnapshotBackend()
 
 
+def scheduling_method(backend):
+    """transpile(scheduling_method=…) for `backend`: "alap" for a calibration-snapshot backend whose gates all have
+    durations (the Aer simulation then decays idle qubits as the QPU does), else None — a real QPU runs its own
+    schedule, and its submitted circuits stay unscheduled."""
+    return "alap" if getattr(backend, "schedule_idle", False) else None
+
+
 def noisy_sampler_from_snapshot(snapshot, seed=None):
     """(snapshot_backend, noise_model, AerSamplerV2) for a snapshot dict or path.
 
     The noise model is qiskit-aer's standard device model built from the Target:
     depolarizing gate errors, thermal relaxation from T1/T2 over each gate's
-    duration, and readout errors from `measure`."""
+    duration, and readout errors from `measure`. Idle qubits relax only in circuits scheduled with
+    scheduling_method() (their delays)."""
     from qiskit_aer.noise import NoiseModel
     from qiskit_aer.primitives import SamplerV2 as AerSamplerV2
 

@@ -219,7 +219,8 @@ What the noise model contains:
 - Per-ion `r` errors, and `rxx` errors on every pair. The file gives only the
   device-mean two-qubit fidelity, so that value is used for all pairs.
 - Readout error from the SPAM fidelity lower bound, and device-wide T1/T2.
-- Gate durations and readout time from the file, so T1/T2 relaxation is included.
+- Gate durations and readout time from the file, so T1/T2 relaxation is included, also for a qubit waiting for the others (the
+  circuits are transpiled scheduled, with delays); T1/T2 are one device-wide value.
 - Crosstalk figures are kept in the file but not modelled.
 
 A newer provider file is used simply by passing it as `calibration_file=` (or copying it into `calibration_input_files/PIAST-Q/`,

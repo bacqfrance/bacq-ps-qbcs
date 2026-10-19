@@ -31,6 +31,12 @@ ordered choice of three distinct usable qubits is scored and the best sum wins (
 the four metrics is excluded, whatever its role: a gap in its calibration signals a
 problem with the qubit.
 
+Idle decay. The fidelities hold the decay during a gate, not a qubit waiting for the others. The resonator serializes
+the CZ and MOVE gates, so the circuit lasts  T = Σ_v (2·n_move(v)·t_move + n_cz(v)·t_cz) + max_v n_prx(v)·t_prx
+and a qubit idles for T minus its own gate time; each choice also gets  Σ_v log F(t_idle; T1, T2)
+(layout_selection.idle_decay_log(), exact for any t_idle). Where a usable qubit lacks T1, T2 or a gate duration
+the term is left out for every choice (record field "decoherence_included").
+
 Imports qaas / py4lexis only inside lexis_backend() and lexis_session(), so the module loads in every venv
 (the local simulation uses the calibration functions from local_sim.venv or iqm_vlq.venv).
 """
@@ -45,6 +51,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from source.core.common import PROJECT_ROOT, exit_with_error, rel_path, scrub_paths
+from source.core.qpu.layout_selection import idle_decay_log
 from source.core.qpu.tokens import token_path
 from source.core.records.job_timing import iso_utc, now_utc_iso
 
@@ -454,9 +461,33 @@ def select_vlq_qubits(roles, cal, n_top=5):
             grades[q, v] = sum(n * logs[k] for k, n in need.items())
 
     names  = sorted((q for q in metrics if q not in excluded), key=lambda n: int(n[2:]))
-    scored = [(sum(grades[q, v] for v, q in enumerate(phys)), phys)
-              for phys in itertools.permutations(names, n_virtual)]
+    need_t = ("t1", "t2", "prx_s", "cz_s", "move_s")
+    decoherence = bool(names) and all(isinstance(metrics[q][k], (int, float)) and metrics[q][k] > 0
+                                      for q in names for k in need_t)
+
+    def duration(phys, v):
+        """(own gate time of virtual qubit v on phys[v], its prx time) in s."""
+        m, prx = metrics[phys[v]], roles["n_prx"][v] * metrics[phys[v]]["prx_s"]
+        return prx + 2 * roles["n_move"][v] * m["move_s"] + roles["n_cz"][v] * m["cz_s"], prx
+
+    def score(phys):
+        """(log P, circuit duration in s or None) of one ordered choice."""
+        log_p = sum(grades[q, v] for v, q in enumerate(phys))
+        if not decoherence:
+            return log_p, None
+        own    = [duration(phys, v) for v in range(n_virtual)]
+        t_circ = sum(b - p for b, p in own) + max(p for _, p in own)
+        for v, q in enumerate(phys):
+            log_p += idle_decay_log(metrics[q]["t1"], metrics[q]["t2"], max(t_circ - own[v][0], 0.0))
+        return log_p, t_circ
+
+    scored = []
+    for phys in itertools.permutations(names, n_virtual):
+        log_p, t_circ = score(phys)
+        scored.append((log_p, phys, t_circ))
     scored.sort(key=lambda s: (-s[0], [physical_index(q) for q in s[1]]))
+    t_circuit = {phys: t for _, phys, t in scored[:n_top]}
+    scored    = [(log_p, phys) for log_p, phys, _ in scored]
     base = dict(gates={"1q": "prx", "2q": "cz with the resonator + move pairs"}, gate_roles=roles,
                 prx_per_clifford=PRX_PER_CLIFFORD, calibration_set_id=cal.get("calibration_set_id"),
                 calibration_source=cal.get("source"))
@@ -470,6 +501,9 @@ def select_vlq_qubits(roles, cal, n_top=5):
         qubit_names     = list(best),
         method          = "star_roles",
         log_success     = best_log,
+        decoherence_included = decoherence,
+        t_circuit_s     = t_circuit[best] if decoherence else None,
+        idle_log        = best_log - sum(grades[q, v] for v, q in enumerate(best)) if decoherence else None,
         top_candidates  = [[[physical_index(q) for q in p], s] for s, p in scored[:n_top]],
         n_candidates    = len(scored),
         excluded_qubits = sorted(excluded, key=lambda n: int(n[2:])),

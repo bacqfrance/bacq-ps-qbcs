@@ -7,7 +7,7 @@ qiskit-ibm-runtime. No network calls, no token. run_local_simulation() prints th
 Same path as source/benchmark_scripts/real_qpu_scripts/IBM/qbcs_real_simulate_ibm.py: FakeFez's target
 is saved to datafiles/<RUN_FOLDER>/calibration_snapshot.json, an Aer noise
 model is built from it, physical qubits are picked from it, and every chunk is
-transpiled onto them.
+transpiled onto them, scheduled (idle qubits decay, as in the IBM simulation).
 
 Run in venvs/ibm.venv (qiskit-ibm-runtime; no myQLM). The LNN circuits of the same
 benchmark size must already be cached — run benchmark_noiseless_lnn.py with the same

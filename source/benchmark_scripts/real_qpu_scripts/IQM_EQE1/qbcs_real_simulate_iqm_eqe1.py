@@ -11,8 +11,8 @@ same circuits and settings as qbcs_real_submit_iqm_eqe1.py, but no QPU time.
      an unfinished run (a finished one is followed by a new dated folder); remove the run
      folder to start over.
   2. Build an offline backend + Aer noise model from the snapshot: depolarizing gate
-     errors and readout errors. The file has no gate durations, so there is no T1/T2
-     relaxation term. The file's own topology is used — couplers die and revive over
+     errors and readout errors, and T1/T2 relaxation over gate durations and while a
+     qubit waits for the others. The file has no gate durations, so IQM Emerald's are assumed. The file's own topology is used — couplers die and revive over
      time, so it may differ from the live backend's — and qubits with incomplete
      calibration (NaN) are left out of it.
   3. build(), then pick the run's physical qubits as layout= says, on the snapshot's Target.

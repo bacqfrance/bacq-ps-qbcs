@@ -72,7 +72,8 @@ def test_selection_scores_every_ordered_choice_by_role():
     assert rec["n_candidates"] == n * (n - 1) * (n - 2)
     assert set(rec["excluded_qubits"]) == set(no_move) and not set(rec["qubit_names"]) & set(no_move)
     assert rec["physical_qubits"] == [int(q[2:]) - 1 for q in rec["qubit_names"]]
-    assert rec["log_success"] == pytest.approx(sum(rec["chosen_grades"].values()))
+    assert rec["decoherence_included"] and rec["t_circuit_s"] > 0 and rec["idle_log"] <= 0   # the fixture has T1, T2 and durations
+    assert rec["log_success"] == pytest.approx(sum(rec["chosen_grades"].values()) + rec["idle_log"])
     assert rec["log_success"] == max(s for _, s in rec["top_candidates"])
 
     # an independent recomputation of one grade: readout + prx + MOVE pairs + CZs
@@ -83,6 +84,27 @@ def test_selection_scores_every_ordered_choice_by_role():
     assert rec["chosen_grades"][q] == pytest.approx(
         math.log(m["readout"]) + ROLES["n_prx"][v] * math.log(f_prx) + ROLES["n_cz"][v] * math.log(m["cz"]))
     assert rec["calibration_set_id"] == CAL["calibration_set_id"]
+
+
+def test_idle_decay_decides_between_equal_fidelities():
+    """With every fidelity equal, only T1/T2 and the gate durations separate the qubits: the long-lived ones win, and a
+    calibration with no T2 gives up the term for every choice (the old, fidelity-only score)."""
+    metrics = V.qubit_metrics(CAL)
+    usable  = [q for q, m in metrics.items() if V._qubit_logs(m) is not None]
+    assert len(usable) >= 4
+    flat    = metrics[usable[0]]                                           # one qubit's fidelities and durations for all
+    m_flat  = {q: dict(flat, t1=50e-6, t2=20e-6) for q in usable}
+    m_flat[usable[3]].update(t1=500e-6, t2=400e-6)                         # one qubit that outlives the rest
+    orig    = V.qubit_metrics
+    try:
+        V.qubit_metrics = lambda cal: {q: dict(m) for q, m in m_flat.items()}
+        rec = V.select_vlq_qubits(ROLES, CAL)
+        assert rec["decoherence_included"] and usable[3] in rec["qubit_names"]
+        m_flat[usable[3]]["t2"] = None
+        rec = V.select_vlq_qubits(ROLES, CAL)
+        assert not rec["decoherence_included"] and rec["t_circuit_s"] is None and rec["idle_log"] is None
+    finally:
+        V.qubit_metrics = orig
 
 
 def test_snapshot_folds_the_resonator_into_an_all_to_all_cz():
