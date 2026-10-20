@@ -1,9 +1,19 @@
 # Guide for adding a new backend
 
-This guide is for developers adding a new QPU provider (or a new service for an existing
-provider) to the BACQ benchmark pipeline. Part 1 lists what a new backend must deliver and how
-to check it, part 2 where in the code each piece goes. The existing backends are the templates — a new
-backend may use any SDK or API; the table only shows which existing one to start from:
+This guide is for developers adding a new QPU to the BACQ benchmark pipeline. It has two procedures:
+
+- **Procedure A — a new machine on a service the pipeline already supports** (a new IBM or IQM Resonance machine, for example). Mostly
+  `backends.json` and a few metadata entries; no new pipeline code.
+- **Procedure B — a new service** (a new access platform, with its own SDK, job system and billing). It needs the probing,
+  code, tests and docs of Part 1 (what a new service must deliver and how to check it) and Part 2 (where in the code each piece goes).
+
+Which one applies depends on the service, not on the QPU provider. IBM Cloud and IQM Resonance each host several machines of
+one provider, so a new machine is procedure A. The EuroHPC services (`MQSS_LRZ`, `QAAS_IT4I`, `PCSS`) may host machines from
+different QPU providers with different calibration formats, circuits-per-job limits and pricing: a new machine there starts with
+procedure A, and takes the parts of procedure B that its provider differs in (step 2, probing; the calibration reader of step 3;
+step 8, summary metadata and cost; step 9, tests).
+
+The existing services are the templates — a new service may use any SDK or API; the table only shows which existing one to start from:
 
 | Service name (`service_name`) | Provider SDK / access | Kind | Closest template for |
 |---|---|---|---|
@@ -20,7 +30,38 @@ mini benchmark, 480 in the full one); a provider job holds one or several chunks
 
 ---
 
-## Part 1 — Steps
+## Procedure A — a new machine on an existing service
+
+1. **Probe the machine first.** Run the service's standalone health check on it, and read what its calibration offers:
+   per-qubit T1 and T2 (and which T2 it is, see "Which T2 is it?" in procedure B, step 2), gate and readout durations, the
+   topology (linear nearest neighbour or all-to-all). `layout=optimized` needs the coherence times and durations (see
+   step 3, "Coherence times and durations in the layout score"); without them the machine still runs, but the layout is scored
+   without the idle-decay term (`decoherence_included` is false in the record).
+2. **`backends.json`** in the service's folder (`source/benchmark_scripts/real_qpu_scripts/<SERVICE>/`): add the machine as
+   `"<name>": {"lnn": true|false}`, `true` = linear-nearest-neighbour circuits, `false` = all-to-all, by the machine's real
+   topology. IBM: any machine the account lists (machines of other instances also need `instance=NAME`); IQM Resonance:
+   the machine's id or alias. Every script then accepts `backend=<name>`.
+3. **Run-name mapping.** `run_names.qpu_device()` turns the `backend=` value into `<provider>-<backend>` (IBM `ibm_fez` → `ibm-fez`;
+   Resonance `emerald` → `iqm-emerald`). Check that the new name comes out as expected, and add a case to
+   `source/tests/test_20_run_names.py` if the name follows a new pattern.
+4. **Summary metadata.** In `source/analysis_scripts/bacq_ps_qbcs_summary_json.py` the machine needs a branch (IBM: its name in the
+   tuple of IBM machines and its `ARCHITECTURE` if it is not a Heron R2; IQM Resonance: an `elif` with `ARCHITECTURE`, `QPU_SERVICE`,
+   `PRICING`, `FREE_BECAUSE`). Without it the summary stops with "no QPU metadata". A machine with its own price needs a
+   pricing entry (procedure B, step 8).
+5. **Post-processing.** Add `real-data_<provider>-<backend>` to `REAL_QPUS` and, if the service has a simulate script,
+   `sim-qpu-noise_<provider>-<backend>` to `SIMULATED_QPUS` in `source/analysis_scripts/run_post_process.py`.
+6. **Docs.** The machine names in the service's readme, in USER_MANUAL §7 and in both QUICK_START guides.
+7. **Check on the real machine, in this order:** standalone health check → mini benchmark (submit, collect twice) → post-processing.
+   Compare the summary's QPU time and cost with the provider's dashboard.
+
+If any of this needs new code (a new job type, a new calibration format, a new billing rule), the machine is a case for
+procedure B.
+
+---
+
+## Procedure B — a new service
+
+**Part 1 — Steps**
 
 ### 1. Virtual environment
 
@@ -58,10 +99,27 @@ benchmark records. The code of steps 4–8 is built on these findings.
    - **Layout:** which physical qubits the job used, and where that is reported.
    - **Calibration:** where the calibration data come from (API endpoint, calibration-set ID),
      their format and metrics, whether a job records which calibration it ran with, and when the provider made
-     the calibration (saved as the snapshot's `measured_at`; `null` when it says nothing).
+     the calibration (saved as the snapshot's `measured_at`; `null` when it says nothing). Look in
+     particular for **per-qubit T1 and T2** and **gate and readout durations**: `layout=optimized` and the Aer noise
+     model use them (step 3), and a T2 needs the care described below.
    - **Executed circuits:** whether the executed (server-transpiled) circuits can be read back, and
      in what form (gate names, qubit indexing, added gates such as MOVEs). The circuit check
      (step 6) compares them with the submitted ones.
+   **Which T2 is it?** Providers report different dephasing times under the same name:
+   - **T2\* (Ramsey)** is the decay of a free-precession (Ramsey) experiment. It includes slow, low-frequency noise. The benchmark
+     circuits use no dynamical decoupling, so this is what an idle qubit experiences: **use it whenever the provider reports it**,
+     for the layout score and for the simulation noise.
+   - **T2 echo (Hahn echo)** refocuses the static part of the noise, so it is longer (IQM VLQ: about 2 to 3 times its Ramsey value).
+     It is optimistic for these circuits. It is a fair basis only for comparing machines that report nothing else.
+   - Many providers publish only one T2, unlabelled. IBM lists a single `T2` per qubit
+     (https://quantum.cloud.ibm.com/docs/en/guides/qpu-information) with no Ramsey time in the properties; it is generally understood
+     to be a Hahn-echo value, but the data do not say. IQM VLQ lists both (`t2_time`, taken as Ramsey, and `t2_echo_time`); EQE1
+     one unlabelled `t2`; AQT one device-wide `t2_coherence_time_s`. Measuring a Ramsey time (for example with
+     `qiskit-experiments` `T2Ramsey`) costs QPU time and is rarely worth it.
+
+   For a new service: take the Ramsey value if there is one; otherwise take the single T2 and **say in the snapshot's `notes` which kind it is, or
+   that it is unknown** (as the EQE1 snapshot does: "T2: Ramsey (not echo)"). Never mix the kinds when comparing machines. T2 cannot
+   exceed 2·T1; `layout_selection.idle_decay_log()` caps it there (Aer clips it as well).
 4. **Keep the probe script, all its raw output and a note of the findings.** The code development relies on them later:
    they decide what the timing block records (step 4), how the cost is modelled (step 8), and
    they become the test fixtures of step 9.
@@ -119,6 +177,17 @@ Every script must:
   calls `simulate_run()` (`source/core/runner_support/run_simulation.py`); a collect script connects and calls `collect_runs()`
   (`source/core/runner_support/run_collection.py`); an asynchronous submit script connects and calls `submit_async_run()` (`source/core/runner_support/run_submission.py`: it prints the config, builds, picks the layout, runs both health checks, submits and writes `submit.log`), passing only what the provider does differently; the accompanying health checks use `ACCOMPANYING_HEALTH_CHECK_NSHOTS`
   (`source/core/qpu/providers.py`).
+
+**Coherence times and durations in the layout score.** `layout=optimized` scores each placement by its calibrated success
+probability and by the idle decay of the qubits that wait while others work (`layout_selection.idle_decay_log()`, from T1, T2 and the
+gate durations; VLQ has its own scorer in `source/core/qpu/iqm_vlq.py`). The snapshot (`source/core/qpu/qpu_snapshot.py`) must therefore carry:
+- per-qubit `t1` and `t2` in seconds in `qubit_properties` (T2 as described in step 2, its kind in `notes`);
+- the duration of every gate and of `measure` in the operations. If the calibration lists none, use documented assumed values
+  and say so (EQE1: `EQE1_TYPICAL_DURATIONS`, the figures of IQM Emerald's live Target).
+
+A qubit missing T1, T2 or a duration is dropped from the scored placements; if none has the data, the term is left out for every choice
+(`decoherence_included` false in the layout record). One device-wide T1/T2 (AQT) is the same for every placement, so it adds nothing there
+either; it still feeds the Aer noise model.
 
 ### 4. Job records and the timing block
 
@@ -242,7 +311,7 @@ the summary's QPU time and cost with what the provider's own dashboard says.
 
 ---
 
-## Part 2 — Where the code changes go
+## Procedure B, Part 2 — Where the code changes go
 
 Search for an existing service name (e.g. `"IQM_Resonance"`) to find every branch; the list
 below is what a new asynchronous service needs. Its job-status query goes in `_remote_job_state()`
@@ -303,7 +372,18 @@ provider — check the job list before submitting again.
 
 ---
 
-## Checklist
+## Checklists
+
+**Procedure A (new machine on an existing service)**
+
+- [ ] health check run; calibration has T1, T2 (kind known) and durations, or the missing ones are accepted
+- [ ] `backends.json` entry with the real topology
+- [ ] run-name mapping, `test_20` case if the pattern is new
+- [ ] summary metadata branch (and pricing if the machine has its own)
+- [ ] `REAL_QPUS`, `SIMULATED_QPUS`; the readme, USER_MANUAL §7 and both QUICK_START guides name the machine
+- [ ] real-machine check: health check → mini benchmark → post-processing, compared with the provider's dashboard
+
+**Procedure B (new service)**
 
 - [ ] venv without myQLM; `qbcs.py` and `health_check.py` import in it with `qat` blocked
 - [ ] token file, git-ignored
@@ -315,6 +395,7 @@ provider — check the job list before submitting again.
 - [ ] non-blocking collection; failed jobs marked; pre-submission health check waited for
 - [ ] circuit check, or `not_available` with the reason
 - [ ] health checks submitted and collected
+- [ ] snapshot with per-qubit T1 and T2 (Ramsey if offered, kind noted) and gate durations; layout record shows `decoherence_included`
 - [ ] summary: service name, metadata, QPU time source, cost model with sources
 - [ ] tests on saved real data (timing, circuit check), records → summary, non-blocking collection
 - [ ] USER_MANUAL §9 test table updated; full suite passes

@@ -20,7 +20,7 @@ Based on:
 
 - [QUICK_START_Windows.md](QUICK_START_Windows.md) / [QUICK_START_Linux.md](QUICK_START_Linux.md): the shortest path from a fresh clone to runs on every QPU.
 - [USER_MANUAL.md](USER_MANUAL.md): the full documentation (setup, pipeline, configuration, post-processing, tests).
-- [GUIDE_FOR_ADDING_NEW_BACKENDS.md](GUIDE_FOR_ADDING_NEW_BACKENDS.md): how to add a new QPU provider.
+- [GUIDE_FOR_ADDING_NEW_BACKENDS.md](GUIDE_FOR_ADDING_NEW_BACKENDS.md): how to add a new QPU machine or service.
 
 ## Repository tree
 
@@ -40,7 +40,7 @@ Based on:
 ├── USER_MANUAL.md                   # the full user manual
 ├── QUICK_START_Windows.md           # step-by-step guide from a fresh clone to QPU runs (Windows)
 ├── QUICK_START_Linux.md             # the same for Linux/macOS
-├── GUIDE_FOR_ADDING_NEW_BACKENDS.md # steps for adding a new QPU provider
+├── GUIDE_FOR_ADDING_NEW_BACKENDS.md # steps for adding a QPU machine or service
 ├── LICENCE.txt                      # the EUPL v. 1.2 licence text
 ├── _images/                         # images used by the docs
 └── README.md                        # this file
