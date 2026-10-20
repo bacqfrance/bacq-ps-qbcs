@@ -67,10 +67,17 @@ def _retry_post_health_check(*, run_folder, backend_name, service_name, real_bac
 
 
 def _seconds_since_last_submission(run_path):
-    """Seconds since the run's latest submitted job (chunk or health check); None for a run without one."""
+    """(seconds since the run's latest submitted job (chunk or health check), None for a run without one; the number of
+    a health check that rules out skipping the check before the submission, else None). That check is the latest job
+    and is degraded, or is a check before the chunks (not after) whose verdict is not functional (never collected)."""
     from source.core.runner_support.submit_with_retries import submitted_jobs
-    times = [t for t, _, _ in submitted_jobs(run_path) if t > 0]
-    return max(0.0, time.time() - max(times)) if times else None
+    jobs = [j for j in submitted_jobs(run_path) if j[0] > 0]
+    if not jobs:
+        return None, None
+    t, label, rec = jobs[-1]
+    unsure = label.startswith("health check") and (rec.get("verdict") == "degraded"
+                                                  or (not rec.get("after_submission") and rec.get("verdict") != "functional"))
+    return max(0.0, time.time() - t), (rec.get("number") if unsure else None)
 
 
 def submit_async_run(*, run_folder, backend_name, service_name, real_backend, collect_service, bench, layout, lnn,
@@ -91,7 +98,8 @@ def submit_async_run(*, run_folder, backend_name, service_name, real_backend, co
     final hint; retry_health_check: only submit the health check after the already submitted chunks again
     (_retry_post_health_check(); run_folder comes from health_check_retry_folder());
     skip_pre_check_within_s: no health check before the submission when the run's latest job (chunk or health check)
-    was submitted less than this many seconds ago (None: always check); instance: IBM's (instance name, plan), recorded in the
+    was submitted less than this many seconds ago, unless that job is a degraded health check or one before the chunks that was
+    never collected (None: always check); instance: IBM's (instance name, plan), recorded in the
     run's run_info.json (an existing record is kept). Returns the run folder path."""
     from source.core.qbcs import bacq_ps_qbcs
     from source.core.common import rel_path
@@ -153,8 +161,10 @@ def submit_async_run(*, run_folder, backend_name, service_name, real_backend, co
     # ── Health check before the submission (saved in <run>/health_checks/, auto-numbered) ──
     # Blocking, with bounded retry on transient network errors; each attempt is its own numbered
     # record. Never returns unless the QPU is confirmed functional — see source/core/health_check.py.
-    age_s = _seconds_since_last_submission(f"datafiles/{run_folder}") if skip_pre_check_within_s else None
-    if age_s is not None and age_s < skip_pre_check_within_s:
+    age_s, unsure_number = _seconds_since_last_submission(f"datafiles/{run_folder}") if skip_pre_check_within_s else (None, None)
+    if unsure_number is not None and age_s < skip_pre_check_within_s:
+        print(f"  Health check #{unsure_number}, the run's last job, was degraded or never collected: checking again before the submission.")
+    elif age_s is not None and age_s < skip_pre_check_within_s:
         print(f"  Health check before the submission skipped: the run's last job was submitted {age_s / 60:.1f} min ago "
               f"(< {skip_pre_check_within_s / 60:g} min)")
     else:

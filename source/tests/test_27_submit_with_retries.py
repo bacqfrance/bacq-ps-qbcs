@@ -49,11 +49,12 @@ def _write_chunk(root, nc, job_id, submitted_at, status="submitted", name=FOLDER
         {"chunk_id": nc, "status": status, "job_id": job_id, "submitted_at": submitted_at}), encoding="utf-8")
 
 
-def _write_health_check(root, number, job_id, submitted_at, name=FOLDER):
+def _write_health_check(root, number, job_id, submitted_at, name=FOLDER, verdict=None, after_submission=False):
     d = _folder(root, name) / "health_checks"
     d.mkdir(parents=True, exist_ok=True)
     (d / f"health_check_{number}.json").write_text(json.dumps(
-        {"schema": 2, "number": number, "job_id": job_id, "submitted_at": submitted_at, "status": "submitted"}), encoding="utf-8")
+        {"schema": 2, "number": number, "job_id": job_id, "submitted_at": submitted_at, "status": "submitted",
+         "verdict": verdict, "after_submission": after_submission}), encoding="utf-8")
 
 
 def _write_run_info(root, sample_size, name=FOLDER):
@@ -115,6 +116,24 @@ def test_records_without_a_job_id_are_ignored(tmp_path):
     (d / "job_record_chunk_1.json").write_text(json.dumps({"chunk_id": 1, "status": "submitted", "job_id": None,
                                                            "submitted_at": "2026-10-15T08:00:00Z"}), encoding="utf-8")
     assert SWR.latest_submitted_job(_folder(tmp_path))[1]["job_id"] == "100"
+
+
+def test_pre_check_skip_is_refused_after_a_degraded_or_uncollected_check(tmp_path):
+    """run_submission._seconds_since_last_submission(): a recent chunk or functional check allows the skip; a degraded
+    check, or a never collected check before the chunks, does not (a never collected check after the chunks does)."""
+    from source.core.runner_support.run_submission import _seconds_since_last_submission as since
+    now = "2026-10-15T07:00:00Z"
+    assert since(_folder(tmp_path)) == (None, None)
+    _write_chunk(tmp_path, 0, "100", now)
+    assert since(_folder(tmp_path))[1] is None
+    _write_health_check(tmp_path, 1, "200", "2026-10-15T07:05:00Z", verdict="functional")
+    assert since(_folder(tmp_path))[1] is None
+    _write_health_check(tmp_path, 2, "201", "2026-10-15T07:06:00Z", verdict="degraded")
+    assert since(_folder(tmp_path))[1] == 2
+    _write_health_check(tmp_path, 3, "202", "2026-10-15T07:07:00Z", verdict=None)
+    assert since(_folder(tmp_path))[1] == 3
+    _write_health_check(tmp_path, 4, "203", "2026-10-15T07:08:00Z", verdict=None, after_submission=True)
+    assert since(_folder(tmp_path))[1] is None
 
 
 def test_no_submission_launches_at_once(tmp_path):
@@ -343,13 +362,13 @@ def test_vlq_style_retries_without_progress_always_wait_and_give_up_after_the_bu
 def test_pre_check_skip_age_of_the_latest_job(tmp_path):
     import time
     from source.core.runner_support.run_submission import _seconds_since_last_submission
-    assert _seconds_since_last_submission(_folder(tmp_path)) is None          # no job yet
+    assert _seconds_since_last_submission(_folder(tmp_path)) == (None, None)   # no job yet
     now = time.time()
     stamp = lambda age: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - age))
     _write_chunk(tmp_path, 0, "100", stamp(3600))
-    _write_health_check(tmp_path, 1, "200", stamp(300))
-    age = _seconds_since_last_submission(_folder(tmp_path))
-    assert 290 <= age <= 330                                                  # the health check is the latest
+    _write_health_check(tmp_path, 1, "200", stamp(300), verdict="functional")
+    age, unsure = _seconds_since_last_submission(_folder(tmp_path))
+    assert 290 <= age <= 330 and unsure is None   # the functional health check is the latest
 
 
 def test_describe_exit_codes():

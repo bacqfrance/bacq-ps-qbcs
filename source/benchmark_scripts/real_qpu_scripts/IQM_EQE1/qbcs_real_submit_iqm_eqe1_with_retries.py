@@ -4,7 +4,7 @@ Submit a BACQ benchmark run to IQM EQE1 (MQSS) and keep retrying until every chu
 counterpart of PCSS_Quantum_UI/run_aqt_loop_with_retries.sbatch (EQE1 has no Slurm). It does not wait for the
 jobs already submitted: after a failed launch of qbcs_real_submit_iqm_eqe1.py it retries at once, then every 1 min,
 and gives up after 20 min without a chunk submitted (exit code 14). A launch within 21 min of the run's last
-job skips the health check before the submission. If every chunk is submitted and only the health check after them could not be submitted, it repeats just
+job (a chunk, or a functional health check) skips the health check before the submission. If every chunk is submitted and only the health check after them could not be submitted, it repeats just
 that health check (--retry-health-check), at most 3 times. Same arguments as qbcs_real_submit_iqm_eqe1.py (backend=EQE1, mini/full, layout=, …).
 
 Stop it with Ctrl-C; start it again with the same arguments to resume (the run folder decides where).
