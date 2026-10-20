@@ -414,7 +414,8 @@ def run_finished(run_folder, root="datafiles"):
 
 def run_has_uncollected(run_folder, root="datafiles"):
     """True when a run folder has something a collect script can still collect: a chunk job record in
-    job_records/ whose status is neither "complete" nor "failed" (so "submitted"), or a health check (the
+    job_records/ whose status is neither "complete" nor "failed" (such as "submitted",
+    or a record with no status), or a health check (the
     standalone job_records/health_check.json, or an accompanying health_checks/health_check_<N>.json) in that
     state. A failed job or check is not collectable; a folder without records is not collectable either."""
     from source.core.common import read_json_or_none

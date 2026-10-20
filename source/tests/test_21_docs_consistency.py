@@ -155,7 +155,7 @@ def test_qpu_readme_section_references_exist():
     sources  = USER_DOCS + [*(ROOT / "source" / "core").rglob("*.py")]
     bad = []
     for doc in sources:
-        for name, num in re.findall(r"(readme_[A-Za-z_]+\.md)`? §(\d+(?:\.\d+)*)", _text(doc)):
+        for name, num in re.findall(r"(readme_[A-Za-z0-9_]+\.md)`? §(\d+(?:\.\d+)*)", _text(doc)):
             if name in sections and num not in sections[name]:
                 bad.append(f"{doc.name}: {name} §{num}")
     assert not bad, f"references to QPU readme sections that do not exist: {bad}"

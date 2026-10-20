@@ -817,7 +817,8 @@ class bacq_ps_qbcs:
                                    <run>/transpiled_circuits/physical_qubits.json; a resumed run
                                    reuses that record.
 
-        :param max_circuits_per_job: int | None — IQM_EQE / IQM_RESONANCE only. The chunks are
+        :param max_circuits_per_job: int | None — MQSS_LRZ / IQM_RESONANCE (QAAS_IT4I sets it to
+                                   chunks_per_qpu_job_batch × circuits per chunk). The chunks are
                                    packed into jobs of at most this many circuits, as many whole
                                    chunks (each with its SPAM circuits) per job as fit. None uses
                                    IQM_MAX_CIRCUITS_PER_JOB (Resonance 100, EQE1 70).
@@ -1506,7 +1507,7 @@ class bacq_ps_qbcs:
         :param lang:                    "qiskit" | "myqlm" — bitstring reversal
         :param poll_interval:           int — seconds between passes when wait=True
         :param service_name:            str - "IBM_Cloud" / "MQSS_LRZ" / "IQM_Resonance" / "QAAS_IT4I"
-                                        (IQM_RESONANCE / IQM_VLQ: `service` is the backend)
+                                        (IQM_Resonance / QAAS_IT4I: `service` is the backend)
         :param wait:                    True: repeat the passes until no job is pending
         :param backend_name:            str — the script's BACKEND_NAME, for the progress lines (default: the record's)
         :returns:                       list of the chunks still pending

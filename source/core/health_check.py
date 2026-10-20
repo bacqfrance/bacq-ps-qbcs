@@ -459,8 +459,7 @@ def _mark_collect_failed(run_path, number, err):
     without changing its status — the job may still finish and be collected later by
     qbcs_real_collect_*.py's number=None path. Purely additive, per the project owner's rule
     that every check stays recorded."""
-    from source.core.records.health_check_records import health_check_path as _hc_path
-    rec_path = _hc_path(run_path, number)
+    rec_path = health_check_path(run_path, number)
     try:
         record = json.loads(rec_path.read_text(encoding="utf-8"))
         record["last_collect_error"] = scrub_paths(repr(err))[:500]
@@ -712,7 +711,7 @@ def _collect_health_check_one(exp_results_folder_path, record_path, service, fak
 
     elif service_name == QAAS_IT4I:
         # `service` is the qaas VLQ backend (source/core/qpu/iqm_vlq.py)
-        assert service is not None, "Pass the VLQ backend as `service=` for IQM_VLQ collection."
+        assert service is not None, "Pass the VLQ backend as `service=` for QAAS_IT4I collection."
         print_job_line("Health check", label_backend, service_name, job_id, verb)
         job        = VLQ.retrieve_job(service, job_id)          # logged, time-limited (source/core/qpu/iqm_vlq.py)
         result     = VLQ.wait_for_result(job, job_id)

@@ -883,7 +883,7 @@ To add a new QPU provider, follow [GUIDE_FOR_ADDING_NEW_BACKENDS.md](GUIDE_FOR_A
 2. **Submit** — `qbcs.submit(..., service=<QPU>)`. Asynchronous for IBM and IQM (returns immediately). IQM Resonance and EQE1 jobs are packed: each job holds as many whole chunks, each with its own SPAM circuits, as fit under `max_circuits_per_job` (Resonance 100, EQE1 70) — for the full benchmark that is 1 chunk (68 circuits) per job, for the mini benchmark 5 chunks (Resonance) or 3 chunks (EQE1) of 20 circuits. IBM and IQM VLQ pack `IBM_CHUNKS_PER_JOB` = 48 / `VLQ_CHUNKS_PER_JOB` = 12 chunks per job (the submit scripts' `CHUNKS_PER_JOB`); synchronous for AQT (waits for each chunk and merges inline).
 3. **Collect** — for IBM and IQM, a separate `qbcs_real_collect_*.py` retrieves results chunk-by-chunk and merges them (safe to re-run in a fresh session — see §5.5). AQT needs no collect step.
 4. **Analyze** — `qbcs.analyze_results()`.
-5. **POST health check** — confirm the QPU stayed healthy across the run. It is submitted right after the submission (for IBM/IQM it is collected by `qbcs_real_collect_*.py`; AQT does one after every chunk).
+5. **POST health check** — confirm the QPU stayed healthy across the run. By then the run's chunks are already on the QPU, so a failed POST check never stops the run or raises (only its own submission is retried on network errors). It is submitted right after the submission (for IBM/IQM it is collected by `qbcs_real_collect_*.py`; AQT does one after every chunk).
 
 **Rehearse without QPU time.** Each backend folder also has a `qbcs_real_simulate_*.py`.
 For IBM, IQM Resonance and IQM VLQ it downloads the device's calibration to

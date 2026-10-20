@@ -168,7 +168,7 @@ def test_dated_names_round_trip():
 
 
 def _finished_real_run(path, finished):
-    """A real run of one chunk whose chunk is (or isn't yet) submitted."""
+    """A real run of one chunk whose chunk is complete (or failed)."""
     (path / "job_records").mkdir(parents=True)
     (path / "run_info.json").write_text('{"sample_size": 1}', encoding="utf-8")
     (path / "job_records" / "job_record_chunk_0.json").write_text(

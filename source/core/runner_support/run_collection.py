@@ -12,11 +12,10 @@ from pathlib import Path
 
 from source.core.qbcs import bacq_ps_qbcs
 from source.core.health_check import collect_health_check
-from source.core.records.health_check_records import load_health_checks
+from source.core.records.health_check_records import format_chunk_range, load_health_checks
 from source.core.common import exit_with_error, print_done_block, print_run_status_banner
 from source.core.records.job_records import chunk_record_files
 from source.core.records.chunk_scope import collected_chunks
-from source.core.records.health_check_records import format_chunk_range
 from source.core.runner_support.benchmark_args import DT
 
 

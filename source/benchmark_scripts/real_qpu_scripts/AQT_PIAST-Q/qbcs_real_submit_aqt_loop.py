@@ -60,7 +60,7 @@ usage_if_requested(sys.argv[1:], make_usage(__file__, "Submit a BACQ benchmark r
 from pathlib import Path
 from pcss_qapi import AuthorizationService
 from pcss_qapi.aqt.provider import PCSS_AQTProvider
-from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args, parse_run_folder_arg, pop_force_new_run_flag
+from source.core.runner_support.benchmark_args import parse_benchmark_args, DT, parse_backend_config, parse_layout_args, parse_run_folder_arg, pop_force_new_run_flag
 from source.core.qpu.calibration_input import resolve_run_layout, layout_summary
 from source.core.qbcs import bacq_ps_qbcs
 from source.core.health_check import submit_health_check
@@ -84,7 +84,6 @@ SAMPLE_SIZE      = BENCH.sample_size
 LNN              = BACKEND_CFG["lnn"]   # the backend's topology, from backends.json
 DO_SPAM          = True
 LIST_TIMES       = BENCH.list_times
-DT               = 0.2
 CHUNK_SIZE       = int(len(LIST_TIMES) * 6)           # 6 circuits per depth
 EMS              = ["SPAM", "NEC", "RC+NEC", "cRC+NEC"] if DO_SPAM else ["NEC", "RC+NEC", "cRC+NEC"]
 RUN_SETTINGS     = qpu_run_name("AQT_PIAST-Q", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag)   # the run name without its date

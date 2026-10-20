@@ -42,7 +42,7 @@ from source.core.qpu.tokens import read_token
 usage_if_requested(sys.argv[1:], make_usage(__file__, "Run the BACQ benchmark on the local Aer simulator with a real IBM QPU's calibration: same circuits, settings and qubit selection as qbcs_real_submit_ibm.py, but no QPU time.", layout="simulate", instance=True))   # no arguments or --help: print the usage and do nothing
 from pathlib import Path
 
-from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args, parse_instance_arg
+from source.core.runner_support.benchmark_args import parse_benchmark_args, DT, parse_backend_config, parse_layout_args, parse_instance_arg
 from source.core.qpu.providers import connect_ibm
 from source.core.qpu.calibration_input import use_calibration_file
 from source.core.runner_support.run_simulation import simulate_run
@@ -54,7 +54,6 @@ BENCH            = parse_benchmark_args(sys.argv[1:], extra_keys=("backend", "in
 LAYOUT           = parse_layout_args(sys.argv[1:], calibration_any_layout=True)   # layout=... [calibration_file=...] — see source/core/runner_support/benchmark_args.py
 LNN              = BACKEND_CFG["lnn"]   # the backend's topology, from backends.json
 DO_SPAM          = True
-DT               = 0.2
 RUN_FOLDER       = dated_run_folder(qpu_run_name("IBM", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag, data_type="sim-qpu-noise"))
 SEED             = None   # Aer sampling seed; None = fresh randomness per chunk
 

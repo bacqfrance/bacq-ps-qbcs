@@ -44,7 +44,7 @@ usage_if_requested(sys.argv[1:], make_usage(__file__, "Run the BACQ benchmark on
 from pathlib import Path
 
 
-from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args
+from source.core.runner_support.benchmark_args import parse_benchmark_args, DT, parse_backend_config, parse_layout_args
 from source.core.qpu.calibration_input import use_calibration_file, newest_provider_file
 from source.core.runner_support.run_simulation import simulate_run
 from source.core.qpu.qpu_snapshot import SNAPSHOT_FILENAME
@@ -55,7 +55,6 @@ BENCH            = parse_benchmark_args(sys.argv[1:], extra_keys=("backend",))  
 LAYOUT           = parse_layout_args(sys.argv[1:], calibration_required=True, layout_required=True, calibration_any_layout=True)   # layout=... [calibration_file=...] — see source/core/runner_support/benchmark_args.py
 LNN              = BACKEND_CFG["lnn"]   # the backend's topology, from backends.json
 DO_SPAM          = True
-DT               = 0.2
 RUN_FOLDER       = dated_run_folder(qpu_run_name("AQT_PIAST-Q", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag, data_type="sim-qpu-noise"))
 SEED             = None   # Aer sampling seed; None = fresh randomness per chunk
 
