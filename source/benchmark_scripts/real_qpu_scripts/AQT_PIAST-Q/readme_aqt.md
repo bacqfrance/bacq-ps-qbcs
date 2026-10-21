@@ -90,7 +90,7 @@ The circuits must be cached for the same depth list first: run `source/benchmark
 file. Therefore:
 
 - **Without `layout=` and `calibration_file=`, the run uses a random layout** (a notice is printed): any valid
-  3-qubit layout, drawn once with a fresh seed that is recorded in `physical_qubits.json`. PIAST-Q is all-to-all and has 20 qubits (ions 0…19; the live backend reports the count), so every ordered triple of ions is a valid layout.
+  3-qubit layout, drawn once with a fresh seed that is recorded in `physical_qubits.json`. PIAST-Q is all-to-all and has 20 qubits (ions 0…19; the live backend reports the count), so every ordered triple of ions is a valid layout. Whatever the layout, the chosen qubits also go into `run_info.json` as `physical_qubits`.
 - `layout=optimized calibration_file=PATH` scores the placements with a calibration file. `calibration_file=` is
   mandatory with `optimized` here (an error without it). The file may be the provider's own,
   AQT/PCSS's `piastq_characterisation_<date>.json`, or an already converted snapshot; a provider file is converted automatically and saved in the run folder
@@ -111,7 +111,7 @@ inline** — there is no separate collect script.
 ```
 qbcs_real_submit_aqt_loop.py           (synchronous — one submit() call per chunk)
   load the cached circuits (once)
-  choose the layout (once per run)     → recorded in transpiled_circuits/physical_qubits.json
+  choose the layout (once per run)     → recorded in transpiled_circuits/physical_qubits.json (and run_info.json)
   STOP file in the run folder → exit 4, before the PRE check
   record the run (run_info.json)       → an aborted run stays analyzable (health checks only)
   PRE health check (once, before the loop; exit 10 degraded, 12 not submitted, 13 task timed out)

@@ -172,7 +172,7 @@ def run_with_retries(undated, status_of, launch, args, *, wait_after_failed_s, p
             if n < HC_RETRIES and wait_after_failed_s and not (first_retry_at_once and n == 1):
                 print(f"  Retrying in {_minutes(wait_after_failed_s)}.", flush=True)
                 sleep(wait_after_failed_s)
-        print(f"❌ All chunks of {rel_path(Path('datafiles') / folder)} are submitted, but the health check after them "
+        print(f"❌ All chunks of {rel_path(Path(root) / folder)} are submitted, but the health check after them "
               f"failed {HC_RETRIES} times (exit code {rc}). Resubmit it by starting "
               f"qbcs_real_submit_*.py {RETRY_HC_ARGUMENT} later, or collect the run as it is.", file=sys.stderr)
         return rc

@@ -83,7 +83,7 @@ The circuits must be cached for the same depth list first: run `source/benchmark
 **Qubit layout.** `layout=optimized` (the default), `random`, `lowest` or a list such as `layout=15,14,21`
 chooses the physical qubits (main USER_MANUAL §5.4): the placement with the best estimated success probability
 from the live calibration (gate and readout errors, plus the T1/T2 decay of qubits idling while others work), a random valid one (the seed is recorded in `physical_qubits.json`), the
-lexicographically lowest valid one, or exactly the given qubits — the script stops with a one-line message (exit code 2) if this QPU cannot run them.
+lexicographically lowest valid one, or exactly the given qubits — the script stops with a one-line message (exit code 2) if this QPU cannot run them. The chosen qubits are recorded in `transpiled_circuits/physical_qubits.json` and, as `physical_qubits`, in `run_info.json`.
 The submit script always scores with the live calibration and refuses `calibration_file=` (exit code 2, with an
 explanation). The run folder
 ends in `_layout-optimized`, `_layout-random`, `_layout-lowest` or `_layout-15-14-21`, so runs with different

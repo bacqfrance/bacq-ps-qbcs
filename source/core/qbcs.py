@@ -65,6 +65,16 @@ def _chunk_in(path, key):
         return False
 
 
+def _record_qubits_in_run_info(qbcs):
+    """Copy qbcs's resolved physical qubits into its run's run_info.json (unchanged file: no write); a function, not
+    a method, so the tests' stand-in objects for resolve_physical_qubits() need no copy of it."""
+    if qbcs._physical_qubits is not None and qbcs.CONFIG.get("folder_path") is not None:
+        write_run_info(qbcs.CONFIG, qbcs.CONFIG["folder_path"], qbcs.CONFIG["lnn_architecture"],
+                       circuits_qiskit_v13_qpy=qbcs._qiskit_v13_qpy,
+                       instance=qbcs.run_instance[0], instance_plan=qbcs.run_instance[1],
+                       scheduling_simulation=qbcs.scheduling_simulation, physical_qubits=qbcs._physical_qubits)
+
+
 class bacq_ps_qbcs:
     def __init__(
             self, infidelity_total=0.0, ratio_ct=0.0, noise_type="pauli",
@@ -2297,7 +2307,8 @@ class bacq_ps_qbcs:
                                 layout_backend=None, calibration_source=None):
         """
         Fix the physical qubits every chunk and the SPAM batch of this run are
-        transpiled onto, and record them in transpiled_circuits/physical_qubits.json.
+        transpiled onto, and record them in transpiled_circuits/physical_qubits.json
+        (and their list in run_info.json).
 
         Called at the start of submit(), before any transpilation. The real-QPU
         submit scripts also call it right after build(), before their first
@@ -2342,6 +2353,7 @@ class bacq_ps_qbcs:
                 )
             self._physical_qubits = record["physical_qubits"]
             print(f"  [Layout] Using recorded physical qubits {self._physical_qubits} ({record['method']}).")
+            _record_qubits_in_run_info(self)
             return self._physical_qubits
 
         # A run that already transpiled circuits before this record existed was
@@ -2415,6 +2427,7 @@ class bacq_ps_qbcs:
         record_path.write_text(json.dumps(record, indent=4), encoding="utf-8")
 
         self._physical_qubits = record["physical_qubits"]
+        _record_qubits_in_run_info(self)
         print(f"  [Layout] Physical qubits {self._physical_qubits} — layout={mode}, method={record['method']}"
               + (f", log P={record['log_success']:.4f}" if record.get("log_success") is not None else "")
               + (f", seed={record['seed']}" if record.get("seed") is not None else "")

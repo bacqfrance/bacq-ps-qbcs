@@ -182,7 +182,7 @@ reports (`select_vlq_qubits()` in `source/core/qpu/iqm_vlq.py`; `star_roles` is 
    T1, T2 or duration, the term is left out for every choice.
 4. **Choice.** Every ordered choice of three distinct usable qubits is scored (23·22·21 = 10,626) and the best
    sum is recorded in `<run>/transpiled_circuits/physical_qubits.json`, with the roles, each chosen
-   qubit's grade and metrics and the calibration set id.
+   qubit's grade and metrics and the calibration set id; the qubits also go into `run_info.json` as `physical_qubits`.
 
 Transpilation (`qiskit.transpile` with that `initial_layout`) inserts the MOVEs; the check that
 transpilation kept every two-qubit gate counts CZs and ignores MOVEs.

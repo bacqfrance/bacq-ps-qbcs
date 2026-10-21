@@ -68,7 +68,7 @@ The circuits must be cached for the same depth list first: run `source/benchmark
 file. Therefore:
 
 - **Without `layout=` and `calibration_file=`, the run uses a random layout** (a notice is printed): any valid
-  3-qubit layout, drawn once with a fresh seed that is recorded in `physical_qubits.json`. The valid layouts follow the qubits and couplers of the live Target; the calibration file may list more.
+  3-qubit layout, drawn once with a fresh seed that is recorded in `physical_qubits.json`. The valid layouts follow the qubits and couplers of the live Target; the calibration file may list more. Whatever the layout, the chosen qubits also go into `run_info.json` as `physical_qubits`.
 - `layout=optimized calibration_file=PATH` scores the placements with a calibration file. `calibration_file=` is
   mandatory with `optimized` here (an error without it). The file may be the provider's own,
   the operators' `calibration_data_Euro-Q-Exa_<date>_active_qubits.json`, or an already converted snapshot; a provider file is converted automatically and saved in the run folder

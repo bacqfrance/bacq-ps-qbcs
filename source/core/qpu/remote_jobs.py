@@ -56,7 +56,7 @@ def _remote_job_state(service_name, service, job_id, backend_name=None, nshots=N
 def _failed_job_timing(service_name, service, record):
     """Whatever timing the provider still reports for a job that ended in failure (QPU time
     it billed, queue, start/end), for the cost accounting of failed attempts. The query's own
-    wall time is stored as collect_s. Never raises; an unavailable value is left out (except qpu_s / queue_s, which stay None)."""
+    wall time is stored as collect_s. Never raises; an unavailable value is left out (qpu_s / queue_s are kept even when None)."""
     t0  = time.perf_counter()
     out = {}
     try:

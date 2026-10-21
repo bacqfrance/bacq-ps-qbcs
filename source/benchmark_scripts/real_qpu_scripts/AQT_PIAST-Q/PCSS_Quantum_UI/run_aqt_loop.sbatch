@@ -74,7 +74,7 @@ esac
 LOOP_ARGS=()
 for a in "$@"; do [ "$a" != "--force-new-run" ] && LOOP_ARGS+=("$a"); done
 if [ "${SLURM_RESTART_COUNT:-0}" -gt 0 ]; then RESOLVE_ARGS=("${LOOP_ARGS[@]}"); else RESOLVE_ARGS=("$@"); fi
-RUN_FOLDER=$("$PYTHON" "$AQT_DIR/PCSS_Quantum_UI/aqt_run_folder.py" "${RESOLVE_ARGS[@]}") || exit 1
+RUN_FOLDER=$("$PYTHON" "$AQT_DIR/PCSS_Quantum_UI/aqt_run_folder.py" "${RESOLVE_ARGS[@]}") || exit $?
 LOOP_ARGS+=("run_folder=$RUN_FOLDER")
 OUTPUT_LOG=datafiles/$RUN_FOLDER/output.log
 mkdir -p "datafiles/$RUN_FOLDER"

@@ -255,7 +255,7 @@ pytest source/tests/
 Runs `test_00`/`test_01`/`test_07`/`test_08`/`test_10`/`test_11`/`test_12`/`test_13`/`test_14`/`test_15`/`test_16`/`test_17`/`test_18`/`test_19`/`test_20`/`test_21`/`test_22`/`test_23`/`test_24`/`test_25`/`test_26`/`test_27`/`test_28`/`test_29` (§9) —
 fundamental checks that confirm the circuits are built correctly, a full
 local-sim pipeline + post-processing integration check, and unit tests of the
-executed-circuit check and the timing bookkeeping — in 5 to 10 minutes (363 tests; longer on slower machines).
+executed-circuit check and the timing bookkeeping — in 5 to 10 minutes (364 tests; longer on slower machines).
 **Two venvs are needed**: `local_sim.venv` runs the suite (the run stops at once with instructions if `venvs/local_sim.venv` is missing; `test_10` also starts a child process in it), and `test_12` runs itself in `aqt.venv` — it fails with an error telling you to create `venvs/aqt.venv` (`source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/readme_aqt.md` §1, `requirements_aqt.txt`, which includes `pytest`) or to run `venvs/aqt.venv/Scripts/python -m pip install pytest` (`bin/python` on Linux) if only `pytest` is missing there.
 All tests passing (no failures, no errors) means the base venv, myQLM↔Qiskit
 translation, local Aer simulation, and `source/analysis_scripts/run_post_process.py` all work
@@ -631,8 +631,8 @@ under the run folder at `datafiles/<run_folder>/transpiled_circuits/`.
 
 **Physical qubits.** Every chunk and the SPAM batch of a run are transpiled onto
 the *same* physical qubits, chosen once per run and recorded in
-`transpiled_circuits/physical_qubits.json` (`submit(..., physical_qubits=[…])`
-overrides the choice). The choice maximises the estimated success probability
+`transpiled_circuits/physical_qubits.json`, their list also in `run_info.json` as `physical_qubits` (§10.2)
+(`submit(..., physical_qubits=[…])` overrides the choice). The choice maximises the estimated success probability
 of chunk 0's deepest circuit from the backend's calibration data (2q-gate,
 readout and 1q-gate errors) over all SWAP-free placements — see
 `source/core/qpu/layout_selection.py`. The gate counts are those of the transpiled circuit: the
@@ -1182,7 +1182,7 @@ The numbered tests skip 02-06 and 09 (those numbers belong to retired tests).
 | `source/tests/test_25_health_check_qubit_set.py` | an explicit health-check `qubit_set` is checked against the backend before anything is transpiled: a coupled set passes; an uncoupled, repeated, unusable or wrong-length set exits with code 2 and one line; no `qubit_set` and a local run without a layout backend are not checked; a VLQ-like all-to-all target accepts any distinct in-range qubits; the message names the backend the script passes (`backend_name`), else the backend object's own name |
 | `source/tests/test_26_awae_helpers.py` | `cumulative_awae()` (the Z-weighted cumulative AWAE) equals the form the summary uses bit for bit and agrees with the other forms of it; NaN propagates; `EPSILON` is 0.05 and the default of `compute_derived_quantities`; `best_schemes()` lists the best scheme at $N_{max}$ and the one at $N_{acc}$ when different, skipping a missing one |
 | `source/tests/test_27_submit_with_retries.py` | the retry loop of the EQE1 and VLQ `*_with_retries.py` submit scripts (`submit_with_retries.py`) with fake status and launch: the latest job (chunk or health check), the final statuses that launch and every other status that waits, the 10 min steps, the 48 h budget and its restart on progress, a folder that never appears, the exit codes, `--force-new-run` only until the folder exists, progress on a new run, and the final health check (repeated 3 times with `--retry-health-check`, never a new run; a failed check before the submission keeps the normal wait), and the EQE1 setting (no job wait, the first retry at once, 1 min waits, a 20 min budget), the VLQ setting (a retry at once only after a launch that submitted a chunk) with the 21 min age below which the check before the submission is skipped |
-| `source/tests/test_28_ibm_instance.py` | the explicit IBM instance choice with a fake service: the default is the Open Plan instance (not the first one listed), a named instance is found by name or CRN, an unknown name, no Open Plan instance or several exit with code 2 and one line; `connect_ibm()` builds one service, limited to Open Plan by default or for the named instance, refuses an unknown name (listing the instances) and a QPU the instance does not list; a run's recorded instance wins, a different `instance=` for it and runs on different instances exit with code 2; `run_info.json` records the instance, keeps it through later writes and leaves it out for other providers, and records `scheduling_simulation` (a mismatch is refused); `parse_instance_arg()` and the usage text |
+| `source/tests/test_28_ibm_instance.py` | the explicit IBM instance choice with a fake service: the default is the Open Plan instance (not the first one listed), a named instance is found by name or CRN, an unknown name, no Open Plan instance or several exit with code 2 and one line; `connect_ibm()` builds one service, limited to Open Plan by default or for the named instance, refuses an unknown name (listing the instances) and a QPU the instance does not list; a run's recorded instance wins, a different `instance=` for it and runs on different instances exit with code 2; `run_info.json` records the instance, keeps it through later writes and leaves it out for other providers, records `scheduling_simulation` (a mismatch is refused), and records `physical_qubits`, kept through later writes; `parse_instance_arg()` and the usage text |
 | `source/tests/test_29_job_cancel.py` | the shared body of the `cancel_real_qpu_jobs_*.py` scripts (`job_cancel.py`) with fake status and cancellation: only queued or running jobs are cancelled, a job shared by chunks once, records without a job and ended jobs are left alone, the standalone health check, records unchanged on disk, and exit code 2 when a cancellation or a status query fails (the next run folder still runs) |
 
 ### 9.1 Your circuit caches are safe during `pytest source/tests/`
@@ -1369,6 +1369,8 @@ Such a subset analysis varies only the RC samples: its SPAM correction uses the 
 uses the first M instead (`spam_confusion_matrix_inv+nsamples-M.npy`). `run_data_spam*.json` records the chunks used as `spam_calibration_samples`.
 
 A QPU-noise simulation (`sim-qpu-noise`, `sim-fake-fez`) also records `scheduling_simulation` (`true` or `false`, the script's argument, §4.2); the field is absent for real runs and noiseless simulations, and a run folder without it counts as `true`.
+Once the run's qubits are chosen (`resolve_physical_qubits()`), `run_info.json` also records them as `physical_qubits`
+(the list of `transpiled_circuits/physical_qubits.json`); the field is absent for noiseless simulations and legacy runs.
 
 `run_info.json` is written right after `build()`, before the pre-submission health check
 (`qbcs.record_run_info(run_folder)`, also called by `resolve_physical_qubits(run_folder=…)`), so a run

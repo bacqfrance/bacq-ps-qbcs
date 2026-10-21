@@ -1,8 +1,9 @@
 """
 test_29_job_cancel.py
 The shared body of the cancel_real_qpu_jobs_<qpu>.py scripts (source/core/qpu/job_cancel.py): only jobs that are still
-queued or running are cancelled, once per job even when chunks share it; ended jobs, records without a job and failed
-queries are left alone; the records on disk stay unchanged; the exit code is 2 when any cancellation fails.
+queued or running are cancelled, once per job even when chunks share it; ended jobs and records without a job are left
+alone, and a failed status query cancels nothing but counts as a failure; the records on disk stay unchanged; the exit
+code is 2 when any query or cancellation fails.
 No provider: the status and the cancellation are fakes. Works in a temporary folder, not in datafiles/.
 """
 

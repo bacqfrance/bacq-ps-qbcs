@@ -10,7 +10,7 @@ Unit tests (no QPU, no network, no qiskit_ibm_runtime needed) of the explicit IB
   - providers.ibm_instance_for_runs: a run's recorded instance wins, a different instance= for it is refused, runs on
     different instances are refused, a run without a record gives the requested one;
   - run_info: the instance fields are written, kept by a later write without them, and left out for other providers;
-    scheduling_simulation is recorded and a mismatch is refused;
+    scheduling_simulation is recorded and a mismatch is refused; physical_qubits is recorded and kept by a later write;
   - benchmark_args.parse_instance_arg, and the usage text of the IBM scripts.
 """
 
@@ -27,6 +27,7 @@ import pytest
 
 from source.core.qpu import providers as P
 from source.core.records.run_info import (write_run_info, load_run_info, recorded_instance, recorded_scheduling_simulation,
+                                          recorded_physical_qubits,
                                           check_scheduling_simulation)
 from source.core.runner_support import benchmark_args as BA
 
@@ -202,3 +203,13 @@ def test_scheduling_simulation_is_recorded_and_a_mismatch_is_refused(tmp_path, c
     check_scheduling_simulation("run_t", True, tmp_path)
     with pytest.raises(SystemExit):
         check_scheduling_simulation("run_t", False, tmp_path)
+
+
+def test_physical_qubits_are_recorded_kept_by_a_later_write_and_left_out_without_them(tmp_path):
+    run = tmp_path / "run_q"
+    write_run_info(CONFIG, run, lnn=True)                                    # record_run_info() after build(): not chosen yet
+    assert "physical_qubits" not in json.loads((run / "run_info.json").read_text(encoding="utf-8"))
+    write_run_info(CONFIG, run, lnn=True, physical_qubits=[15, 14, 21])      # resolve_physical_qubits()
+    write_run_info(CONFIG, run, lnn=True)                                    # the per-chunk submit() call: no qubits given
+    assert recorded_physical_qubits("run_q", tmp_path) == [15, 14, 21]
+

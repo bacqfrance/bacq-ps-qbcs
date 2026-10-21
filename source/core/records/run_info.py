@@ -32,6 +32,7 @@ class RunInfo:
     instance:      str = None   # IBM only: the name of the IBM instance that received the run's jobs (never the CRN) and its plan; left out of the manifest when None
     instance_plan: str = None
     scheduling_simulation: bool = None   # QPU-noise simulations only: whether the circuits were transpiled scheduled (idle qubits relax); a run folder must not mix the two (check_scheduling_simulation()); left out of the manifest when None (real runs, noiseless simulations); a noisy simulation without it counts as True
+    physical_qubits: list = None   # the qubits every circuit is transpiled onto, as in transpiled_circuits/physical_qubits.json (resolve_physical_qubits()); left out of the manifest when None (not chosen yet, noiseless simulations, legacy per-circuit layouts)
     source:       str = field(default="manifest", compare=False)   # written into every manifest; compare=False only removes it from dataclass equality, write_run_info()'s rewrite check compares the whole dict, so a manifest holding another source is rewritten; load_run_info() drops it
 
     @property
@@ -41,7 +42,7 @@ class RunInfo:
 
 def _manifest_dict(info):
     d = asdict(info)
-    for key in ("instance", "instance_plan", "scheduling_simulation"):
+    for key in ("instance", "instance_plan", "scheduling_simulation", "physical_qubits"):
         if d[key] is None:
             del d[key]
     return d
@@ -54,6 +55,14 @@ def recorded_instance(run_folder, root="datafiles"):
     except (OSError, json.JSONDecodeError):
         return None, None
     return d.get("instance"), d.get("instance_plan")
+
+
+def recorded_physical_qubits(run_folder, root="datafiles"):
+    """physical_qubits recorded in root/<run_folder>/run_info.json: None without a manifest or a record."""
+    try:
+        return json.loads((Path(root) / run_folder / MANIFEST_NAME).read_text(encoding="utf-8")).get("physical_qubits")
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 def recorded_scheduling_simulation(run_folder, root="datafiles"):
@@ -80,7 +89,7 @@ def check_scheduling_simulation(run_folder, scheduling_simulation, root="datafil
 
 
 def write_run_info(config, run_folder_path, lnn, circuits_qiskit_v13_qpy=False, instance=None, instance_plan=None,
-                   scheduling_simulation=None):
+                   scheduling_simulation=None, physical_qubits=None):
     """Called by bacq_ps_qbcs.submit() on every call (and by record_run_info()), once the run folder is known. Writes the manifest
     if missing, leaves it untouched if it already holds the same info, and rewrites it in place if it
     differs. The write itself is atomic (temp file + os.replace()), so a crash mid-write can't leave a
@@ -90,11 +99,14 @@ def write_run_info(config, run_folder_path, lnn, circuits_qiskit_v13_qpy=False, 
     instance / instance_plan (IBM): the run's instance; None keeps what the manifest already records, so a later call
     without them (the per-chunk submit()) never drops it.
     scheduling_simulation (QPU-noise simulations): the run's choice, True or False; None (real runs, noiseless simulations)
-    records nothing."""
+    records nothing.
+    physical_qubits: the run's qubits (resolve_physical_qubits()); None keeps what the manifest already records."""
     run_folder_path = Path(run_folder_path)
     run_folder_path.mkdir(parents=True, exist_ok=True)
     if instance is None:
         instance, instance_plan = recorded_instance(run_folder_path.name, run_folder_path.parent)
+    if physical_qubits is None:
+        physical_qubits = recorded_physical_qubits(run_folder_path.name, run_folder_path.parent)
     info = RunInfo(
         run_folder  = run_folder_path.name,
         nshots      = int(config["shots"]),
@@ -108,6 +120,7 @@ def write_run_info(config, run_folder_path, lnn, circuits_qiskit_v13_qpy=False, 
         instance      = instance,
         instance_plan = instance_plan,
         scheduling_simulation = scheduling_simulation,
+        physical_qubits = [int(q) for q in physical_qubits] if physical_qubits is not None else None,
     )
     manifest = run_folder_path / MANIFEST_NAME
     if manifest.exists():

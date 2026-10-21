@@ -564,9 +564,9 @@ def snapshot_from_calibration(cal):
     """A calibration snapshot (source/core/qpu/qpu_snapshot.py format) of VLQ with the resonator
     folded into an effective all-to-all CZ: CZ(a, b) on the device is MOVE(a), CZ(b, COMPR1),
     MOVE back, so its error is 1 - F_cz(b) · F_move(a) (F_move: the MOVE pair), taking the
-    better of the two directions, and its duration 2 · MOVE + CZ. Single-qubit gates use the
+    better choice of which qubit is moved, and its duration 2 · MOVE + CZ. Single-qubit gates use the
     Clifford RB fidelity converted to one native prx gate (prx_fidelity()), readout the SSRO fidelity, and T1/T2 give the relaxation. A pair gets
-    no CZ entry when neither direction has both MOVE and CZ data (a direction lacking either is dropped, the other kept). Qubit index i is QB(i+1)."""
+    no CZ entry when neither direction has both MOVE and CZ data (a choice of which qubit is moved lacking either is dropped, the other kept). Qubit index i is QB(i+1)."""
     metrics = qubit_metrics(cal)
     names   = qubit_names(cal)
     err     = lambda f: None if f is None else max(0.0, 1.0 - f)
@@ -602,7 +602,7 @@ def snapshot_from_calibration(cal):
         "qubit_properties":   [{"t1": metrics[q]["t1"], "t2": metrics[q]["t2"], "frequency": None} for q in names],
         "skipped_operations": ["move (folded into the effective CZ)", "prx_12", "cc_prx", "reset_wait"],
         "effective_model":    "resonator folded into an all-to-all CZ: error 1 - F_cz(target)·F_move(moved), "
-                              "better direction; duration 2·MOVE + CZ",
+                              "better choice of which qubit is moved; duration 2·MOVE + CZ",
     }
 
 

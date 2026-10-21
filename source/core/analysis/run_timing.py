@@ -16,10 +16,12 @@ from source.core.common import get_circuit_folder, PROJECT_ROOT, scrub_paths
 from source.core.records.chunk_scope import as_chunk_set, chunk_scope
 from source.core.records.run_info import load_run_info
 from source.core.records.timestamps import _from_timestamp_log, circuit_build_breakdown, TIMESTAMP_FILENAME
-from source.core.records.job_timing import parse_utc, MQSS_TIMEZONE, DEAD_TIME_MIN_GAP_S, DEAD_TIME_MIN_GAP_S_SYNC
+from source.core.records.job_timing import (parse_utc, MQSS_TIMEZONE, DEAD_TIME_MIN_GAP_S, DEAD_TIME_MIN_GAP_S_SYNC,
+                                            service_of_record, SYNCHRONOUS_SERVICES, is_legacy_record,
+                                            legacy_record_timing, qpu_execution_s)
 from source.core.records.run_names import PCSS
 from source.core.records.circuit_check import run_health_check_records, health_check_in_scope
-from source.core.records.job_records import failed_record_files
+from source.core.records.job_records import failed_record_files, chunk_record_files
 
 
 # The chunk interval, used only by the legacy CPU-time fallback (runs without transpile/submit labels).
@@ -120,7 +122,6 @@ def _cpu_label_times_from_rows(rows, nchunks):
 def _record_files(run_path, nchunks=None):
     """job_record_chunk_*.json of a run as {chunk: record}, scoped to chunks < nchunks
     (or to the chunk numbers in nchunks, if it is a collection)."""
-    from source.core.records.job_records import chunk_record_files
     out = {}
     scope = as_chunk_set(nchunks)
     for nc, p in chunk_record_files(Path(run_path) / "job_records").items():
@@ -342,8 +343,6 @@ def qpu_queue_breakdown(run_path, nchunks=None, service=None):
     no timing block and are read through job_timing.legacy_record_timing(); the result then
     says legacy_run=True, as it does when a converted record's QPU time could only come from those old
     fields (qpu_s_source legacy_*). Old AQT records must be converted to the current format first."""
-    from source.core.records.job_timing import (service_of_record, SYNCHRONOUS_SERVICES, is_legacy_record,
-                                   legacy_record_timing, qpu_execution_s)
     nchunks  = chunk_scope(run_path, nchunks)           # the first nchunks collected chunks
     n_legacy = 0
 
@@ -523,7 +522,6 @@ def failed_attempts_breakdown(run_path, nchunks=None):
                                   finished circuits), counting a failed health check as one job
       chunks_per_job              the chunks each failed chunk job of n_provider_jobs held (not AQT)
     queues: the per-job waits (for combining with the successful jobs' queue time)."""
-    from source.core.records.job_timing import service_of_record, SYNCHRONOUS_SERVICES
     out = {"n_attempts": 0, "n_jobs": 0, "n_submission_failures": 0, "n_may_exist_on_provider": 0,
            "chunks": [], "qpu_s": 0.0, "qpu_sources": {}, "queue_s": 0.0,
            "collect_s": 0.0, "transpile_s": 0.0, "submit_s": 0.0, "n_jobs_without_qpu_s": 0,
