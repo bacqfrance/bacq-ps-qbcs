@@ -95,8 +95,9 @@ ANALYSIS_SCRIPTS = PROJECT_ROOT / "source" / "analysis_scripts"   # the post-pro
 #
 # List entries:
 # Plain string  = auto-detect: use every chunk actually collected; if that
-#                 equals the run's full sample size and it was already analyzed,
-#                 skip merge/analyze entirely. Chunks are collected as their jobs
+#                 analysis (full run or subset) is already in processed_results/ and newer
+#                 than the collected results, skip stages 1-5 with a warning (delete
+#                 processed_results/ to analyze anew; see already_analyzed()). Chunks are collected as their jobs
 #                 finish, so an incomplete run may have gaps (chunks 0-40 and 45):
 #                 it is analyzed as a "+nsamples-<collected>" subset, with the uncollected
 #                 chunks and health checks listed inside and warned about on the figures.
@@ -509,6 +510,24 @@ def analyzed_data(run_folder, n_samples_override=None):
     return run_folder, (n if n < load_run_info(run_folder).sample_size else None)
 
 
+def already_analyzed(run_folder, n_samples):
+    """Whether stages 1-5 can be skipped for the run's analysis on n_samples chunks (None = the full run): its
+    run_data (and run_data_spam with SPAM), summary and, if the run has health checks, health_checks json all exist in
+    processed_results/ and are newer than raw_results/results_counts.json (so newly collected chunks re-analyze)."""
+    from source.core.records.health_check_records import load_health_checks
+
+    run_path = PROJECT_ROOT / "datafiles" / run_folder
+    processed = run_path / "processed_results"
+    suffix = "" if n_samples is None else subset_suffix(n_samples)
+    files = [processed / f"run_data{suffix}.json", processed / run_summary_name(n_samples)]
+    if load_run_info(run_folder).do_spam:
+        files.append(processed / f"run_data_spam{suffix}.json")
+    if load_health_checks(run_path):
+        files.append(processed / f"health_checks{suffix}.json")
+    counts_mtime = (run_path / "raw_results" / "results_counts.json").stat().st_mtime
+    return all(f.exists() and f.stat().st_mtime > counts_mtime for f in files)
+
+
 def run_script(script_name, run_folder, n_samples, extra_env=None):
     """Stages 2-5 — run one of the source/analysis_scripts/ post-processing scripts, parameterized via env vars."""
     from source.core.runner_support.venvs import venv_python
@@ -562,6 +581,18 @@ def analyze_run(run_folder, n_samples_override=None):
         else:
             print(f"⚠️  {backend_name}: no benchmark data yet — analyzing the health-check data only.")
         return run_script("plot_health_checks.py", run_folder, None), None, None
+
+    # Already analyzed with every collected chunk (or the n_samples override): skip stages 1-5.
+    # An invalid override (more chunks than collected) is left to merge_and_analyze() to reject.
+    counts_path = run_path / "raw_results" / "results_counts.json"
+    if counts_path.exists() and (n_samples_override is None
+                                 or 0 < n_samples_override <= len(json.loads(counts_path.read_text(encoding="utf-8")))):
+        _, n_target = analyzed_data(run_folder, n_samples_override)
+        if already_analyzed(run_folder, n_target):
+            copy_summary(run_folder, n_target)
+            print(f"⚠️  {backend_name}: already analyzed (run data and summaries in processed_results/ are up to date) — "
+                  f"skipping stages 1-5. Delete datafiles/{run_folder}/processed_results/ to analyze it anew.")
+            return True, run_folder, n_target
 
     ok, n_samples = merge_and_analyze(run_folder, n_samples_override)
     if not ok:

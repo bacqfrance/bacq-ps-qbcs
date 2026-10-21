@@ -297,7 +297,7 @@ It then stays up for the whole run and takes **1.5–2.5 times longer** per circ
 **Qubit layout.** Every submit and simulate command also takes `layout=` — `optimized` (the default for IBM, IQM Resonance and
 IQM VLQ), `random`, `lowest`, or the qubits themselves, e.g. `layout=15,14,21` (USER_MANUAL §5.4) — and the run folder name ends
 in it, followed by the date (`mini_…_layout-optimized_2026-10-11_#1`). **IQM EQE1 and AQT PIAST-Q report no calibration data, so without a calibration file they run on a
-random layout** (a notice is printed). To optimize their layout instead, pass the latest provider calibration from the `calibration_input_files/` folder:
+random layout** (a notice is printed). To optimize their layout instead, pass a provider calibration file from the `calibration_input_files/` folder, for example:
 
 ```
 layout=optimized calibration_file=calibration_input_files/Euro-Q-Exa/calibration_data_Euro-Q-Exa_20261020_active_qubits.json    # EQE1
@@ -373,7 +373,8 @@ python source/analysis_scripts/run_post_process.py mini --include-real-data
 ```
 
 Plots land in `analysis/plots+summaries/<run_folder>/`, the summary (timings, cost estimate) in
-`datafiles/<run_folder>/processed_results/summary.json`.
+`datafiles/<run_folder>/processed_results/summary.json`. A run already analyzed, with no chunks collected since, is skipped
+with a warning; delete its `datafiles/<run_folder>/processed_results/` to analyze it anew.
 
 Plots comparing all the runs — AWAE and cumulative AWAE of each run's best EMS vs $N_t$,
 QPU time and effective cost per QPU — land in `analysis/plots+summaries/mini_collective_real-data/` (the folder name says which kinds of runs it compares). Add

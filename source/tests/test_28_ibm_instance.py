@@ -10,6 +10,7 @@ Unit tests (no QPU, no network, no qiskit_ibm_runtime needed) of the explicit IB
   - providers.ibm_instance_for_runs: a run's recorded instance wins, a different instance= for it is refused, runs on
     different instances are refused, a run without a record gives the requested one;
   - run_info: the instance fields are written, kept by a later write without them, and left out for other providers;
+    scheduling_simulation is recorded and a mismatch is refused;
   - benchmark_args.parse_instance_arg, and the usage text of the IBM scripts.
 """
 
@@ -164,7 +165,6 @@ def test_instance_is_written_kept_by_a_later_write_and_left_out_for_other_provid
     write_run_info(CONFIG, other, lnn=True)
     assert "instance" not in json.loads((other / "run_info.json").read_text(encoding="utf-8"))
     assert recorded_instance("run_y", tmp_path) == (None, None)
-    monkeypatch.setattr("source.core.records.run_info.PROJECT_ROOT", tmp_path.parent)
     assert load_run_info(f"../{tmp_path.name}/run_x").instance == "open-instance"   # PROJECT_ROOT/datafiles/../<tmp>/run_x
 
 

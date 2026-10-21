@@ -8,7 +8,7 @@ Unit tests (no simulator run, no QPU, no network) for IT4I's VLQ (IQM Star 24) s
   - iqm_vlq.select_vlq_qubits on a saved calibration set (source/tests/iqm_vlq_check_data/iqm_vlq_calibration_fixture.json,
     trimmed from IT4I's public API) with the full benchmark's roles: every ordered choice of
     qubits with complete metrics is scored (a qubit without MOVE data is excluded) and the best
-    one is chosen;
+    one is chosen (T1/T2 idle decay breaks ties between equal fidelities);
   - iqm_vlq.snapshot_from_calibration: the effective all-to-all CZ (error 1 - F_cz·F_move of
     the better direction, duration 2·MOVE + CZ; prx error per native gate) rebuilds into a Target and an Aer noise model;
   - layout_selection.count_2q_ops ignores MOVEs;

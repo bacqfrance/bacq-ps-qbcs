@@ -27,7 +27,7 @@ QPU time per backend (the definitions agreed for the benchmark):
 Queue time per backend:
     IBM             first execution span start - job created
     IQM Resonance   compilation_started - created (server timeline)
-    IQM VLQ         compilation_started (server) - end of our upload: IT4I's HEAppE queue + IQM's
+    IQM VLQ         compilation_started (server) - end of our upload: IT4I's HEAppE queue + IQM's own queue
     IQM EQE1        timestamp_scheduled - timestamp_submitted (server, Europe/Berlin -> UTC)
     AQT PIAST-Q     per backend.run() batch: its submit->result wall time - its QPU time
 """

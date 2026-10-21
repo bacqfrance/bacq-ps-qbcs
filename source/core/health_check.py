@@ -459,8 +459,8 @@ def _check_executed_health_check(run_path, record, service_name, job=None, backe
 def _mark_collect_failed(run_path, number, err):
     """Record a failed collection ATTEMPT on an existing (still 'submitted') health check,
     without changing its status — the job may still finish and be collected later by
-    qbcs_real_collect_*.py's number=None path. Purely additive, per the project owner's rule
-    that every check stays recorded."""
+    qbcs_real_collect_*.py's number=None path. Purely additive, so every
+    check stays recorded."""
     rec_path = health_check_path(run_path, number)
     try:
         record = json.loads(rec_path.read_text(encoding="utf-8"))

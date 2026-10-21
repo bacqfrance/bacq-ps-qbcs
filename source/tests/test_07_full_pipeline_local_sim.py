@@ -148,6 +148,11 @@ def _assert_post_process_outputs(backend_name, run_path, nshots, do_spam=True):
                 assert new["depths"][nt][role]["AWAE"] == depth[role]["AWAE"], (name, nt, role)
 
     summary = json.loads((run_path / "processed_results" / run_summary_name()).read_text(encoding="utf-8"))
+
+    # Analyzed and up to date -> a second analyze_run() skips stages 1-5 and leaves the summary untouched
+    summary_mtime = (run_path / "processed_results" / run_summary_name()).stat().st_mtime
+    assert analyze_run(backend_name) == (True, backend_name, None), f"{backend_name}: analyzed run not skipped"
+    assert (run_path / "processed_results" / run_summary_name()).stat().st_mtime == summary_mtime
     assert summary["shots_per_circuit"] == nshots
     assert summary["n_samples_analyzed"] == SAMPLE_SIZE
 

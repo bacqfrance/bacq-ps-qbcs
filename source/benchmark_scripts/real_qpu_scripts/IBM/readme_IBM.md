@@ -211,7 +211,7 @@ by the collect script; the submit script skips checks and submission if all chun
 
 `submit.log` (appended, never overwritten) holds one entry per submission, the same in every QPU folder
 (`append_submit_log()`): the time, backend, run folder, chunks and shots, the layout, the run qubits with the
-calibration summary of `calibration_snapshot.json`, and the run's health-check numbers.
+calibration summary of `calibration_snapshot.json`, and the run's health-check numbers, plus an `IBM instance: <name> (<plan>)` line.
 
 **Post-processing.** `python source/analysis_scripts/run_post_process.py mini --include-real-data` (or `full`) merges, analyzes, summarizes and plots
 this QPU's runs together with the other QPUs' — see main USER_MANUAL §10 for the script, its `RUN_THESE` / `REAL_QPUS` lists,

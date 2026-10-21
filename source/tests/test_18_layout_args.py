@@ -27,7 +27,10 @@ layouts in source/core/qpu/iqm_vlq.py):
   - VLQ: the resonator is always part of the layout — lowest / random / forced choose among the usable qubits;
   - the snapshot of a live run records when the provider made the calibration (measured_at: IBM's last_update_date,
     an IQM calibration set's end_timestamp, VLQ's from vlq_calibration.json), and the layout of a live run is scored on
-    the saved snapshot (resolve_run_layout), falling back to the live backend when none could be saved.
+    the saved snapshot (resolve_run_layout), falling back to the live backend when none could be saved;
+  - the scheduling_simulation= argument of the simulate scripts (usage text; the snapshot simulation schedules circuits so idle
+    qubits decay) and the layout score's T1/T2 idle-decay term (the exact relaxation fidelity, avoids a short-lived qubit,
+    left out without durations or coherence times).
 """
 
 import sys, os
