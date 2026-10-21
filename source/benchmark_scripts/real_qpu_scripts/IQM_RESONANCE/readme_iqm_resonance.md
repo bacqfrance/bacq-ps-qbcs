@@ -49,7 +49,7 @@ real_backend = provider.get_backend(use_metrics=True)   # with the calibration e
 
 | Knob | Meaning |
 |---|---|
-| `BACKEND_NAME` | quantum-computer id/alias, given as `backend=NAME` on the command line — **required** by `qbcs_real_submit_iqm_resonance.py`, `qbcs_real_collect_iqm_resonance.py`, `qbcs_real_simulate_iqm_resonance.py` and `check_real_qpu_job_status_iqm_resonance.py` (they stop with a usage line without it), e.g. `backend=emerald` (Crystal-54). The name must be listed in [`backends.json`](backends.json); add a line there to use another machine. Pass the same `backend=` to submit/collect/status for a given run — the run folder name is derived from it, which is how they find the run on disk. `health_check_real_iqm_resonance.py` requires it too — there is no default. Listed: `emerald`, `garnet` (grid, LNN) and `sirius` (all-to-all). |
+| `BACKEND_NAME` | quantum-computer id/alias, given as `backend=NAME` on the command line — **required** by `qbcs_real_submit_iqm_resonance.py`, `qbcs_real_collect_iqm_resonance.py`, `qbcs_real_simulate_iqm_resonance.py`, `check_real_qpu_job_status_iqm_resonance.py` and `cancel_real_qpu_jobs_iqm_resonance.py` (they stop with a usage line without it), e.g. `backend=emerald` (Crystal-54). The name must be listed in [`backends.json`](backends.json); add a line there to use another machine. Pass the same `backend=` to submit/collect/status for a given run — the run folder name is derived from it, which is how they find the run on disk. `health_check_real_iqm_resonance.py` requires it too — there is no default. Listed: `emerald`, `garnet` (grid, LNN) and `sirius` (all-to-all). |
 | run size (shots, RC samples, evolution times) | the preset or sizes given on the command line (below), not edited in the script |
 | `LNN` | linear-nearest-neighbour transpilation. Taken from the chosen machine's `"lnn"` entry in `backends.json`. **It depends on the device's topology** — IQM Resonance serves several machines and they don't all share one connectivity: a grid-connected device like `emerald` (Crystal-54) needs `"lnn": true` (matching its local coupling), but a star/resonator-coupled device (all-to-all through the resonator, like `sirius` or IQM VLQ) needs `"lnn": false`. When adding a machine to `backends.json`, check its real topology — the wrong setting doesn't necessarily fail outright, but it changes what the transpiler optimizes for and can produce a worse or misleading benchmark. |
 | `DO_SPAM` | also run SPAM calibration |
@@ -137,12 +137,12 @@ calibration, and costs no QPU time:
    downloads fresh calibration); to start over, remove the run folder
    `datafiles/<benchmark>_sim-qpu-noise_<provider>-<backend>_…/`;
 2. builds an offline backend + Aer noise model from it (depolarizing gate
-   errors, T1/T2 relaxation over gate durations and while a qubit waits for the others, readout errors —
+   errors, T1/T2 relaxation over gate durations and, with `scheduling_simulation=true`, while a qubit waits for the others, readout errors —
    `source/core/qpu/qpu_snapshot.py`);
 3. picks the physical qubits from the snapshot exactly as a real submission
    would, runs every chunk (SPAM on the same qubits), and analyzes the results.
 
-Run it from the project root in `iqm_resonance.venv`. It connects with `get_backend(use_metrics=True)` — without it the backend carries no error data. Post-process with
+Run it from the project root in `iqm_resonance.venv`, e.g. `python source/benchmark_scripts/real_qpu_scripts/IQM_RESONANCE/qbcs_real_simulate_iqm_resonance.py backend=emerald mini`; `scheduling_simulation=true|false` is optional, default `true`: `true` transpiles the circuits scheduled, so idle qubits relax through T1/T2 as on the QPU (full benchmark about 4 h); `false` does not schedule them, so idle relaxation is **not** taken into account (only the relaxation during gates), like the noiseless and coherent-noise simulations (about 1 h). The choice is recorded in `run_info.json` and `submit.log`, the health checks follow it, and an unfinished run folder cannot be resumed with the other value (main USER_MANUAL §4.2). It connects with `get_backend(use_metrics=True)` — without it the backend carries no error data. Post-process with
 `run_post_process.py --include-simulations-real` (`source/analysis_scripts/`; every `sim-qpu-noise_…` run of this QPU, whatever its layout, is
 already covered by `SIMULATED_QPUS` in `RUN_THESE`); its
 summary JSON names the backend and snapshot date, so the result is never
@@ -152,7 +152,7 @@ qubits, under the same noise model, so it shows what the health circuit scores
 with this calibration; a "degraded" score is reported but doesn't stop the
 run. It keeps the submit script's records too: a job record per chunk in `job_records/` (`service_name: "local"`) and a `submit.log` entry with the snapshot's calibration summary, the run qubits and both health-check verdicts.
 The full 480-chunk run simulates
-in roughly an hour (≈ 8 s per chunk; measured with IBM Fez's calibration, Resonance's are similar), plus
+in about 4 h with the default `scheduling_simulation=true`, roughly an hour with `false` (≈ 8 s per chunk; measured with IBM Fez's calibration, Resonance's are similar), plus
 the usual circuit build.
 
 ## 5. Timing, billing and circuit check

@@ -16,7 +16,8 @@ from source.core.runner_support.benchmark_args import DT
 
 
 def run_local_simulation(*, run_folder, bench, lnn, backend_label, do_spam=True, sampler_factory=None,
-                         extra_qbcs_kwargs=None, extra_config=None, noisy_setup=None, layout=None):
+                         extra_qbcs_kwargs=None, extra_config=None, noisy_setup=None, layout=None,
+                         scheduling_simulation=True):
     """Build, simulate and analyze run_folder as the local benchmark scripts do.
 
     bench: BenchmarkArgs (source/core/runner_support/benchmark_args.py); lnn: the circuit topology;
@@ -26,18 +27,24 @@ def run_local_simulation(*, run_folder, bench, lnn, backend_label, do_spam=True,
     noisy_setup(): for a run on a calibration snapshot, called once the clock has started, returns
     (snapshot_path, snapshot_backend, sampler); the qubits are then chosen on the snapshot's backend, the
     health check only warns when degraded, and submit.log records the qubits and the snapshot.
-    layout: the LayoutArgs of a noisy run (None: optimized)."""
+    layout: the LayoutArgs of a noisy run (None: optimized).
+    scheduling_simulation: a noisy run's optional scheduling_simulation=true|false (parse_scheduling_arg()): True transpiles the
+    circuits (chunks, SPAM, health checks) scheduled so idle qubits relax, False leaves that out; recorded in run_info.json,
+    and a run folder recorded with the other value is refused (check_scheduling_simulation()). The noiseless runs ignore it."""
     from source.core.qpu.providers import ACCOMPANYING_HEALTH_CHECK_NSHOTS
     from source.core.qbcs import bacq_ps_qbcs
     from source.core.common import print_done_block
     from source.core.qpu.calibration_input import layout_summary, resolve_layout_or_exit
     from source.core.runner_support.benchmark_args import LayoutArgs
+    from source.core.records.run_info import check_scheduling_simulation
     from source.core.health_check import submit_health_check
     from source.core.records.health_check_records import (load_health_checks, format_chunk_range, install_submit_crash_log,
                                                    append_submit_log, health_check_log_line, print_run_config)
 
     t0 = time.perf_counter()
     noisy = noisy_setup is not None
+    if noisy:
+        check_scheduling_simulation(run_folder, scheduling_simulation)   # before anything is built: the run's transpiled circuits are reused
     if noisy:
         snapshot_path, snapshot_backend, sampler = noisy_setup()
         sampler_factory = lambda: sampler   # one sampler for every use
@@ -54,6 +61,8 @@ def run_local_simulation(*, run_folder, bench, lnn, backend_label, do_spam=True,
         rng_seed                    = 0,         # change this to get a different set of twirled circuits
     )
 
+    if noisy:
+        qbcs.scheduling_simulation = scheduling_simulation   # recorded in run_info.json, used by every transpilation
     qbcs.build(circuit_transpilation_LNN=lnn)   # compile + interleave chunks (see USER_MANUAL §5.4); the cached circuits when noisy
     layout = layout or LayoutArgs("optimized")
     run_qubits = resolve_layout_or_exit(qbcs, snapshot_backend, run_folder=run_folder, layout=layout) if noisy else None
@@ -62,6 +71,7 @@ def run_local_simulation(*, run_folder, bench, lnn, backend_label, do_spam=True,
     extra = [("Backend", backend_label)] + list(extra_config or [])
     if noisy:
         extra.append(("Run qubits", run_qubits))
+        extra.append(("Scheduling", str(scheduling_simulation).lower()))
     print_run_config(run_folder, nshots=bench.nshots, sample_size=bench.sample_size, lnn=lnn, do_spam=do_spam,
                      list_times=bench.list_times, chunk_size=qbcs.CONFIG["chunk_size"], extra=extra)
 
@@ -74,7 +84,7 @@ def run_local_simulation(*, run_folder, bench, lnn, backend_label, do_spam=True,
     install_submit_crash_log(f"datafiles/{run_folder}", todo_chunks)   # an uncaught error (e.g. the assert below) still leaves an entry in submit.log
     print(f"  Chunks to simulate: {format_chunk_range(todo_chunks) or 'none'} ({len(todo_chunks)})")
 
-    hc_layout = {"layout_backend": snapshot_backend} if noisy else {}
+    hc_layout = {"layout_backend": snapshot_backend, "scheduling_simulation": scheduling_simulation} if noisy else {}
     if todo_chunks:
         hc_pre = load_health_checks(submit_health_check(run_folder=run_folder, backend=sampler_factory(), nshots=ACCOMPANYING_HEALTH_CHECK_NSHOTS,
                                                         service_name="local", backend_name=backend_label, **hc_layout,
@@ -106,7 +116,8 @@ def run_local_simulation(*, run_folder, bench, lnn, backend_label, do_spam=True,
                        "snapshot_path": snapshot_path} if noisy else {})
         log_path = append_submit_log(run_folder_path, backend=backend_label, chunks=todo_chunks, n_chunks=qbcs.n_chunks,
                                      nshots=bench.nshots, **log_layout,
-                                     extra_lines=[health_check_log_line("PRE ", hc_pre),
+                                     extra_lines=([f"Scheduling simulation: {str(scheduling_simulation).lower()}"] if noisy else [])
+                                                 + [health_check_log_line("PRE ", hc_pre),
                                                   health_check_log_line("POST", hc_post)])
     t2 = time.perf_counter()
 

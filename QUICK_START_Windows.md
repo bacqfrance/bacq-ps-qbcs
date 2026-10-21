@@ -197,7 +197,7 @@ from the project root (the scripts are in `source/benchmark_scripts/local_simula
 |---|---|---|---|
 | 1 | `benchmark_noiseless_all_to_all.py` — the whole pipeline, noiseless; AWAE is shot noise only. Builds the circuits for AQT, IQM VLQ and IQM Resonance Sirius | `local_sim.venv` | ~10 s including the circuit build |
 | 2 | `benchmark_noiseless_lnn.py` — the same with linear-nearest-neighbor circuits. Builds the circuits for IBM, IQM EQE1 and IQM Resonance Emerald / Garnet | `local_sim.venv` | ~10 s including the circuit build |
-| 3 | `benchmark_fake_fez_lnn.py` — #2 under IBM Fez noise, transpiled onto Fez's qubits; needs #2 first | `ibm.venv` | ~35 s |
+| 3 | `benchmark_fake_fez_lnn.py` — #2 under IBM Fez noise, transpiled onto Fez's qubits; needs #2 first | `ibm.venv` | ~35 s with `scheduling_simulation=false` |
 
 ```powershell
 .\venvs\local_sim.venv\Scripts\Activate.ps1
@@ -209,6 +209,8 @@ deactivate
 python source\benchmark_scripts\local_simulation_scripts\benchmark_fake_fez_lnn.py mini
 deactivate
 ```
+
+Script #3 takes the optional `scheduling_simulation=true|false`, default `true` (the other two take no such argument): `true` transpiles the circuits scheduled, so idle qubits relax through T1/T2 as on the QPU (full benchmark ≈ 4 h once the circuits exist); `false` skips the scheduling, so idle relaxation is **not** taken into account (only the relaxation during gates), like the noiseless and coherent-noise simulations, and runs in ≈ 1 h. The choice is recorded in `run_info.json`, and a run folder cannot be resumed with the other value (USER_MANUAL §4.2).
 
 Each script prints its build, execution, analysis and total wall times. Results land in
 `datafiles/mini_sim-noiseless_local-aer_lnn-False_service-local_spam-True_layout-none_<YYYY-MM-DD>_#1/` (the UTC date of the run and its number that day), the same with
@@ -289,7 +291,7 @@ in it, followed by the date (`mini_…_layout-optimized_2026-10-11_#1`). **IQM E
 random layout** (a notice is printed). To optimize their layout instead, pass the latest provider calibration from the `calibration_input_files/` folder:
 
 ```
-layout=optimized calibration_file=calibration_input_files/Euro-Q-Exa/calibration_data_Euro-Q-Exa_20261019_active_qubits.json    # EQE1
+layout=optimized calibration_file=calibration_input_files/Euro-Q-Exa/calibration_data_Euro-Q-Exa_20261020_active_qubits.json    # EQE1
 layout=optimized calibration_file=calibration_input_files/PIAST-Q/piastq_characterisation_2026-09-29.json                        # PIAST-Q
 ```
 
@@ -395,16 +397,18 @@ GB free per topology and per QPU you run.
 |---|---|---|---|
 | 1 | `benchmark_noiseless_all_to_all.py full` | AQT PIAST-Q, IQM VLQ, IQM Resonance Sirius (saved at QPY version 13, which the older Qiskit of AQT and VLQ reads) | ~60 min / ~15 min |
 | 2 | `benchmark_noiseless_lnn.py full` | IBM, IQM EQE1, IQM Resonance Emerald / Garnet | ~60 min / ~20 min |
-| 3 | *(optional)* `benchmark_fake_fez_lnn.py full` in `ibm.venv` — noisy reference under FakeFez | — | — (needs #2's circuits) / ~65 min |
+| 3 | *(optional)* `benchmark_fake_fez_lnn.py full` in `ibm.venv` — noisy reference under FakeFez | — | — (needs #2's circuits) / ~4 h (default `scheduling_simulation=true`), ~65 min with `false` |
 
-(The simulation times were measured at 1000 shots per circuit.) Total: about 2½ h the first time (about 3¾ h with the optional FakeFez run). Once the circuits are cached they are reused by every later run.
+(The simulation times were measured at 1000 shots per circuit.) Total: about 2½ h the first time (about 3¾ h with the optional FakeFez run at `scheduling_simulation=false`; the default `true` adds about 3 h to the full FakeFez run). Once the circuits are cached they are reused by every later run.
 
 ### 6.2 Optional rehearsal without QPU time (local, no cost)
 
 `source\benchmark_scripts\real_qpu_scripts\IBM\qbcs_real_simulate_ibm.py backend=ibm_marrakesh full`
 (`ibm.venv`) and `...\IQM_RESONANCE\qbcs_real_simulate_iqm_resonance.py backend=emerald full` (`iqm_resonance.venv`) download the
 device's current calibration and simulate the whole run locally with it: ~1 h CPU time each
-(≈ 8 s per chunk). `...\IQM_VLQ\qbcs_real_simulate_iqm_vlq.py` does the same for VLQ from IT4I's public calibration API (no login). IQM EQE1 and AQT report no calibration, so their simulate scripts take it from a file (`calibration_file=`, by default the newest in `calibration_input_files/<provider>/`) and need `layout=` named explicitly (see **Qubit layout** in §5.2 and their readmes).
+(≈ 8 s per chunk with `scheduling_simulation=false`). `...\IQM_VLQ\qbcs_real_simulate_iqm_vlq.py` does the same for VLQ from IT4I's public calibration API (no login). IQM EQE1 and AQT report no calibration, so their simulate scripts take it from a file (`calibration_file=`, by default the newest in `calibration_input_files/<provider>/`) and need `layout=` named explicitly (see **Qubit layout** in §5.2 and their readmes).
+
+Every simulate script takes the optional `scheduling_simulation=true|false` (default `true`; add `scheduling_simulation=false` to any command above for the faster run); see the note in §4 and each readme. With `true` a full run takes ≈ 4 h instead of ≈ 1 h.
 
 ### 6.3 Submit and collect
 

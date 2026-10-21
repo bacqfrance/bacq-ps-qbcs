@@ -139,9 +139,9 @@ existing backend:
 |---|---|
 | `qbcs_real_submit_<backend>.py` | health check before (waited for; abort if degraded), qubit selection, submission, health check after (submitted only) |
 | `qbcs_real_collect_<backend>.py` | collects the finished jobs (non-blocking), the finished health checks, merges, analyzes |
-| `qbcs_real_simulate_<backend>.py` | the same run on Aer with the backend's calibration (optional, recommended) |
+| `qbcs_real_simulate_<backend>.py` | the same run on Aer with the backend's calibration (optional, recommended); it must take the optional `scheduling_simulation=true\|false` argument (default `true`) (`parse_scheduling_arg()` in `source/core/runner_support/benchmark_args.py`), since the circuits are transpiled scheduled only with `true` (idle relaxation is then simulated; with `false` it is not) |
 | `health_check_real_<backend>.py` | a standalone submit-and-collect health check |
-| `check_real_qpu_job_status_<backend>.py` | read-only: each job's status next to the records on disk |
+| `check_real_qpu_job_status_<backend>.py` | read-only (async backends only): each job's status next to the records on disk |
 | `cancel_real_qpu_jobs_<backend>.py` | cancels the jobs of a run (or the latest standalone health check) that are still queued or running (async backends only) |
 | `backends.json` | the machines the scripts may run on and each one's topology: `{"backends": {"<name>": {"lnn": true}}}` (`true` = linear-nearest-neighbour circuits, `false` = all-to-all) |
 | `readme_<backend>.md` | setup, the scripts, limits, timing and cost definitions |

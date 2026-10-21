@@ -24,3 +24,7 @@ tmp.py
 
 # py4lexis' log of the VLQ (LEXIS) logins — source/core/qpu/iqm_vlq.py
 iqm_vlq_authentication_lexis_logs.log
+
+# Auxiliary files
+run_sequence_sims.sh
+run_simulations_2026-10-20.ps1

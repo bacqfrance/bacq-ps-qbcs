@@ -63,7 +63,7 @@ Instances differ in two ways that matter here:
 
 | Knob | Meaning |
 |---|---|
-| `BACKEND_NAME` | `backend=NAME` on the command line — **required** by `qbcs_real_submit_ibm.py`, `qbcs_real_collect_ibm.py`, `qbcs_real_simulate_ibm.py` and `check_real_qpu_job_status_ibm.py` (they stop with a usage line without it), e.g. `backend=ibm_marrakesh`. The name must be listed in [`backends.json`](backends.json) (and be visible under your account/instance); add a line there to use another device. Pass the same `backend=` to submit/collect/status for a given run — the run folder name is derived from it, which is how they find the run on disk. `health_check_real_ibm.py` requires it too — there is no default. |
+| `BACKEND_NAME` | `backend=NAME` on the command line — **required** by `qbcs_real_submit_ibm.py`, `qbcs_real_collect_ibm.py`, `qbcs_real_simulate_ibm.py`, `check_real_qpu_job_status_ibm.py` and `cancel_real_qpu_jobs_ibm.py` (they stop with a usage line without it), e.g. `backend=ibm_marrakesh`. The name must be listed in [`backends.json`](backends.json) (and be visible under your account/instance); add a line there to use another device. Pass the same `backend=` to submit/collect/status for a given run — the run folder name is derived from it, which is how they find the run on disk. `health_check_real_ibm.py` requires it too — there is no default. |
 | `INSTANCE` | `instance=NAME` on the command line, optional, accepted by every script here: the IBM instance to use (§2). Default: the account's Open Plan instance; for a run that already has one recorded in its `run_info.json`, that one. |
 | run size (shots, RC samples, evolution times) | the preset or sizes given on the command line (below), not edited in the script |
 | `LNN` | `True` = linear-nearest-neighbour transpilation, matching the device's local coupling. Taken from the chosen backend's `"lnn"` entry in `backends.json`. IBM's own backends are all heavy-hex (locally connected), so `true` is right for every one listed; a device with different connectivity needs its own `"lnn"` value there (see `readme_iqm_resonance.md` §3 for why it matters). |
@@ -155,12 +155,12 @@ calibration, and costs no QPU time:
    downloads fresh calibration); to start over, remove the run folder
    `datafiles/<benchmark>_sim-qpu-noise_<provider>-<backend>_…/`;
 2. builds an offline backend + Aer noise model from it (depolarizing gate
-   errors, T1/T2 relaxation over gate durations and while a qubit waits for the others, readout errors —
+   errors, T1/T2 relaxation over gate durations and, with `scheduling_simulation=true`, while a qubit waits for the others, readout errors —
    `source/core/qpu/qpu_snapshot.py`);
 3. picks the physical qubits from the snapshot exactly as a real submission
    would, runs every chunk (SPAM on the same qubits), and analyzes the results.
 
-Run it from the project root in `ibm.venv`. Post-process with
+Run it from the project root in `ibm.venv`, e.g. `python source/benchmark_scripts/real_qpu_scripts/IBM/qbcs_real_simulate_ibm.py backend=ibm_marrakesh mini`; `scheduling_simulation=true|false` is optional, default `true`: `true` transpiles the circuits scheduled, so idle qubits relax through T1/T2 as on the QPU (full benchmark about 4 h); `false` does not schedule them, so idle relaxation is **not** taken into account (only the relaxation during gates), like the noiseless and coherent-noise simulations (about 1 h). The choice is recorded in `run_info.json` and `submit.log`, the health checks follow it, and an unfinished run folder cannot be resumed with the other value (main USER_MANUAL §4.2). Post-process with
 `run_post_process.py --include-simulations-real` (`source/analysis_scripts/`; every `sim-qpu-noise_…` run of this QPU, whatever its layout, is
 already covered by `SIMULATED_QPUS` in `RUN_THESE`); its
 summary JSON names the backend and snapshot date, so the result is never
@@ -170,7 +170,7 @@ qubits, under the same noise model, so it shows what the health circuit scores
 with this calibration; a "degraded" score is reported but doesn't stop the
 run. It keeps the submit script's records too: a job record per chunk in `job_records/` (`service_name: "local"`) and a `submit.log` entry with the snapshot's calibration summary, the run qubits and both health-check verdicts.
 The full 480-chunk run simulates
-in roughly an hour (≈ 8 s per chunk measured with IBM Fez's calibration), plus
+in about 4 h with the default `scheduling_simulation=true`, roughly an hour with `false` (≈ 8 s per chunk measured with IBM Fez's calibration), plus
 the usual circuit build.
 
 ## 5. Timing, billing and circuit check

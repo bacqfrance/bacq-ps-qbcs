@@ -153,6 +153,7 @@ class bacq_ps_qbcs:
         self._fake_job_registry          = {}
         self._verbose                    = verbose   # gates per-chunk/per-sample detail prints; progress bars show regardless
         self._qiskit_v13_qpy             = False   # set by build(): True for all_to_all circuits
+        self.scheduling_simulation       = None   # QPU-noise simulations only: True/False, the scheduling_simulation= choice (set by the simulate runners, recorded in run_info.json); None: not a simulation, circuits are scheduled where the backend allows it
         self.run_instance                = (None, None)   # IBM: (instance name, plan) of the run, recorded in run_info.json; set by submit_async_run()
         self._last_transpile             = {"transpile_s": None, "transpile_reused": False}   # set by transpile_chunk_for_backend_to_isa()
 
@@ -750,7 +751,7 @@ class bacq_ps_qbcs:
     def submit(
         self,
         run_folder,          # str — subfolder under datafiles/, e.g. "run_01"
-        layout_connection        = "all_to_all",    # fallback if build() wasn't called in this session
+        layout_connection        = "all_to_all",    # only applied if CONFIG["lnn_architecture"] is unset (__init__ and build() set it)
         lang                     = "qiskit", # "qiskit" | "myqlm"
         service                  = "local",  # "local" | "IBM_Cloud" | "MQSS_LRZ" | "IQM_Resonance" | "QAAS_IT4I" | "PCSS"
         backend                  = None,     # AerSamplerV2(), a provider backend object, etc.
@@ -774,12 +775,12 @@ class bacq_ps_qbcs:
 
         :param run_folder:         str — output subfolder under datafiles/, e.g. "run_01" or "test00_myqlm".
                                    Used to construct all result paths (raw_results/, processed_results/, etc.).
-                                   Only applied if folder_path was not already set by build().
+                                   Only applied if folder_path was not already set (chunks_to_submit(), record_run_info(), collect_results()).
 
         :param layout_connection:  str — hardware qubit connectivity. One of:
                                        "all_to_all"             (default, fully connected)
                                        "linear_nearest_neighbor" (1D chain, LNN transpilation)
-                                   Only applied if lnn_architecture was not already set by build().
+                                   Only applied if lnn_architecture was not already set (__init__ and build() set it).
                                    Determines which shared circuit folder is used for idempotency checks.
 
         :param lang:               str — circuit language / execution framework. One of:
@@ -861,7 +862,8 @@ class bacq_ps_qbcs:
         # don't hammer an unchanged file (which raced with file locks on Windows).
         write_run_info(self.CONFIG, self.CONFIG["folder_path"], self.CONFIG["lnn_architecture"],
                        circuits_qiskit_v13_qpy=self._qiskit_v13_qpy,
-                       instance=self.run_instance[0], instance_plan=self.run_instance[1])
+                       instance=self.run_instance[0], instance_plan=self.run_instance[1],
+                       scheduling_simulation=self.scheduling_simulation)
         assert hasattr(self, "chunk_paths"), (
             "interleave_job_batches() must be called before submit()."
         )
@@ -2288,7 +2290,8 @@ class bacq_ps_qbcs:
             self.CONFIG["folder_path"] = os.path.join(PROJECT_ROOT, "datafiles", run_folder)
         write_run_info(self.CONFIG, os.path.join(PROJECT_ROOT, "datafiles", run_folder),
                        self.CONFIG["lnn_architecture"], circuits_qiskit_v13_qpy=self._qiskit_v13_qpy,
-                       instance=self.run_instance[0], instance_plan=self.run_instance[1])
+                       instance=self.run_instance[0], instance_plan=self.run_instance[1],
+                       scheduling_simulation=self.scheduling_simulation)
 
     def resolve_physical_qubits(self, backend, physical_qubits=None, run_folder=None, layout=None,
                                 layout_backend=None, calibration_source=None):
@@ -2330,12 +2333,12 @@ class bacq_ps_qbcs:
             if forced is not None and mode == "list" and list(forced) != record["physical_qubits"]:
                 raise ValueError(
                     f"physical_qubits={list(forced)} differs from this run's recorded "
-                    f"{record['physical_qubits']} ({record_path}) — a run must stay on one set of qubits."
+                    f"{record['physical_qubits']} ({rel_path(record_path)}) — a run must stay on one set of qubits."
                 )
             if (layout is not None or physical_qubits is not None) and record.get("layout_mode") not in (None, mode):
                 raise ValueError(
                     f"layout={mode} but this run's recorded layout is {record['layout_mode']} "
-                    f"{record['physical_qubits']} ({record_path}) — a run must stay on one set of qubits."
+                    f"{record['physical_qubits']} ({rel_path(record_path)}) — a run must stay on one set of qubits."
                 )
             self._physical_qubits = record["physical_qubits"]
             print(f"  [Layout] Using recorded physical qubits {self._physical_qubits} ({record['method']}).")
@@ -2450,7 +2453,7 @@ class bacq_ps_qbcs:
         Idempotent — loads from QPY if already transpiled.
 
         Used for every backend: IBM (real and fake), IQM EQE1, IQM Resonance,
-        AQT, and local simulation with a layout backend.
+        IQM VLQ, AQT, and local simulation with a layout backend.
 
         :param nc:              int — chunk index
         :param backend:         backend object
@@ -2475,7 +2478,7 @@ class bacq_ps_qbcs:
         t0 = time.perf_counter()
         isa_circuits = transpile(qk_circuits, backend, optimization_level=1,
                                  initial_layout=getattr(self, "_physical_qubits", None),
-                                 scheduling_method=scheduling_method(backend))
+                                 scheduling_method=scheduling_method(backend, self.scheduling_simulation is not False))
         if not isinstance(isa_circuits, list):
             isa_circuits = [isa_circuits]
         self._check_transpiled(f"Chunk {nc}", qk_circuits, isa_circuits)
@@ -2502,6 +2505,7 @@ class bacq_ps_qbcs:
         job after the chunk is transpiled — so they need their own ISA copy.
         Idempotent — loads if already transpiled.
         Saves to run_folder/transpiled_circuits/spam_transpiled.qpy.
+        Scheduled like the chunks (scheduling_method(), self.scheduling_simulation).
 
         :param backend: backend object
         :returns:       list of ISA SPAM circuits
@@ -2531,7 +2535,7 @@ class bacq_ps_qbcs:
         t0 = time.perf_counter()
         isa_spam = transpile(self._qk_spam_circuits, backend, optimization_level=1,
                              initial_layout=getattr(self, "_physical_qubits", None),
-                             scheduling_method=scheduling_method(backend))
+                             scheduling_method=scheduling_method(backend, self.scheduling_simulation is not False))
         if not isinstance(isa_spam, list):
             isa_spam = [isa_spam]
         self._check_transpiled("SPAM", self._qk_spam_circuits, isa_spam, check_2q=False)

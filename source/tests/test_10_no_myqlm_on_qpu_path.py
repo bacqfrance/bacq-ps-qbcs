@@ -161,6 +161,6 @@ def test_10_only_the_myqlm_circuit_modules_need_it_at_import():
 
 
 if __name__ == "__main__":
-    # Through pytest, so conftest.py protects the real circuit cache this test wipes.
+    # Through pytest, so conftest.py sends the circuit caches to datafiles/tests/circuits/.
     import pytest
     sys.exit(pytest.main([__file__, "-q"]))

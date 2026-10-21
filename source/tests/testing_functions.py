@@ -10,7 +10,7 @@ Provides these reusable functions:
     - run_name_for_test()   : builds the run-folder name a test uses for a label and data type
     - run_mitigation_pipeline_all_depths() : the legacy myQLM pipeline do_myqlm_pipeline() calls
 
-All functions return results as dicts compatible with run_data.json format.
+The pipeline functions return run_data.json-style dicts.
 
 Also provides rm_glob() — a cross-platform (incl. Windows) replacement for
 the tests' old `os.system("rm -rf <pattern>")` cleanup calls; see its

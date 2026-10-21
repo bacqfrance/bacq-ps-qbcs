@@ -211,15 +211,17 @@ already in `SIMULATED_QPUS` of `RUN_THESE`; `--layouts=<mode>` narrows it), or w
 
 ```bash
 python source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/qbcs_real_simulate_aqt.py backend=PIAST-Q mini layout=random
-python source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/qbcs_real_simulate_aqt.py backend=PIAST-Q mini layout=optimized calibration_file=calibration_input_files/PIAST-Q/piastq_characterisation_2026-09-29.json
+python source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/qbcs_real_simulate_aqt.py backend=PIAST-Q mini layout=optimized calibration_file=calibration_input_files/PIAST-Q/piastq_characterisation_2026-09-29.json scheduling_simulation=false
 ```
+
+`scheduling_simulation=true|false` is optional, default `true`: `true` transpiles the circuits scheduled, so idle qubits relax through T1/T2 as on the QPU (full benchmark about 4 h); `false` does not schedule them, so idle relaxation is **not** taken into account (only the relaxation during gates), like the noiseless and coherent-noise simulations (about 1 h). The choice is recorded in `run_info.json` and `submit.log`, the health checks follow it, and an unfinished run folder cannot be resumed with the other value (main USER_MANUAL §4.2).
 
 What the noise model contains:
 
 - Per-ion `r` errors, and `rxx` errors on every pair. The file gives only the
   device-mean two-qubit fidelity, so that value is used for all pairs.
 - Readout error from the SPAM fidelity lower bound, and device-wide T1/T2.
-- Gate durations and readout time from the file, so T1/T2 relaxation is included, also for a qubit waiting for the others (the
+- Gate durations and readout time from the file, so T1/T2 relaxation during gates is included, and with `scheduling_simulation=true` also for a qubit waiting for the others (the
   circuits are transpiled scheduled, with delays); T1/T2 are one device-wide value.
 - Crosstalk figures are kept in the file but not modelled.
 
@@ -284,7 +286,7 @@ Then leave the interactive session (`exit`) and submit the jobs from the login n
 | `run_aqt_loop_with_retries.sbatch` | the same as `run_aqt_loop.sbatch`, but reruns the loop script every hour after a failure, for up to 7 days (below) |
 | `aqt_run_folder.py` | prints the run folder for given benchmark arguments; used by both loop sbatch files |
 | `run_health_check_aqt.sbatch` | `health_check_real_aqt.py` — one health check on its own; 2 h limit |
-| `run_simulate_aqt.sbatch` | `qbcs_real_simulate_aqt.py` with the given benchmark arguments — the benchmark on Aer with PIAST-Q's calibration; 24 h limit |
+| `run_simulate_aqt.sbatch` | `qbcs_real_simulate_aqt.py` with the given benchmark arguments (including the optional `scheduling_simulation=`) — the benchmark on Aer with PIAST-Q's calibration; 24 h limit |
 | `run_noiseless_all_to_all.sbatch` | builds the circuit cache of the benchmark given as argument (`benchmark_noiseless_all_to_all.py <arguments>`, e.g. `mini` or `full`, `local_sim.venv`); at least one argument is required |
 | `run_pytest.sbatch` | the test suite (`source/tests/`, `local_sim.venv`; `test_12` starts itself in `aqt.venv`, so both venvs must exist) |
 

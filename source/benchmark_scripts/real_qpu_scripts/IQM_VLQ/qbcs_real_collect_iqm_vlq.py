@@ -5,7 +5,6 @@ Can be run in a new session — reconstructs everything from the job records on 
 Collects the jobs that have finished, in any order, without waiting for the rest — run it
 again later for those. Without layout= and date=, every run of the benchmark with something left
 to collect is collected in turn. An incomplete run is analyzed as +nsamples-<collected> files that list what is missing.
-Then merges + analyzes.
 
 Benchmark size (required — there is no default), from the command line (source/core/runner_support/benchmark_args.py; readme: "Benchmark size and run folders"):
   mini · full · mini|full nshots_per_circuit=N ·

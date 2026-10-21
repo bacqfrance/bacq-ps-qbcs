@@ -15,7 +15,7 @@ QPU time and no LEXIS login.
   2. Build an offline backend + Aer noise model from the snapshot. The resonator is
      folded into an all-to-all CZ (source/core/qpu/iqm_vlq.snapshot_from_calibration): error
      1 - F_cz · F_move, duration 2·MOVE + CZ; prx error from the Clifford RB fidelity per native gate
-     (iqm_vlq.prx_fidelity); readout and T1/T2 as measured.
+     (iqm_vlq.prx_fidelity); readout and T1/T2 as measured (idle qubits relax only with scheduling_simulation=true).
   3. build(), then pick the run's physical qubits exactly as a real submission would: the
      prx / MOVE / CZ roles come from transpiling onto an offline VLQ target built from the
      downloaded architecture (iqm-client; no login), graded from the calibration.
@@ -25,6 +25,10 @@ QPU time and no LEXIS login.
      sim-qpu-noise_iqm-vlq is already in SIMULATED_QPUS of RUN_THESE — USER_MANUAL §10.2).
 
 Run from the project root in venvs/iqm_vlq.venv (iqm-client builds the offline target; no login needed).
+
+scheduling_simulation=true|false is optional (default true): true transpiles the circuits scheduled, so idle qubits relax through T1/T2 as on the QPU
+(slower: about 4 times the time of false on the full benchmark); false leaves idle-qubit relaxation out. It is recorded in run_info.json, and a run
+folder started with the other value is refused.
 
 Benchmark size (required — there is no default), from the command line (source/core/runner_support/benchmark_args.py; readme: "Benchmark size and run folders"):
   mini · full · mini|full nshots_per_circuit=N ·
@@ -43,14 +47,15 @@ usage_if_requested(sys.argv[1:], make_usage(__file__, "Run the BACQ benchmark on
 from pathlib import Path
 
 from source.core.qpu import iqm_vlq as VLQ
-from source.core.runner_support.benchmark_args import parse_benchmark_args, DT, parse_backend_config, parse_layout_args
+from source.core.runner_support.benchmark_args import parse_benchmark_args, DT, parse_backend_config, parse_layout_args, parse_scheduling_arg
 from source.core.runner_support.run_simulation import simulate_run
 from source.core.qpu.qpu_snapshot import SNAPSHOT_FILENAME
 
 # ── Config ────────────────────────────────────────────────────────────────────
 BACKEND_NAME, BACKEND_CFG = parse_backend_config(sys.argv[1:], Path(__file__).parent)   # required backend=NAME, checked against backends.json
-BENCH            = parse_benchmark_args(sys.argv[1:], extra_keys=("backend",))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
+BENCH            = parse_benchmark_args(sys.argv[1:], extra_keys=("backend", "scheduling_simulation"))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
 LAYOUT           = parse_layout_args(sys.argv[1:], calibration_any_layout=True)   # layout=... [calibration_file=...] — see source/core/runner_support/benchmark_args.py
+SCHEDULING       = parse_scheduling_arg(sys.argv[1:])   # scheduling_simulation=true|false (optional, default true): idle qubits relax (true) or not (false)
 LNN              = BACKEND_CFG["lnn"]   # the backend's topology, from backends.json
 DO_SPAM          = True
 RUN_FOLDER       = dated_run_folder(qpu_run_name("IQM_VLQ", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag, data_type="sim-qpu-noise"))
@@ -64,5 +69,5 @@ cal, CAL_SOURCE = VLQ.use_run_calibration(run_dir, LAYOUT.calibration_file, CALI
 
 # ── Simulate: build, qubits, health checks, every chunk left, submit.log, analysis (source/core/runner_support/run_simulation.py) ──
 simulate_run(run_folder=RUN_FOLDER, bench=BENCH, layout=LAYOUT, lnn=LNN, snapshot_path=snapshot_path, cal_source=CAL_SOURCE,
-             do_spam=DO_SPAM, dt=DT, seed=SEED,
+             do_spam=DO_SPAM, dt=DT, seed=SEED, scheduling_simulation=SCHEDULING,
              customize_backend=lambda b: setattr(b, "vlq_calibration", cal))   # qubit selection as on the real backend

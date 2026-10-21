@@ -188,6 +188,27 @@ def test_fake_fez_simulation_takes_a_layout_but_no_calibration_file(capsys):
     assert "layout=optimized" in usage and "calibration_file=PATH" not in usage
 
 
+def test_scheduling_simulation_argument(capsys):
+    assert BA.parse_scheduling_arg(["mini", "scheduling_simulation=true"]) is True
+    assert BA.parse_scheduling_arg(["scheduling_simulation=false", "layout=random"]) is False
+    assert BA.parse_scheduling_arg([]) is True and BA.parse_scheduling_arg(["mini", "layout=random"]) is True   # optional: default true
+    for bad in (["scheduling_simulation=yes"], ["scheduling_simulation="], ["scheduling_simulation=True"],
+                ["scheduling_simulation=true", "scheduling_simulation=false"]):
+        with pytest.raises(SystemExit) as e:
+            BA.parse_scheduling_arg(bad)
+        assert e.value.code == 2
+    assert "scheduling_simulation" in capsys.readouterr().err
+
+
+def test_simulate_usage_shows_the_scheduling_argument():
+    script = PROJECT / "source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/qbcs_real_simulate_iqm_eqe1.py"
+    for form in ("simulate", "simulate_builtin", "simulate_required"):
+        text = BA.make_usage(script, "x", backend=False, layout=form)
+        assert text.splitlines()[0].endswith("[scheduling_simulation=true|false]") and "SCHEDULING" in text
+    for form in ("submit_live", "submit_no_live", "collect"):
+        assert "scheduling_simulation" not in BA.make_usage(script, "x", layout=form)
+
+
 # ── choosing the layout ───────────────────────────────────────────────────────
 
 def test_lowest_random_and_forced_on_a_chain_with_a_dead_qubit():
@@ -293,6 +314,11 @@ def test_snapshot_simulation_schedules_circuits_so_idle_qubits_decay():
     ibm_like["operations"]["delay"] = [{"qargs": [q], "error": None, "duration": None} for q in (0, 1, 2)]
     assert scheduling_method(backend_from_snapshot(ibm_like)) == "alap"
     assert scheduling_method(SimpleNamespace(name="ibm_fez")) is None
+    # scheduling_simulation=false: no scheduling method, so no delay in the transpiled circuits
+    assert scheduling_method(backend, schedule=False) is None and scheduling_method(backend, schedule=True) == "alap"
+    unscheduled = transpile(qc, backend, optimization_level=1, initial_layout=[0, 1, 2],
+                            scheduling_method=scheduling_method(backend, schedule=False))
+    assert unscheduled.count_ops().get("delay", 0) == 0
 
 
 @pytest.mark.parametrize("qubits, why", [

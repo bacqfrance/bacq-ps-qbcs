@@ -22,7 +22,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 def test_12_aqt_shot_split_in_aqt_venv():
     python = venv_python("aqt.venv", "test_12 (AQT shot split)")
-    # --noconftest: source/tests/conftest.py is for local_sim.venv (matplotlib, myQLM test helpers, test cache root).
+    # --noconftest: source/tests/conftest.py is for local_sim.venv (matplotlib, test cache root).
     # PYTEST_DISABLE_PLUGIN_AUTOLOAD: qiskit-aqt-provider registers a pytest plugin that needs pytest-httpx.
     proc = subprocess.run([python, "-m", "pytest", "--noconftest", "-p", "no:cacheprovider", "-q",
                            str(PROJECT_ROOT / "source" / "tests" / "aqt_venv_test_12_shot_split.py")],

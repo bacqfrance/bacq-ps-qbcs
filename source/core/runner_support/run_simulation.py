@@ -17,13 +17,16 @@ from source.core.runner_support.benchmark_args import DT
 
 
 def simulate_run(*, run_folder, bench, layout, lnn, snapshot_path, cal_source, do_spam=True, dt=DT,
-                 seed=None, customize_backend=None):
+                 seed=None, customize_backend=None, scheduling_simulation=True):
     """Simulate run_folder's chunks with the noise of the calibration snapshot at snapshot_path.
 
     bench / layout: BenchmarkArgs / LayoutArgs (source/core/runner_support/benchmark_args.py); lnn: the QPU's topology
     (backends.json); cal_source: the calibration_file= the noise (and, for an optimized layout, the layout scoring) comes from (None: the snapshot);
     seed: Aer sampling seed (None: fresh randomness per chunk); customize_backend(snapshot_backend):
-    an optional hook run before the qubits are chosen (VLQ attaches its raw calibration there)."""
+    an optional hook run before the qubits are chosen (VLQ attaches its raw calibration there);
+    scheduling_simulation: the scripts' optional scheduling_simulation=true|false (parse_scheduling_arg()): True transpiles
+    the circuits (chunks, SPAM, health checks) scheduled so idle qubits relax, False leaves that out; recorded in run_info.json,
+    and a run folder recorded with the other value is refused (check_scheduling_simulation())."""
     from source.core.qpu.calibration_input import layout_summary, resolve_layout_or_exit
     from source.core.records.health_check_records import (load_health_checks, format_chunk_range, install_submit_crash_log,
                                                    append_submit_log, health_check_log_line, print_run_config)
@@ -31,6 +34,9 @@ def simulate_run(*, run_folder, bench, layout, lnn, snapshot_path, cal_source, d
     from source.core.qbcs import bacq_ps_qbcs
     from source.core.health_check import submit_health_check
     from source.core.qpu.qpu_snapshot import noisy_sampler_from_snapshot
+    from source.core.records.run_info import check_scheduling_simulation
+
+    check_scheduling_simulation(run_folder, scheduling_simulation)   # before anything is built: the run's transpiled circuits are reused
 
     t0 = time.perf_counter()
     snapshot_backend, noise_model, sampler = noisy_sampler_from_snapshot(snapshot_path, seed=seed)
@@ -54,6 +60,7 @@ def simulate_run(*, run_folder, bench, layout, lnn, snapshot_path, cal_source, d
         nshots                      = nshots,
         dt                          = dt,
     )
+    qbcs.scheduling_simulation = scheduling_simulation   # recorded in run_info.json, used by every transpilation
     qbcs.build(circuit_transpilation_LNN=lnn)
 
     # ── Physical qubits — before the first health check, so it runs on them too ───
@@ -62,7 +69,8 @@ def simulate_run(*, run_folder, bench, layout, lnn, snapshot_path, cal_source, d
     t1 = time.perf_counter()
     backend = f"local Aer simulator (noise: {snapshot_backend.name})"
     print_run_config(run_folder, nshots=nshots, sample_size=bench.sample_size, lnn=lnn, do_spam=do_spam,
-                     list_times=list_times, chunk_size=chunk_size, extra=[("Backend", backend), ("Run qubits", run_qubits)])
+                     list_times=list_times, chunk_size=chunk_size,
+                     extra=[("Backend", backend), ("Run qubits", run_qubits), ("Scheduling", str(scheduling_simulation).lower())])
 
     # ── The chunks to simulate (those without complete results) — the health checks record this list ──
     todo = qbcs.chunks_to_submit(run_folder)
@@ -73,7 +81,7 @@ def simulate_run(*, run_folder, bench, layout, lnn, snapshot_path, cal_source, d
         return load_health_checks(submit_health_check(run_folder=run_folder, backend=sampler,
                                                       nshots=ACCOMPANYING_HEALTH_CHECK_NSHOTS, service_name="local",
                                                       layout_backend=snapshot_backend, accompanying=True, backend_name=backend,
-                                                      chunks=todo, **kw))[-1]
+                                                      chunks=todo, scheduling_simulation=scheduling_simulation, **kw))[-1]
 
     # ── Health check before the simulation (<run>/health_checks/, auto-numbered) ───
     if todo:
@@ -98,7 +106,8 @@ def simulate_run(*, run_folder, bench, layout, lnn, snapshot_path, cal_source, d
         log_path = append_submit_log(run_folder_path, backend=backend, chunks=todo, n_chunks=qbcs.n_chunks, nshots=nshots,
                                      layout=layout_summary(layout, run_qubits, cal_source), run_qubits=run_qubits,
                                      snapshot_path=snapshot_path,
-                                     extra_lines=[health_check_log_line("PRE ", hc_pre),
+                                     extra_lines=[f"Scheduling simulation: {str(scheduling_simulation).lower()}",
+                                                  health_check_log_line("PRE ", hc_pre),
                                                   health_check_log_line("POST", hc_post)])
     t2 = time.perf_counter()
 

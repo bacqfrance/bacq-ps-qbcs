@@ -11,8 +11,8 @@ qbcs_real_submit_iqm_resonance.py, but no QPU time.
      downloads fresh calibration); remove the run folder to start over. With calibration_file=PATH
      the snapshot is taken from that file instead, and nothing is downloaded.
   2. Build an offline backend + Aer noise model from the snapshot (depolarizing
-     gate errors, T1/T2 relaxation over gate durations and while a qubit waits for the others,
-     readout errors).
+     gate errors, T1/T2 relaxation over gate durations and, with scheduling_simulation=true, while a
+     qubit waits for the others, readout errors).
   3. build(), then pick the run's physical qubits from the snapshot exactly as a
      real submission would choose them.
   4. Health check before and after the simulation, like the submit script: the
@@ -24,6 +24,10 @@ qbcs_real_submit_iqm_resonance.py, but no QPU time.
      QPU's sim-qpu-noise_<provider>-<backend> runs is already in SIMULATED_QPUS of RUN_THESE (USER_MANUAL §10.2).
 
 Run from the project root in venvs/iqm_resonance.venv.
+
+scheduling_simulation=true|false is optional (default true): true transpiles the circuits scheduled, so idle qubits relax through T1/T2 as on the QPU
+(slower: about 4 times the time of false on the full benchmark); false leaves idle-qubit relaxation out. It is recorded in run_info.json, and a run
+folder started with the other value is refused.
 
 Benchmark size (required — there is no default), from the command line (source/core/runner_support/benchmark_args.py; readme: "Benchmark size and run folders"):
   mini · full · mini|full nshots_per_circuit=N ·
@@ -45,15 +49,16 @@ from pathlib import Path
 
 from iqm.qiskit_iqm import IQMProvider
 
-from source.core.runner_support.benchmark_args import parse_benchmark_args, DT, parse_backend_config, parse_layout_args
+from source.core.runner_support.benchmark_args import parse_benchmark_args, DT, parse_backend_config, parse_layout_args, parse_scheduling_arg
 from source.core.qpu.calibration_input import use_calibration_file
 from source.core.runner_support.run_simulation import simulate_run
 from source.core.qpu.qpu_snapshot import SNAPSHOT_FILENAME, save_calibration_snapshot, reuse_calibration_snapshot
 
 # ── Config ────────────────────────────────────────────────────────────────────
 BACKEND_NAME, BACKEND_CFG = parse_backend_config(sys.argv[1:], Path(__file__).parent)   # required backend=NAME, checked against backends.json
-BENCH            = parse_benchmark_args(sys.argv[1:], extra_keys=("backend",))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
+BENCH            = parse_benchmark_args(sys.argv[1:], extra_keys=("backend", "scheduling_simulation"))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
 LAYOUT           = parse_layout_args(sys.argv[1:], calibration_any_layout=True)   # layout=... [calibration_file=...] — see source/core/runner_support/benchmark_args.py
+SCHEDULING       = parse_scheduling_arg(sys.argv[1:])   # scheduling_simulation=true|false (optional, default true): idle qubits relax (true) or not (false)
 LNN              = BACKEND_CFG["lnn"]   # the backend's topology, from backends.json
 DO_SPAM          = True
 RUN_FOLDER       = dated_run_folder(qpu_run_name("IQM_RESONANCE", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag, data_type="sim-qpu-noise"))
@@ -72,4 +77,4 @@ elif not reuse_calibration_snapshot(snapshot_path):   # a rerun warns and reuses
 
 # ── Simulate: build, qubits, health checks, every chunk left, submit.log, analysis (source/core/runner_support/run_simulation.py) ──
 simulate_run(run_folder=RUN_FOLDER, bench=BENCH, layout=LAYOUT, lnn=LNN, snapshot_path=snapshot_path, cal_source=CAL_SOURCE,
-             do_spam=DO_SPAM, dt=DT, seed=SEED)
+             do_spam=DO_SPAM, dt=DT, seed=SEED, scheduling_simulation=SCHEDULING)

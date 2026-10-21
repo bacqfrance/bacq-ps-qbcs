@@ -255,7 +255,7 @@ pytest source/tests/
 Runs `test_00`/`test_01`/`test_07`/`test_08`/`test_10`/`test_11`/`test_12`/`test_13`/`test_14`/`test_15`/`test_16`/`test_17`/`test_18`/`test_19`/`test_20`/`test_21`/`test_22`/`test_23`/`test_24`/`test_25`/`test_26`/`test_27`/`test_28`/`test_29` (§9) —
 fundamental checks that confirm the circuits are built correctly, a full
 local-sim pipeline + post-processing integration check, and unit tests of the
-executed-circuit check and the timing bookkeeping — in 5 to 10 minutes (359 tests; longer on slower machines).
+executed-circuit check and the timing bookkeeping — in 5 to 10 minutes (363 tests; longer on slower machines).
 **Two venvs are needed**: `local_sim.venv` runs the suite (the run stops at once with instructions if `venvs/local_sim.venv` is missing; `test_10` also starts a child process in it), and `test_12` runs itself in `aqt.venv` — it fails with an error telling you to create `venvs/aqt.venv` (`source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/readme_aqt.md` §1, `requirements_aqt.txt`, which includes `pytest`) or to run `venvs/aqt.venv/Scripts/python -m pip install pytest` (`bin/python` on Linux) if only `pytest` is missing there.
 All tests passing (no failures, no errors) means the base venv, myQLM↔Qiskit
 translation, local Aer simulation, and `source/analysis_scripts/run_post_process.py` all work
@@ -276,7 +276,7 @@ on the local simulator, in this order:
 |---|---|---|---|---|
 | 1 | `benchmark_noiseless_all_to_all.py` | `local_sim.venv` | the whole pipeline end to end — build, health check, submit, analyze — on a noiseless simulator; AWAE is only shot noise | ~10 s including the circuit build |
 | 2 | `benchmark_noiseless_lnn.py` | `local_sim.venv` | the same with linear-nearest-neighbor circuits (what the IBM, IQM EQE1 and IQM Resonance Emerald/Garnet runs use; IQM VLQ and Sirius run all-to-all) | ~10 s including the circuit build |
-| 3 | `benchmark_fake_fez_lnn.py` | `ibm.venv` | the LNN circuits under realistic IBM Fez noise (§4.2), transpiled onto Fez's qubits; needs #2 first | ~35 s (no build of its own) |
+| 3 | `benchmark_fake_fez_lnn.py` | `ibm.venv` | the LNN circuits under realistic IBM Fez noise (§4.2; takes the optional `scheduling_simulation=true\|false`, default `true`), transpiled onto Fez's qubits; needs #2 first | ~35 s with `scheduling_simulation=false` (no build of its own) |
 
 A rerun of a finished run starts a new run folder (dated today, with the next run number); only
 an unfinished run folder is resumed, skipping the stages already done (§5.4, §5.5).
@@ -382,17 +382,18 @@ reported at ≈1.5 GB.
 calibration snapshots of IBM devices as fake backends (`FakeFez`, `FakeMarrakesh`,
 `FakeTorino`, …).
 [`source/benchmark_scripts/local_simulation_scripts/benchmark_fake_fez_lnn.py`](source/benchmark_scripts/local_simulation_scripts/benchmark_fake_fez_lnn.py)
-(`mini`, ~35 s; or `full`, see §4.3) runs the LNN benchmark under `FakeFez`'s noise.
+(`mini`, ~35 s with `scheduling_simulation=false`; or `full`, see §4.3) runs the LNN benchmark under `FakeFez`'s noise.
 It makes no network calls and needs no token. It follows the same path as
 `source/benchmark_scripts/real_qpu_scripts/IBM/qbcs_real_simulate_ibm.py`: the fake backend's target is saved
 to `datafiles/<run>/calibration_snapshot.json`, an Aer noise model is built from
 it, the run's physical qubits are picked from it, and every chunk is transpiled
-onto them, scheduled so that waiting qubits decay as in the IBM simulation. It needs **`venvs/ibm.venv`** (that's where `qiskit-ibm-runtime`
+onto them, scheduled (with `scheduling_simulation=true`) so that waiting qubits decay as in the IBM simulation. It needs **`venvs/ibm.venv`** (that's where `qiskit-ibm-runtime`
 lives) and no myQLM, so the LNN circuits must already be cached — run
 `benchmark_noiseless_lnn.py` (with the same benchmark arguments) in `local_sim.venv` first.
 The snapshot is years older than today's device, so treat the results as
 "a realistic superconducting QPU", not as a prediction for ibm_fez. For the current
 calibration, use `qbcs_real_simulate_ibm.py` (§7).
+**`scheduling_simulation=true|false` is optional, default `true`**, as for every `qbcs_real_simulate_*.py` script (§7). With `true` the circuits are transpiled scheduled (`scheduling_method="alap"`, with delays), so qubits that wait for the others relax through T1/T2 as on the QPU; the full benchmark takes about 4 h once the circuits exist. With `false` they are not scheduled, so the idle relaxation is **not** taken into account (only the relaxation during the gates, which is in the gate errors), as in the noiseless and coherent-noise simulations, and the full benchmark takes about 1 h. The choice is recorded in `run_info.json` as `scheduling_simulation` (§10.2), printed in `submit.log` ("Scheduling simulation: …") and in the `[Run config]` block, and the pre- and post-run health checks follow it. A run folder keeps its transpiled circuits, so resuming an unfinished one with the other value exits with a ❌ error; a run folder without the field counts as `true`.
 The script takes `layout=optimized` (default), `random`, `lowest` or three qubits like `15,14,21` (§5.4), scored on
 FakeFez's built-in calibration; `calibration_file=` is refused. The run folder ends in `layout-<mode>`.
 
@@ -445,7 +446,7 @@ only) — a check that the circuits are right before any QPU time is spent.
 |---|---|---|---|---|---|
 | 1 | `benchmark_noiseless_all_to_all.py` | `local_sim.venv` | `circuits/all_to_all_Nt<depths>/chunks_qiskit_v13_qpy/` (QPY version 13) | all-to-all runs: AQT PIAST-Q, IQM VLQ, IQM Resonance Sirius | ~60 min / ~15 min |
 | 2 | `benchmark_noiseless_lnn.py` | `local_sim.venv` | `circuits/linear_nearest_neighbor_Nt<depths>/chunks_qiskit/` | LNN runs: IBM (Fez, Kingston, Marrakesh), IQM EQE1, IQM Resonance Emerald / Garnet | ~60 min / ~20 min |
-| 3 | *(optional)* `benchmark_fake_fez_lnn.py` | `ibm.venv` | none — uses #2's circuits | a noisy reference under Qiskit's `FakeFez` noise (§4.2), offline | — (needs #2's circuits) / ~65 min |
+| 3 | *(optional)* `benchmark_fake_fez_lnn.py` | `ibm.venv` | none — uses #2's circuits | a noisy reference under Qiskit's `FakeFez` noise (§4.2), offline | — (needs #2's circuits) / ~4 h (default `scheduling_simulation=true`), ~65 min with `false` |
 
 (The simulation times were measured at 1000 shots per circuit.)
 
@@ -489,7 +490,7 @@ The per-stage times are logged in `datafiles/circuits/<topology>_Nt<steps>/times
 folder), or any other run of that topology and depth list, goes straight to the
 simulation: loading the cached circuits takes seconds to a few minutes, and the
 times in the last column are what's left. So the full minimal sequence #1 → #2 → #3
-takes about 3¾ h the first time and about 1¾ h once the circuits exist.
+takes about 3¾ h the first time and about 1¾ h once the circuits exist, with the FakeFez run at `scheduling_simulation=false`; the default `true` adds about 3 h to the full FakeFez run.
 
 A real-QPU script whose circuits aren't cached can't build them (no myQLM in its
 venv), so it stops with a message pointing back to this step.
@@ -890,8 +891,8 @@ For IBM, IQM Resonance and IQM VLQ it downloads the device's calibration to
 `datafiles/<benchmark>_sim-qpu-noise_<provider>-<backend>_…_layout-<mode>_<YYYY-MM-DD>_#<N>/calibration_snapshot.json` (for VLQ the download is `vlq_calibration.json`, from which the snapshot is built; a rerun warns and reuses it; remove
 the run folder to download fresh calibration), builds an Aer noise model from
 it, and runs the whole benchmark locally on the physical qubits a real submission would
-pick (`source/core/qpu/qpu_snapshot.py`; details in each backend readme). The circuits are transpiled scheduled (`scheduling_method="alap"`),
-so the simulation also decays qubits that wait for the others, as the layout score assumes; a real QPU's circuits stay unscheduled. Its data type `sim-qpu-noise` means
+pick (`source/core/qpu/qpu_snapshot.py`; details in each backend readme). Every simulate script takes the optional `scheduling_simulation=true|false` (default `true`): with `true` the circuits are transpiled scheduled (`scheduling_method="alap"`),
+so the simulation also decays qubits that wait for the others, as the layout score assumes (a full run takes about 4 h); with `false` they are not scheduled, so the idle relaxation is not taken into account (only the relaxation during gates), like the noiseless and coherent-noise simulations, and a full run takes about 1 h. A real QPU's circuits stay unscheduled. The choice is recorded in `run_info.json`, and resuming a run folder with the other value exits with an error (§4.2). Its data type `sim-qpu-noise` means
 `source/analysis_scripts/run_post_process.py` treats it like any local run; its summary JSON names the
 snapshot's backend and date. IQM EQE1 and AQT report no calibration data through
 their SDKs, so their simulate scripts take a calibration file — `calibration_file=PATH`, the provider's file
@@ -905,7 +906,7 @@ provider's venv; everything that reads saved files runs in `local_sim.venv`:
 | Step | Script | venv |
 |---|---|---|
 | Build the circuits (once per topology and depth list; the full-benchmark caches already exist) | any `local_sim.venv` script that calls `build()`, e.g. `source/benchmark_scripts/local_simulation_scripts/` (with the same benchmark arguments) | `local_sim.venv` (myQLM) |
-| Simulate a real backend locally: download its calibration (first run only), build the Aer noise model, run every chunk and health check | `source/benchmark_scripts/real_qpu_scripts/IBM/qbcs_real_simulate_ibm.py`, `source/benchmark_scripts/real_qpu_scripts/IQM_RESONANCE/qbcs_real_simulate_iqm_resonance.py`, `source/benchmark_scripts/real_qpu_scripts/IQM_VLQ/qbcs_real_simulate_iqm_vlq.py` (the IBM and IQM Resonance scripts read the provider's token; VLQ's calibration API needs no token); `source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/qbcs_real_simulate_aqt.py` and `source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/qbcs_real_simulate_iqm_eqe1.py` read a provider file from `calibration_input_files/` instead and need `layout=` | the backend's venv (`ibm.venv`, `iqm_resonance.venv`, `iqm_vlq.venv`, `aqt.venv`, `iqm_eqe1.venv`) — it has the provider SDK for the download and `qiskit-aer` for the simulation, and reads the circuits from the QPY cache, so no myQLM is needed |
+| Simulate a real backend locally: download its calibration (first run only), build the Aer noise model, run every chunk and health check | `source/benchmark_scripts/real_qpu_scripts/IBM/qbcs_real_simulate_ibm.py`, `source/benchmark_scripts/real_qpu_scripts/IQM_RESONANCE/qbcs_real_simulate_iqm_resonance.py`, `source/benchmark_scripts/real_qpu_scripts/IQM_VLQ/qbcs_real_simulate_iqm_vlq.py` (the IBM and IQM Resonance scripts read the provider's token; VLQ's calibration API needs no token); `source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/qbcs_real_simulate_aqt.py` and `source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/qbcs_real_simulate_iqm_eqe1.py` read a provider file from `calibration_input_files/` instead and need `layout=`; every one takes the optional `scheduling_simulation=true|false` (default `true`) | the backend's venv (`ibm.venv`, `iqm_resonance.venv`, `iqm_vlq.venv`, `aqt.venv`, `iqm_eqe1.venv`) — it has the provider SDK for the download and `qiskit-aer` for the simulation, and reads the circuits from the QPY cache, so no myQLM is needed |
 | Submit to / collect from the real QPU | `qbcs_real_submit_*.py`, `qbcs_real_collect_*.py` | the backend's venv |
 | Post-process any run — real, legacy, converted or simulated | `source/analysis_scripts/run_post_process.py` (and the scripts in §10) | `local_sim.venv`. It needs no myQLM: the exact reference values come from the cache `build()` writes (`exact_observables.json` in the circuit folder) and are stored in `run_data*.json`, which the plots read; only a depth missing from that cache would be computed with myQLM |
 
@@ -1365,6 +1366,8 @@ are suffixed (`run_data+nsamples-120.json`, `summary+nsamples-120.json`), so the
 Such a subset analysis varies only the RC samples: its SPAM correction uses the calibration of every collected chunk
 (`spam_confusion_matrix_inv.npy`); `analyze_results(n_samples=N, spam_n_samples=M)` with M below the collected chunks
 uses the first M instead (`spam_confusion_matrix_inv+nsamples-M.npy`). `run_data_spam*.json` records the chunks used as `spam_calibration_samples`.
+
+A QPU-noise simulation (`sim-qpu-noise`, `sim-fake-fez`) also records `scheduling_simulation` (`true` or `false`, the script's argument, §4.2); the field is absent for real runs and noiseless simulations, and a run folder without it counts as `true`.
 
 `run_info.json` is written right after `build()`, before the pre-submission health check
 (`qbcs.record_run_info(run_folder)`, also called by `resolve_physical_qubits(run_folder=…)`), so a run

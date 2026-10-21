@@ -228,8 +228,9 @@ def select_physical_qubits(circuit, target, singles=None, placement_ok=None):
     durations, each placement also gets  Σ_qubits log F(t_idle; T1, T2)  (idle_decay_log()), where the 2q gates of the
     3-qubit circuit run one after another, so  T = Σ 2q durations + the longest single-qubit run of one qubit  and
     t_idle(v) = T − (v's own gate time). A placement missing a T1, T2 or duration is dropped from the scored ones; if
-    none has the data (AQT: one device-wide T1/T2, so the term would be the same everywhere; or no durations at all),
-    the term is left out for every placement.
+    none has the data (no durations at all, or AQT without a calibration file), the term is left out for every
+    placement. AQT with a calibration file has per-ion T1/T2 and r/rxx durations, so the term is included (the same
+    value on every placement).
     """
     n_virtual = circuit.num_qubits
     name_2q   = _pick_op(target, _PREFERRED_2Q, 2)

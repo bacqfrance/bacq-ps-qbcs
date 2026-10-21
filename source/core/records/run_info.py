@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 
-from source.core.common import PROJECT_ROOT
+from source.core.common import PROJECT_ROOT, exit_with_error
 MANIFEST_NAME = "run_info.json"
 
 ALL_EMS       = ["SPAM", "NEC", "RC+NEC", "cRC+NEC"]
@@ -31,6 +31,7 @@ class RunInfo:
     circuits_qiskit_v13_qpy: bool = False   # chunks from chunks_qiskit_v13_qpy/ (all_to_all builds) — see qbcs.build()
     instance:      str = None   # IBM only: the name of the IBM instance that received the run's jobs (never the CRN) and its plan; left out of the manifest when None
     instance_plan: str = None
+    scheduling_simulation: bool = None   # QPU-noise simulations only: whether the circuits were transpiled scheduled (idle qubits relax); a run folder must not mix the two (check_scheduling_simulation()); left out of the manifest when None (real runs, noiseless simulations); a noisy simulation without it counts as True
     source:       str = field(default="manifest", compare=False)   # written into every manifest; compare=False only removes it from dataclass equality, write_run_info()'s rewrite check compares the whole dict, so a manifest holding another source is rewritten; load_run_info() drops it
 
     @property
@@ -40,7 +41,7 @@ class RunInfo:
 
 def _manifest_dict(info):
     d = asdict(info)
-    for key in ("instance", "instance_plan"):
+    for key in ("instance", "instance_plan", "scheduling_simulation"):
         if d[key] is None:
             del d[key]
     return d
@@ -55,7 +56,31 @@ def recorded_instance(run_folder, root="datafiles"):
     return d.get("instance"), d.get("instance_plan")
 
 
-def write_run_info(config, run_folder_path, lnn, circuits_qiskit_v13_qpy=False, instance=None, instance_plan=None):
+def recorded_scheduling_simulation(run_folder, root="datafiles"):
+    """scheduling_simulation recorded in root/<run_folder>/run_info.json: None without a manifest or a record."""
+    try:
+        return json.loads((Path(root) / run_folder / MANIFEST_NAME).read_text(encoding="utf-8")).get("scheduling_simulation")
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def check_scheduling_simulation(run_folder, scheduling_simulation, root="datafiles"):
+    """Exit with code 2 (one ❌ line on stderr) if root/<run_folder> already holds a QPU-noise simulation made with the
+    other scheduling_simulation= value: its transpiled circuits are reused on a resume, so a run folder never mixes
+    scheduled and unscheduled circuits. A run folder with a manifest but no record counts as True; without a manifest
+    (a new run) nothing is checked."""
+    if not (Path(root) / run_folder / MANIFEST_NAME).exists():
+        return
+    recorded = recorded_scheduling_simulation(run_folder, root)
+    recorded = True if recorded is None else recorded
+    if recorded != scheduling_simulation:
+        exit_with_error(f"run folder {run_folder} was simulated with scheduling_simulation={str(recorded).lower()}, not "
+                        f"{str(scheduling_simulation).lower()}: its transpiled circuits are reused, so continue it with "
+                        f"scheduling_simulation={str(recorded).lower()}, or delete the run folder to start over")
+
+
+def write_run_info(config, run_folder_path, lnn, circuits_qiskit_v13_qpy=False, instance=None, instance_plan=None,
+                   scheduling_simulation=None):
     """Called by bacq_ps_qbcs.submit() on every call (and by record_run_info()), once the run folder is known. Writes the manifest
     if missing, leaves it untouched if it already holds the same info, and rewrites it in place if it
     differs. The write itself is atomic (temp file + os.replace()), so a crash mid-write can't leave a
@@ -63,7 +88,9 @@ def write_run_info(config, run_folder_path, lnn, circuits_qiskit_v13_qpy=False, 
     file on every per-chunk submit() raced with Windows file locks (PermissionError); a short retry
     covers the rare lock that still coincides with a real change.
     instance / instance_plan (IBM): the run's instance; None keeps what the manifest already records, so a later call
-    without them (the per-chunk submit()) never drops it."""
+    without them (the per-chunk submit()) never drops it.
+    scheduling_simulation (QPU-noise simulations): the run's choice, True or False; None (real runs, noiseless simulations)
+    records nothing."""
     run_folder_path = Path(run_folder_path)
     run_folder_path.mkdir(parents=True, exist_ok=True)
     if instance is None:
@@ -80,6 +107,7 @@ def write_run_info(config, run_folder_path, lnn, circuits_qiskit_v13_qpy=False, 
         circuits_qiskit_v13_qpy = bool(circuits_qiskit_v13_qpy),
         instance      = instance,
         instance_plan = instance_plan,
+        scheduling_simulation = scheduling_simulation,
     )
     manifest = run_folder_path / MANIFEST_NAME
     if manifest.exists():

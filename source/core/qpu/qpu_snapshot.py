@@ -2,7 +2,7 @@
 qpu_snapshot.py
 Save a real QPU's calibration to JSON and rebuild an offline backend + Aer noise
 model from it — used by the source/benchmark_scripts/real_qpu_scripts/*/qbcs_real_simulate_*.py scripts, source/core/runner_support/run_simulation.py,
-source/core/qpu/calibration_input.py, source/core/qpu/iqm_vlq.py, source/core/records/health_check_records.py,
+source/core/qpu/calibration_input.py, source/core/qpu/iqm_vlq.py, source/core/records/health_check_records.py, source/core/health_check.py, source/core/qbcs.py,
 source/benchmark_scripts/real_qpu_scripts/IBM/qbcs_real_submit_ibm.py and source/benchmark_scripts/local_simulation_scripts/benchmark_fake_fez_lnn.py.
 
 A simulated run always works from the saved file (<run>/calibration_snapshot.json),
@@ -369,11 +369,12 @@ def backend_from_snapshot(snapshot):
     return SnapshotBackend()
 
 
-def scheduling_method(backend):
+def scheduling_method(backend, schedule=True):
     """transpile(scheduling_method=…) for `backend`: "alap" for a calibration-snapshot backend whose gates all have
     durations (the Aer simulation then decays idle qubits as the QPU does), else None — a real QPU runs its own
-    schedule, and its submitted circuits stay unscheduled."""
-    return "alap" if getattr(backend, "schedule_idle", False) else None
+    schedule, and its submitted circuits stay unscheduled. `schedule` is the user's scheduling_simulation= choice
+    of a QPU-noise simulation: False gives None too (idle-qubit relaxation left out)."""
+    return "alap" if schedule and getattr(backend, "schedule_idle", False) else None
 
 
 def noisy_sampler_from_snapshot(snapshot, seed=None):

@@ -195,7 +195,7 @@ the current calibration set (public API, no login) once into
 (`calibration_snapshot.json`: the resonator folded into a CZ with error 1 − F_cz · F_move and duration
 2 · MOVE + CZ, the prx error from the per-gate fidelity above, readout and T1/T2 as measured) and picks the qubits exactly as the submit script does (transpiling onto an offline target built
 from the downloaded architecture, with iqm-client).
-A rerun of an unfinished run reuses the files and prints a warning that it uses pre-saved calibration data (a finished run is followed by a new dated folder, which downloads fresh calibration); remove the run folder to start over. It runs in
+A rerun of an unfinished run reuses the files and prints a warning that it uses pre-saved calibration data (a finished run is followed by a new dated folder, which downloads fresh calibration); remove the run folder to start over. `scheduling_simulation=true|false` is optional, default `true`: `true` transpiles the circuits scheduled, so idle qubits relax through T1/T2 as on the QPU (full benchmark about 4 h); `false` does not schedule them, so idle relaxation is **not** taken into account (only the relaxation during gates), like the noiseless and coherent-noise simulations (about 1 h). The choice is recorded in `run_info.json` and `submit.log`, the health checks follow it, and an unfinished run folder cannot be resumed with the other value (main USER_MANUAL §4.2). It runs in
 `iqm_vlq.venv` (iqm-client builds the offline target); it needs no login. Post-process with
 `run_post_process.py --include-simulations-real` (`source/analysis_scripts/`; every `sim-qpu-noise_…` run of this QPU, whatever its layout, is
 already covered by `SIMULATED_QPUS` in `RUN_THESE`); its

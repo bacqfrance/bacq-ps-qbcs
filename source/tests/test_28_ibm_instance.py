@@ -25,7 +25,8 @@ import types
 import pytest
 
 from source.core.qpu import providers as P
-from source.core.records.run_info import write_run_info, load_run_info, recorded_instance
+from source.core.records.run_info import (write_run_info, load_run_info, recorded_instance, recorded_scheduling_simulation,
+                                          check_scheduling_simulation)
 from source.core.runner_support import benchmark_args as BA
 
 OPEN = dict(name="open-instance", plan="open", crn="crn:open")
@@ -184,3 +185,20 @@ def test_ibm_usage_lists_the_instance_argument():
     usage = BA.make_usage(script, "d", layout="submit_live", instance=True)
     assert "[instance=NAME]" in usage.splitlines()[0] and "instance=NAME" in usage and "Open Plan" in usage
     assert "instance" not in BA.make_usage(script, "d", layout="submit_live").lower()
+
+
+def test_scheduling_simulation_is_recorded_and_a_mismatch_is_refused(tmp_path, capsys):
+    run = tmp_path / "run_s"
+    write_run_info(CONFIG, run, lnn=True, scheduling_simulation=False)
+    assert recorded_scheduling_simulation("run_s", tmp_path) is False
+    check_scheduling_simulation("run_s", False, tmp_path)
+    check_scheduling_simulation("no_such_run", True, tmp_path)               # no manifest: a new run, nothing checked
+    with pytest.raises(SystemExit) as e:
+        check_scheduling_simulation("run_s", True, tmp_path)
+    assert e.value.code == 2 and "scheduling_simulation=false" in capsys.readouterr().err
+    other = tmp_path / "run_t"
+    write_run_info(CONFIG, other, lnn=True)                                  # no record: left out of the manifest, counts as True
+    assert "scheduling_simulation" not in json.loads((other / "run_info.json").read_text(encoding="utf-8"))
+    check_scheduling_simulation("run_t", True, tmp_path)
+    with pytest.raises(SystemExit):
+        check_scheduling_simulation("run_t", False, tmp_path)

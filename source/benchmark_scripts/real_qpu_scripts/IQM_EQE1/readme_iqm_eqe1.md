@@ -148,12 +148,14 @@ already in `SIMULATED_QPUS` of `RUN_THESE`; `--layouts=<mode>` narrows it), or w
 
 ```bash
 python source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/qbcs_real_simulate_iqm_eqe1.py backend=EQE1 mini layout=random
-python source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/qbcs_real_simulate_iqm_eqe1.py backend=EQE1 mini layout=optimized calibration_file=calibration_input_files/Euro-Q-Exa/calibration_data_Euro-Q-Exa_20261019_active_qubits.json
+python source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/qbcs_real_simulate_iqm_eqe1.py backend=EQE1 mini layout=optimized calibration_file=calibration_input_files/Euro-Q-Exa/calibration_data_Euro-Q-Exa_20261020_active_qubits.json scheduling_simulation=false
 ```
+
+`scheduling_simulation=true|false` is optional, default `true`: `true` transpiles the circuits scheduled, so idle qubits relax through T1/T2 as on the QPU (full benchmark about 4 h); `false` does not schedule them, so idle relaxation is **not** taken into account (only the relaxation during gates), like the noiseless and coherent-noise simulations (about 1 h). The choice is recorded in `run_info.json` and `submit.log`, the health checks follow it, and an unfinished run folder cannot be resumed with the other value (main USER_MANUAL §4.2).
 
 What the noise model contains, and what it doesn't:
 
-- Gate errors on `r` and `cz`, and readout errors, with T1/T2 relaxation during gates and while a qubit waits for the others
+- Gate errors on `r` and `cz`, and readout errors, with T1/T2 relaxation during gates and, with `scheduling_simulation=true`, while a qubit waits for the others
   (the circuits are transpiled scheduled, with delays). **The gate durations are assumed:** the source file has none, so IQM
   Emerald's are used (24 ns `r`, 50 ns `cz`, 360 ns `measure`). The T2 stored is the Ramsey value.
 - The **topology of the calibration file**, not the live backend's. Dead couplers and

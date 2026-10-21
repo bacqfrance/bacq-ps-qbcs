@@ -83,7 +83,7 @@ def submit_health_check(run_folder, backend, sampler=None,
                         nshots=ACCOMPANYING_HEALTH_CHECK_NSHOTS, service=None, fake_registry=None,
                         service_name=IBM_CLOUD, reps=1, qubit_set=None, record_suffix=None,
                         accompanying=False, after_submission=False, layout_backend=None, chunks=None,
-                        return_number=False, backend_name=None):
+                        return_number=False, backend_name=None, scheduling_simulation=True):
     """
     Standalone function — no bacq_ps_qbcs instance needed.
     Works for both IBM, IQM and AQT backends (and the local Aer simulator).
@@ -121,6 +121,8 @@ def submit_health_check(run_folder, backend, sampler=None,
     :param backend_name: str | None — the backend's user-facing name (the script's BACKEND_NAME), used in
                          messages only; None: the transpile target's name (layout_backend's for
                          local runs, else the QPU's). The name stored in the record is always the backend object's.
+    :param scheduling_simulation: bool — a noisy local simulation's scheduling_simulation= choice: False transpiles the
+                         circuit unscheduled (no idle-qubit relaxation), as the run's chunks are. Real QPUs ignore it.
     :returns:            Path — exp_results_folder_path (or (Path, number) if return_number=True)
 
     For the asynchronous services (IBM_Cloud, MQSS_LRZ, IQM_Resonance, QAAS_IT4I), a submission failure
@@ -162,7 +164,7 @@ def submit_health_check(run_folder, backend, sampler=None,
     elif service_name in (IQM_RESONANCE, QAAS_IT4I):
         real_backend = backend
     elif service_name == "local":
-        real_backend = backend          # AerSamplerV2 — synchronous, noiseless
+        real_backend = backend          # AerSamplerV2 (noiseless or noisy) — synchronous
 
     # --- Build the circuit -----------------------------------
     circuit = build_qpu_health_check_circuit(reps=reps)
@@ -208,7 +210,7 @@ def submit_health_check(run_folder, backend, sampler=None,
     # Every health check of a run is the same circuit on the same qubits: transpile it once,
     # save it (transpiled_circuits/health_check_transpiled.qpy) and submit that saved copy.
     isa, isa_file, transpile_s = _health_check_isa(exp_results_folder_path, circuit, transpile_target,
-                                                   qubit_set, reps)
+                                                   qubit_set, reps, scheduling_simulation)
     if qubit_set is not None:
         assert final_physical_qubits(isa) == list(qubit_set), (
             f"health check transpiled onto {final_physical_qubits(isa)}, expected {list(qubit_set)}"
@@ -280,7 +282,7 @@ def submit_health_check(run_folder, backend, sampler=None,
                     "failure":           scrub_paths(f"execution failed: {e!r}"),
                     "failure_stage":     "execution",
                 })
-                print(f"  ⚠️  Health check #{number} was not executed on {service_name}: {e}")
+                print(f"  ⚠️  Health check #{number} was not executed on {backend_name or service_name}: {e}")
             raise
         sync_wall  = time.perf_counter() - submit_t0
         if service_name == PCSS:
@@ -326,7 +328,7 @@ def submit_health_check(run_folder, backend, sampler=None,
             number  = create_health_check(exp_results_folder_path, fail_record)
             ts_file = exp_results_folder_path / TIMESTAMP_FILENAME
             timestamp(label=f"health_check_{number}_submit_failed", timestamp_file=ts_file)
-            print(f"  ⚠️  Health check #{number} could not be submitted on {service_name}: {submit_exc}")
+            print(f"  ⚠️  Health check #{number} could not be submitted on {backend_name or service_name}: {submit_exc}")
             raise HealthCheckSubmitError(number, submit_exc) from submit_exc
         raise submit_exc
 
@@ -394,9 +396,9 @@ def submit_health_check(run_folder, backend, sampler=None,
         return exp_results_folder_path, number
     return exp_results_folder_path
 
-def _health_check_isa(run_path, circuit, target, qubit_set, reps):
+def _health_check_isa(run_path, circuit, target, qubit_set, reps, scheduling_simulation=True):
     """The run's transpiled health check circuit: loaded from transpiled_circuits/ if it was
-    already transpiled for this backend, qubits and reps, else transpiled (timed) and saved.
+    already transpiled for this backend, qubits, reps and scheduling_simulation, else transpiled (timed) and saved.
     Returns (isa, file name, transpile_s — None when the saved copy was reused).
 
     transpiled_circuits/health_check_transpiled.json lists every saved variant (normally one:
@@ -410,7 +412,7 @@ def _health_check_isa(run_path, circuit, target, qubit_set, reps):
                  "backend": getattr(target, "name", None) or type(target).__name__}
     meta      = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {"variants": []}
     for v in meta["variants"]:
-        if all(v.get(k) == key[k] for k in key) and (tdir / v["file"]).exists():
+        if all(v.get(k) == key[k] for k in key) and v.get("scheduled", True) == scheduling_simulation and (tdir / v["file"]).exists():
             with open(tdir / v["file"], "rb") as f:
                 isa = load(f)[0]
             print(f"  [Health check] Using the saved transpiled circuit {v['file']}.")
@@ -418,14 +420,14 @@ def _health_check_isa(run_path, circuit, target, qubit_set, reps):
 
     t0  = time.perf_counter()
     isa = transpile(circuit, target, optimization_level=1, initial_layout=qubit_set,
-                    scheduling_method=scheduling_method(target))
+                    scheduling_method=scheduling_method(target, scheduling_simulation))
     transpile_s = time.perf_counter() - t0
     n     = len(meta["variants"])
     fname = "health_check_transpiled.qpy" if n == 0 else f"health_check_transpiled_{n}.qpy"
     tdir.mkdir(parents=True, exist_ok=True)
     with open(tdir / fname, "wb") as f:
         dump(drop_identity_final_layout([isa]), f)   # VLQ layouts: see layout_selection
-    meta["variants"].append({**key, "file": fname, "transpile_s": transpile_s,
+    meta["variants"].append({**key, **({} if scheduling_simulation else {"scheduled": False}), "file": fname, "transpile_s": transpile_s,
                              "transpiled_at": now_utc_iso(precise=True)})
     meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
     print(f"  [Health check] Transpiled and saved → {rel_path(tdir / fname)}")
