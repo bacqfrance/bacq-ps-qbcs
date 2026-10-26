@@ -21,7 +21,8 @@ from source.core.runner_support.benchmark_args import DT
 
 def collect_health_checks(path, service, service_name, backend_name=None):
     """Collect every uncollected health check of the run at `path` and print their verdicts.
-    Never raises: a health check that cannot be collected is only warned about."""
+    A health check that cannot be collected (any Exception) is only warned about; an MQSS_LRZ record
+    without backend_name still ends the script through exit_with_error (old records to upgrade)."""
     try:
         collect_health_check(exp_results_folder_path=path, service=service, service_name=service_name,
                              accompanying=True, backend_name=backend_name)

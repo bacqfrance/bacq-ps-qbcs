@@ -39,8 +39,13 @@ Optional filters narrow the selected runs, for the individual and the collective
   --layouts=optimized,random        the run's qubit layout (optimized, random, lowest, legacy, none, 15-14-21)
 A filtered collective set goes to its own folder, e.g. mini_collective_real-data_dates-2026-09-01-to-2026-09-30_backends-ibm-fez.
 Add --latest-per-qpu to keep only the latest run (date, then run number; complete or not, any layout) of each
-<provider>-<backend> among the runs the selection and filters leave; its collective plots go to a folder ending
-_latest-per-qpu. An incomplete run (fewer chunks analyzed than its sample size) is marked "(n/N chunks)" in the
+(data type, <provider>-<backend>) among the runs the selection and filters leave; its collective plots go to a folder ending
+_latest-per-qpu. --best-Nacc-per-qpu / --best-Emin-at-Nmax-per-qpu instead keep, per (data type, <provider>-<backend>), the run
+with the highest N_acc / the lowest E_min at N_max (the later run on a tie); every candidate is analyzed first if it is not
+(also with --collective-only), and the folder ends _best-nacc-per-qpu / _best-emin-at-nmax-per-qpu. The three flags exclude
+each other. The collective plots and the run table show a layout as optimized_by_gates for an optimized run made before T1/T2
+entered the layout score (dated 2026-10-19 or earlier, or whose physical_qubits.json has no decoherence_included) and as
+optimized_per_chunk_by_2q_gates_IQM for the legacy layout of iqm-emerald; --layouts= accepts these labels too. An incomplete run (fewer chunks analyzed than its sample size) is marked "(n/N chunks)" in the
 collective plots. Each collective plots folder also gets a copy of every plotted run's summary json.
 Add --individual-only (stages 1-5 only) or --collective-only (stage 6 only, from the
 runs' existing analysis results); without either flag both are done. The collective plots go to
@@ -180,7 +185,7 @@ RUN_THESE = {
 
 NSAMPLES_COMPARISON = [8, 48, 120, 240, 480]   # sample counts of --nsamples-comparison
 
-USAGE = """usage: python source/analysis_scripts/run_post_process.py SELECTION INCLUDE... [FILTER...] [--latest-per-qpu] [--individual-only | --collective-only] [--nsamples-comparison]
+USAGE = """usage: python source/analysis_scripts/run_post_process.py SELECTION INCLUDE... [FILTER...] [--latest-per-qpu | --best-Nacc-per-qpu | --best-Emin-at-Nmax-per-qpu] [--individual-only | --collective-only] [--nsamples-comparison]
 
   Run the BACQ analysis pipeline (merge + analyze, summary, plots, collective plots) for a chosen set of runs,
   real-QPU and/or simulated. Nothing is analyzed unless at least one INCLUDE flag is given.
@@ -210,8 +215,14 @@ USAGE = """usage: python source/analysis_scripts/run_post_process.py SELECTION I
   The collective plots of a filtered set go to their own folder (<benchmark>_collective_<data types>_dates-…_backends-…).
 
   --latest-per-qpu       keep only the latest run (date, then run number; complete or not, any layout) of each
-                         <provider>-<backend> left by the selection and filters; the collective plots folder gets the
+                         (data type, <provider>-<backend>) left by the selection and filters; the collective plots folder gets the
                          suffix _latest-per-qpu. Incomplete runs are marked "(n/N chunks)" in the collective plots.
+  --best-Nacc-per-qpu    keep only the run with the highest N_acc of each (data type, <provider>-<backend>) (the later run on a
+                         tie); runs not yet analyzed are analyzed first, even with --collective-only; suffix _best-nacc-per-qpu
+  --best-Emin-at-Nmax-per-qpu   the same with the lowest E_min at N_max; suffix _best-emin-at-nmax-per-qpu
+                         (the three per-QPU flags exclude each other)
+  The collective plots and run table label layouts optimized_by_gates (optimized before T1/T2 entered the layout score) and
+  optimized_per_chunk_by_2q_gates_IQM (iqm-emerald's legacy layout); --layouts= accepts these labels.
 
   ANALYSIS SCOPE — individual and/or collective analysis and plots:
   --individual-only      only the per-run analysis and plots (stages 1-5)
@@ -528,6 +539,41 @@ def already_analyzed(run_folder, n_samples):
     return all(f.exists() and f.stat().st_mtime > counts_mtime for f in files)
 
 
+BEST_FLAGS = {   # --best-* flag -> (PER_QPU_SUFFIXES key, summary key, whether a higher value is better)
+    "--best-Nacc-per-qpu":         ("best-nacc",          "N_acc",      True),
+    "--best-Emin-at-Nmax-per-qpu": ("best-emin-at-nmax",  "E_min_Nmax", False),
+}
+
+
+def _qpu_key(run_folder):
+    """(data type, device) — the QPU a --latest-per-qpu / --best-*-per-qpu selection groups runs by."""
+    n = parse_run_name(run_folder)
+    return n.data_type, n.device
+
+
+def pick_best_per_qpu(analyzed, summary_key, higher_is_better):
+    """The (run_folder, n_samples) of `analyzed` with the best summary value of `summary_key` for each
+    (data type, device), in the order of `analyzed`. Equal values: the later run (date, then run number).
+    A run whose summary lacks the value (missing, null, NaN) only wins if no run of its QPU has one."""
+    best = {}   # QPU -> (rank, (run_folder, n_samples)); rank: (has value, value as "bigger is better", date, run number)
+    for run_folder, n_samples in analyzed:
+        path = PROJECT_ROOT / "datafiles" / run_folder / "processed_results" / run_summary_name(n_samples)
+        try:
+            value = json.loads(path.read_text(encoding="utf-8")).get(summary_key)
+        except (OSError, ValueError):
+            value = None
+        usable = isinstance(value, (int, float)) and not isinstance(value, bool) and value == value
+        n = parse_run_name(run_folder)
+        rank = (usable, (value if higher_is_better else -value) if usable else 0, n.date or "", n.run_number or 0)
+        key = _qpu_key(run_folder)
+        if key not in best or rank >= best[key][0]:
+            best[key] = (rank, (run_folder, n_samples))
+        if not usable:
+            print(f"⚠️  {run_folder}: no usable {summary_key} in its summary")
+    chosen = {pair for _, pair in best.values()}
+    return [pair for pair in analyzed if pair in chosen]
+
+
 def run_script(script_name, run_folder, n_samples, extra_env=None):
     """Stages 2-5 — run one of the source/analysis_scripts/ post-processing scripts, parameterized via env vars."""
     from source.core.runner_support.venvs import venv_python
@@ -644,8 +690,13 @@ def main():
     args, do_individual, do_collective = parse_scope(args)
     do_nsamples = "--nsamples-comparison" in args
     args = [a for a in args if a != "--nsamples-comparison"]
-    latest_per_qpu = "--latest-per-qpu" in args
-    args = [a for a in args if a != "--latest-per-qpu"]
+    per_qpu_flags = [a for a in args if a == "--latest-per-qpu" or a in BEST_FLAGS]
+    if len(set(per_qpu_flags)) > 1:
+        print(USAGE, file=sys.stderr)
+        exit_with_error(f"{' and '.join(sorted(set(per_qpu_flags)))} exclude each other.")
+    args = [a for a in args if a not in per_qpu_flags]
+    latest_per_qpu = "--latest-per-qpu" in per_qpu_flags
+    best = BEST_FLAGS[per_qpu_flags[0]] if per_qpu_flags and not latest_per_qpu else None   # (suffix key, summary key, higher is better)
     mode, value = parse_mode(args)
     if do_nsamples and (mode, value) != ("preset", "full"):
         print(USAGE, file=sys.stderr)
@@ -659,12 +710,12 @@ def main():
     folders = sorted((f for f in cfg_of if run_kind(f) in kinds
                       and run_filter.matches(parse_run_name(f))), key=folder_order)   # one filter point: individual and collective alike
     if latest_per_qpu:
-        latest = {}   # device -> ((date, run number), folder)
+        latest = {}   # (data type, device) -> ((date, run number), folder)
         for f in folders:
             n = parse_run_name(f)
             key = (n.date or "", n.run_number or 0)
-            if n.device not in latest or key >= latest[n.device][0]:
-                latest[n.device] = (key, f)
+            if _qpu_key(f) not in latest or key >= latest[_qpu_key(f)][0]:
+                latest[_qpu_key(f)] = (key, f)
         folders = sorted((f for _, f in latest.values()), key=folder_order)
     print(f"Including: {', '.join(sorted(kinds))}")
     if not run_filter.is_empty:
@@ -683,7 +734,7 @@ def main():
     analyzed = []   # (run_folder, n_samples) of every run with benchmark data, for the collective plots
     for run_folder in folders:
         n_override = cfg_of[run_folder].get("n_samples")
-        if not do_individual:
+        if not do_individual and not best:   # a --best-* selection needs every candidate's summary, so it analyzes the missing ones
             run_folder, n_samples = analyzed_data(run_folder, n_override)
             if run_folder is not None:
                 analyzed.append((run_folder, n_samples))
@@ -701,12 +752,18 @@ def main():
     if not do_collective:
         print("\n✅ Pipeline complete.")
         return
+    if best:
+        analyzed = pick_best_per_qpu(analyzed, best[1], best[2])
+        print(f"\nBest {best[1]} per QPU ({len(analyzed)} run(s)):")
+        for f, n in analyzed:
+            print(f"  {f}")
     section("Collective plots")
     from source.core.analysis.collective_plots import make_collective_plots
     selection = f"any+nshots-{value}" if mode == "nshots" else value
     data_types = [KIND_DATA_TYPES[k][0] for k in KIND_DATA_TYPES if k in kinds]
     try:
-        collective_name = collective_folder_name(selection, data_types, run_filter, latest_per_qpu)
+        collective_name = collective_folder_name(selection, data_types, run_filter, latest_per_qpu,
+                                                 per_qpu=best[0] if best else None)
         make_collective_plots(analyzed, PROJECT_ROOT / collective_plots_dir(collective_name))
     except Exception as e:
         print(f"❌ collective plots failed — {e}", file=sys.stderr)

@@ -255,7 +255,7 @@ pytest source/tests/
 Runs `test_00`/`test_01`/`test_07`/`test_08`/`test_10`/`test_11`/`test_12`/`test_13`/`test_14`/`test_15`/`test_16`/`test_17`/`test_18`/`test_19`/`test_20`/`test_21`/`test_22`/`test_23`/`test_24`/`test_25`/`test_26`/`test_27`/`test_28`/`test_29` (§9) —
 fundamental checks that confirm the circuits are built correctly, a full
 local-sim pipeline + post-processing integration check, and unit tests of the
-executed-circuit check and the timing bookkeeping — in 5 to 10 minutes (364 tests; longer on slower machines).
+executed-circuit check and the timing bookkeeping — in 5 to 10 minutes (366 tests; longer on slower machines).
 **Two venvs are needed**: `local_sim.venv` runs the suite (the run stops at once with instructions if `venvs/local_sim.venv` is missing; `test_10` also starts a child process in it), and `test_12` runs itself in `aqt.venv` — it fails with an error telling you to create `venvs/aqt.venv` (`source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/readme_aqt.md` §1, `requirements_aqt.txt`, which includes `pytest`) or to run `venvs/aqt.venv/Scripts/python -m pip install pytest` (`bin/python` on Linux) if only `pytest` is missing there.
 All tests passing (no failures, no errors) means the base venv, myQLM↔Qiskit
 translation, local Aer simulation, and `source/analysis_scripts/run_post_process.py` all work
@@ -1243,8 +1243,14 @@ Either scope flag can be added as well (e.g. `python source/analysis_scripts/run
 | `--collective-only` | only the collective plots, from the runs' existing results (nothing is re-analyzed; a run without results is left out) |
 
 `--latest-per-qpu` keeps only the latest run (by date, then run number; complete or not, any layout) of each
-`<provider>-<backend>` among the runs the selection and filters leave. Its collective plots go to a folder ending
-`_latest-per-qpu`. In the collective plots and the run table, a run analyzed on fewer chunks than its sample size
+(data type, `<provider>-<backend>`) among the runs the selection and filters leave. Its collective plots go to a folder ending
+`_latest-per-qpu`. `--best-Nacc-per-qpu` and `--best-Emin-at-Nmax-per-qpu` instead keep the run with the highest N_acc, or the
+lowest E_min at N_max, of each (data type, `<provider>-<backend>`) (the later run on a tie); runs not yet analyzed are analyzed
+first, also with `--collective-only`, and the folders end `_best-nacc-per-qpu` / `_best-emin-at-nmax-per-qpu`. The three flags
+exclude each other. The collective plots, the run table and the per-run plot titles name the layout of an optimized run made
+before T1 and T2 entered the layout score (dated 2026-10-19 or earlier, or recorded without `decoherence_included`)
+`optimized_by_gates`, and the legacy layout of `iqm-emerald` `optimized_per_chunk_by_2q_gates_IQM`; `--layouts=` accepts these
+names too. In the collective plots and the run table, a run analyzed on fewer chunks than its sample size
 (e.g. 300 of 480) is marked `(300/480 chunks)`. Every collective plots folder also holds a copy of the summary json of each run it shows.
 
 `--nsamples-comparison` (full benchmark only, e.g. `python source/analysis_scripts/run_post_process.py full --include-real-data --nsamples-comparison`)

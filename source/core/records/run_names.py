@@ -23,8 +23,8 @@ e.g. full_real-data_ibm-fez_lnn-True_service-ibm-cloud_spam-True_layout-optimize
 The builders below (qpu_run_name(), local_run_name(), health_check_run_name()) give the name without its date;
 dated_run_folder() adds it and the number: it reuses the latest folder of those settings while it is unfinished, else
 makes a new one dated today with the next number. Names without a date (test runs) still parse, with date None.
-Collective plots: <benchmark>_collective_<data type>[+<data type>...][_dates-…|_date-… for a single day][_backends-…][_services-…][_layouts-…][_latest-per-qpu]
-(the optional parts name run_post_process.py's filters, RunFilter.suffix(), and --latest-per-qpu); summaries: processed_results/summary.json
+Collective plots: <benchmark>_collective_<data type>[+<data type>...][_dates-…|_date-… for a single day][_backends-…][_services-…][_layouts-…][_latest-per-qpu|_best-nacc-per-qpu|_best-emin-at-nmax-per-qpu]
+(the optional parts name run_post_process.py's filters, RunFilter.suffix(), and --latest-per-qpu / --best-Nacc-per-qpu / --best-Emin-at-Nmax-per-qpu); summaries: processed_results/summary.json
 (summary+nsamples-N.json) in the run, copied to analysis/plots+summaries/<run folder>/summary_<run name>.json.
 Every other subset-analysis output in processed_results/ carries the same subset_suffix(N) = +nsamples-N
 (run_data+nsamples-N.json, run_data_spam+nsamples-N.json, health_checks+nsamples-N.json, spam_confusion_matrix+nsamples-N.npy, plots).
@@ -71,6 +71,35 @@ def service_name_of_run_service(service):
     return {q[1]: q[2] for q in QPUS.values()}.get(service, service if service == "local" else None)
 
 _LAYOUT = re.compile(r"optimized|random|lowest|legacy|none|\d+-\d+-\d+")
+
+# Display labels of a layout (layout_label()): not part of any run name.
+LAYOUT_BY_GATES        = "optimized_by_gates"                       # optimized before T1/T2 entered the layout score
+LAYOUT_EMERALD_LEGACY  = "optimized_per_chunk_by_2q_gates_IQM"      # the legacy layout of iqm-emerald
+LAYOUT_LABELS          = (LAYOUT_BY_GATES, LAYOUT_EMERALD_LEGACY)
+LAST_DATE_WITHOUT_T1T2 = "2026-10-19"   # runs of this day or earlier are "by gates" (T1/T2 came in with the commit of 2026-10-19 23:24)
+_DATAFILES = Path(__file__).resolve().parents[3] / "datafiles"
+
+
+def layout_label(run):
+    """How the figures and tables call the layout of `run` (a run folder, relative to datafiles/, or a RunName):
+    the layout field, except that
+    - "optimized" becomes optimized_by_gates for a run dated LAST_DATE_WITHOUT_T1T2 or earlier, or whose
+      transpiled_circuits/physical_qubits.json has no "decoherence_included" key (the layout score had no T1/T2 term yet);
+    - "legacy" on iqm-emerald becomes optimized_per_chunk_by_2q_gates_IQM."""
+    name = run if isinstance(run, RunName) else parse_run_name(run)
+    if name.layout == "legacy" and name.device == "iqm-emerald":
+        return LAYOUT_EMERALD_LEGACY
+    if name.layout != "optimized":
+        return name.layout
+    if name.date and name.date <= LAST_DATE_WITHOUT_T1T2:
+        return LAYOUT_BY_GATES
+    folder = str(run) if not isinstance(run, RunName) else str(name)
+    try:
+        import json
+        record = json.loads((_DATAFILES / folder / "transpiled_circuits" / "physical_qubits.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return name.layout
+    return name.layout if "decoherence_included" in record else LAYOUT_BY_GATES
 _BENCH  = re.compile(r"[a-z0-9][a-z0-9-]*(\+[a-z]+-[0-9][0-9-]*)*")
 _DATE   = re.compile(r"\d{4}-\d{2}-\d{2}")
 _NUMBER = re.compile(r"#[1-9]\d*")
@@ -130,7 +159,7 @@ class RunName:
     @property
     def figure_label_full(self):
         """figure_label with the layout and the run's date, e.g. "ibm-fez — real QPU, layout optimized, 11/10/2026 #1"."""
-        return f"{self.figure_label}, layout {self.layout}, {self.date_label}"
+        return f"{self.figure_label}, layout {layout_label(self)}, {self.date_label}"
 
     @property
     def is_health_check(self):
@@ -288,7 +317,7 @@ class RunFilter:
                 return False
         return ((self.backends is None or name.device in self.backends)
                 and (self.services is None or name.service in self.services)
-                and (self.layouts is None or name.layout in self.layouts))
+                and (self.layouts is None or name.layout in self.layouts or layout_label(name) in self.layouts))
 
     def describe(self):
         """The filter for the run list header, e.g. "date 2026-09-01 to 2026-09-30; backends ibm-fez, iqm-garnet"."""
@@ -329,8 +358,8 @@ def make_run_filter(date=None, backends=None, services=None, layouts=None):
         if s not in SERVICES:
             raise ValueError(f"unknown service {s!r} (one of {', '.join(SERVICES)})")
     for l in layouts or ():
-        if not _LAYOUT.fullmatch(l):
-            raise ValueError(f"bad layout {l!r} (optimized, random, lowest, legacy, none or three qubits a-b-c)")
+        if not _LAYOUT.fullmatch(l) and l not in LAYOUT_LABELS:
+            raise ValueError(f"bad layout {l!r} (optimized, random, lowest, legacy, none, three qubits a-b-c, {', '.join(LAYOUT_LABELS)})")
     as_tuple = lambda v: tuple(v) if v else None
     return RunFilter(date_from, date_to, as_tuple(backends), as_tuple(services), as_tuple(layouts))
 
@@ -519,7 +548,13 @@ def collective_plots_dir(name, test=False):
     return Path("analysis", *([TESTS_FOLDER] if test else []), PLOTS_FOLDER, name)
 
 
-def collective_folder_name(benchmark, data_types, run_filter=None, latest_per_qpu=False):
-    """<benchmark>_collective_<data type>[+<data type>...][<RunFilter.suffix()>][_latest-per-qpu] for the plots comparing several runs."""
+PER_QPU_SUFFIXES = {"latest": "_latest-per-qpu", "best-nacc": "_best-nacc-per-qpu", "best-emin-at-nmax": "_best-emin-at-nmax-per-qpu"}
+
+
+def collective_folder_name(benchmark, data_types, run_filter=None, latest_per_qpu=False, per_qpu=None):
+    """<benchmark>_collective_<data type>[+<data type>...][<RunFilter.suffix()>][_latest-per-qpu | _best-nacc-per-qpu |
+    _best-emin-at-nmax-per-qpu] for the plots comparing several runs. `per_qpu` is a key of PER_QPU_SUFFIXES
+    (latest_per_qpu=True is per_qpu="latest")."""
+    per_qpu = per_qpu or ("latest" if latest_per_qpu else None)
     return (f"{benchmark}_collective_{'+'.join(data_types)}{run_filter.suffix() if run_filter else ''}"
-            f"{'_latest-per-qpu' if latest_per_qpu else ''}")
+            f"{PER_QPU_SUFFIXES[per_qpu] if per_qpu else ''}")

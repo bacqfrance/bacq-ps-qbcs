@@ -13,7 +13,7 @@ Plots comparing all runs analyzed by source/analysis_scripts/run_post_process.py
   effective_cost_EUR.png    effective cost in EUR per run (log scale)
   n_acc.png                 N_acc per run (linear scale)
   e_min_nmax.png            E_min at N_max per run (linear scale, with the threshold epsilon)
-and, in the same folder, <benchmark>_collective_<data types>[<filter suffix>][_latest-per-qpu].csv (the suffixes only for a filtered set of runs): one row per run with
+and, in the same folder, <benchmark>_collective_<data types>[<filter suffix>][_latest-per-qpu|_best-nacc-per-qpu|_best-emin-at-nmax-per-qpu].csv (the suffixes only for a filtered set of runs): one row per run with
   run, n_samples, sample_size, N_acc, best_scheme_Nacc, N_max, E_min_Nmax, best_scheme_Nmax, QPU_time_s, QPU_time, effective_cost_EUR
 
 Reads each run's processed_results/summary.json (a subset: summary+nsamples-N.json) and
@@ -31,7 +31,7 @@ from pathlib import Path
 
 from source.core.common import PROJECT_ROOT, rel_path
 from source.core.records.run_info import load_run_info
-from source.core.records.run_names import parse_run_name, run_summary_name, subset_suffix, summary_name
+from source.core.records.run_names import layout_label, parse_run_name, run_summary_name, subset_suffix, summary_name
 from source.core.analysis.derived_quantities import EPSILON, cumulative_awae, best_schemes
 
 import matplotlib
@@ -91,7 +91,7 @@ def _load_run(run_folder, n_samples):
         shots      = summary.get("shots_per_circuit"),
         n_samples  = n_samples,
         sample_size = load_run_info(run_folder).sample_size,   # the chunks of a complete run
-        layout     = parse_run_name(run_folder).layout,
+        layout     = layout_label(run_folder),   # the layout field, or optimized_by_gates / optimized_per_chunk_by_2q_gates_IQM
         date       = parse_run_name(run_folder).date,         # YYYY-MM-DD (None: an undated test run)
         run_number = parse_run_name(run_folder).run_number,   # N of _#N (None: an undated test run)
         date_label = parse_run_name(run_folder).date_label,   # DD/MM/YYYY #N
@@ -185,7 +185,7 @@ def _bar_plot(runs, labels, key, ylabel, title, value_fmt, path, tick_fmt=None, 
         ax.axhline(EPSILON, color="black", ls="--", lw=1, alpha=0.6, label=rf"accuracy threshold $\varepsilon$={EPSILON}")
         ax.legend(fontsize=8)
     else:
-        ax.set_ylim(0, max(max(vals), 1) * 1.15)
+        ax.set_ylim(0, max(max(vals), 1) * 1.35)
     ax.set_ylabel(ylabel)
     ax.set_title(title, fontweight="bold")
     ax.grid(True, axis="y", which="both", alpha=0.3)

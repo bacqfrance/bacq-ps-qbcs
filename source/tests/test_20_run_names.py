@@ -154,7 +154,7 @@ def test_dated_names_round_trip():
     r = RN.parse_run_name(f"{REAL}_2026-10-11_#3")
     assert (r.date, r.run_number, r.undated, str(r), r.layout) == ("2026-10-11", 3, REAL, f"{REAL}_2026-10-11_#3", "optimized")
     assert r.date_label == "11/10/2026 #3"
-    assert r.figure_label_full == "ibm-fez — real QPU, layout optimized, 11/10/2026 #3"
+    assert r.figure_label_full == "ibm-fez — real QPU, layout optimized_by_gates, 11/10/2026 #3"   # an optimized run of before T1/T2 entered the layout score
     assert RN.parse_run_name(f"{REAL}_2026-10-11_#12").run_number == 12
     old = RN.parse_run_name(REAL)                                   # a name without a date still parses
     assert (old.date, old.run_number, old.undated, str(old), old.date_label) == (None, None, REAL, REAL, "date unknown")
@@ -327,6 +327,9 @@ def test_run_filter_values_and_names():
     assert RN.collective_folder_name("mini", ["real-data"]) == "mini_collective_real-data"
     assert RN.collective_folder_name("mini", ["real-data"], RN.RunFilter()) == "mini_collective_real-data"
     assert RN.collective_folder_name("mini", ["real-data"], latest_per_qpu=True) == "mini_collective_real-data_latest-per-qpu"
+    assert RN.collective_folder_name("mini", ["real-data"], per_qpu="best-nacc") == "mini_collective_real-data_best-nacc-per-qpu"
+    assert (RN.collective_folder_name("mini", ["real-data"], RN.make_run_filter(backends=["ibm-fez"]), per_qpu="best-emin-at-nmax")
+            == "mini_collective_real-data_backends-ibm-fez_best-emin-at-nmax-per-qpu")
     f = mk(date="2026-09-01:2026-09-30", backends=["iqm-garnet", "ibm-fez"], layouts=["random"])
     assert RN.collective_folder_name("mini", ["real-data"], f) == (
         "mini_collective_real-data_dates-2026-09-01-to-2026-09-30_backends-ibm-fez+iqm-garnet_layouts-random")
@@ -334,6 +337,38 @@ def test_run_filter_values_and_names():
     assert mk(date=":2026-09-30").suffix() == "_dates-until-2026-09-30"
     long = mk(backends=[f"ibm-b{i}" for i in range(10)])
     assert len(long.suffix()) < 40 and long.suffix().startswith("_backends-10-")
+
+
+def test_layout_label():
+    em = "full_real-data_iqm-emerald_lnn-True_service-mqss-lrz_spam-True_layout-legacy_2026-09-07_#1"
+    eq = "full_real-data_iqm-eqe1_lnn-True_service-mqss-lrz_spam-True_layout-legacy_2026-08-27_#1"
+    old = "full_real-data_ibm-fez_lnn-True_service-ibm-cloud_spam-True_layout-optimized_2026-10-19_#1"
+    assert RN.layout_label(em) == "optimized_per_chunk_by_2q_gates_IQM"
+    assert RN.layout_label(eq) == "legacy"
+    assert RN.layout_label(old) == "optimized_by_gates"
+    assert RN.layout_label(old.replace("optimized", "random")) == "random"
+    assert RN.layout_label(old.replace("2026-10-19", "2026-10-20")) == "optimized"   # no physical_qubits.json to say otherwise
+    flt = RN.make_run_filter(layouts=["optimized_by_gates"])
+    assert flt.matches(RN.parse_run_name(old)) and not flt.matches(RN.parse_run_name(eq))
+
+
+def test_pick_best_per_qpu(tmp_path, monkeypatch):
+    from source.analysis_scripts import run_post_process as P
+    monkeypatch.setattr(P, "PROJECT_ROOT", tmp_path)
+    base = "full_real-data_ibm-fez_lnn-True_service-ibm-cloud_spam-True_layout-optimized_2026-10-{d}_#1"
+    sim = "full_sim-qpu-noise_ibm-fez_lnn-True_service-local_spam-True_layout-optimized_2026-10-01_#1"
+    values = {base.format(d="01"): 5, base.format(d="02"): 9, base.format(d="03"): 9, sim: 50}
+    for folder, v in values.items():
+        d = tmp_path / "datafiles" / folder / "processed_results"
+        d.mkdir(parents=True)
+        (d / "summary.json").write_text(f'{{"N_acc": {v}, "E_min_Nmax": {v / 100}}}', encoding="utf-8")
+    runs = [(f, None) for f in values]
+    assert P.pick_best_per_qpu(runs, "N_acc", True) == [(base.format(d="03"), None), (sim, None)]   # tie: the later run; data types apart
+    assert P.pick_best_per_qpu(runs, "E_min_Nmax", False) == [(base.format(d="01"), None), (sim, None)]
+    d = tmp_path / "datafiles" / base.format(d="04") / "processed_results"
+    d.mkdir(parents=True)
+    (d / "summary.json").write_text('{"N_acc": null}', encoding="utf-8")
+    assert P.pick_best_per_qpu(runs + [(base.format(d="04"), None)], "N_acc", True)[0][0] == base.format(d="03")
 
 
 def test_coherent_noise_of_run_names_the_cache(tmp_path):
