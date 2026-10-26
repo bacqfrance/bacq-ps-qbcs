@@ -1,9 +1,15 @@
-# BACQ-PS-QBCS — Error-Mitigated BCS Quench Benchmark
+# BACQ-PS-QBCS — Quantum computer benchmark based on a quench in the BCS model
 
 A benchmark for quantum processors based on simulating the quench dynamics of the
-Bardeen–Cooper–Schrieffer (BCS) model, using randomized compiling and error mitigation. It runs on a
-**local Qiskit/Aer simulator** and on **real QPUs**:
+Bardeen–Cooper–Schrieffer (BCS) model.
 
+The benchmark evaluates the maximum circuit depth for accurate quantum simulation.
+It uses error mitigation based on randomized compiling and noise-estimation circuits.
+Comparing the results using different error-mitigation schemes enables insight into 
+the origin of noise on a quantum computer.
+
+The benchmark runs on a
+**local Qiskit/Aer simulator** and on **real QPUs**:
 - IBM, via [IBM Quantum Platform](https://quantum.cloud.ibm.com/)
 - IQM, via [IQM Resonance](https://resonance.iqm.tech/)
 - IQM [Euro-Q-Exa](https://www.eurohpc-ju.europa.eu/eurohpc-quantum-computers/our-quantum-computers_en#euro-q-exa) (EQE1) at [LRZ](https://www.lrz.de/en/)

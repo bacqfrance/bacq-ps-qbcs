@@ -169,8 +169,9 @@ def _bar_plot(runs, labels, key, ylabel, title, value_fmt, path, tick_fmt=None, 
     if not pts:
         print(f"⏭  {path.name}: no data — skipped")
         return
-    fig, ax = plt.subplots(figsize=(max(6, 1.1 * len(pts) + 2), 5))
     names, vals = zip(*pts)
+    # the rotated run labels are long and tight_layout() takes their room from the axes: a taller figure keeps the plot area ~4 in
+    fig, ax = plt.subplots(figsize=(max(6, 1.1 * len(pts) + 2), 4 + min(0.07 * max(len(n) for n in names), 5)))
     bars = ax.bar(range(len(vals)), vals, color="steelblue", width=0.6)
     for b, v in zip(bars, vals):
         ax.annotate(value_fmt(v), (b.get_x() + b.get_width() / 2, v), xytext=(0, 3),
@@ -178,7 +179,7 @@ def _bar_plot(runs, labels, key, ylabel, title, value_fmt, path, tick_fmt=None, 
     ax.set_xticks(range(len(vals)))
     ax.set_xticklabels(names, rotation=30, ha="right")
     if log:
-        ax.set_ylim(min(vals) / 2, max(vals) * 2.5)
+        ax.set_ylim(min(vals) / 2, max(vals) * 6)   # room for the value label above the tallest bar
         _plain_log_axis(ax, tick_fmt)
     elif key == "emin_nmax":
         ax.set_ylim(0, 1.05)
