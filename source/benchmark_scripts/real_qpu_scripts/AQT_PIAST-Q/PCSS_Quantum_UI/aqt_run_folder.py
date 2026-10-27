@@ -37,7 +37,7 @@ def compute_run_folder():
         )
     usage_src = "\n".join(ln for ln in text.split("\n")   # the loop script's usage, so that an argument error prints it
                           if ln.startswith(("from source.core.runner_support.benchmark_args import make_usage", "usage_if_requested(")))
-    config_src = ("import sys\nimport numpy as np\nfrom pathlib import Path\n"
+    config_src = ("import sys\nfrom pathlib import Path\n"
                   "from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args, parse_run_folder_arg, pop_force_new_run_flag\n"
                   "from source.core.records.run_names import qpu_run_name, service_name, dated_run_folder\n"
                   + usage_src + "\n" + text[start:end])

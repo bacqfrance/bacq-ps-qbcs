@@ -39,10 +39,10 @@ shutil.rmtree(f"datafiles/{RUN_FOLDER}", ignore_errors=True)   # fresh submissio
 # ── Connect to IBM ────────────────────────────────────────────────────────────
 print(f"\n[{BACKEND_NAME} — connection]")
 token        = read_token("ibm_token")
-service, INSTANCE = connect_ibm(token, INSTANCE_ARG, BACKEND_NAME)
+service, _ = connect_ibm(token, INSTANCE_ARG, BACKEND_NAME)
 real_backend = service.backend(BACKEND_NAME)
 
-print(f"  Channel:  ibm_quantum_platform")
+print("  Channel:  ibm_quantum_platform")
 print(f"  Backend:  {real_backend.name}")
 print(f"  Qubits:   {real_backend.num_qubits}")
 

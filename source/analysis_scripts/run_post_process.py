@@ -72,10 +72,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))   # datafiles/ paths are relative to the project root
 
 from pathlib import Path
-from source.core.common import section
+from source.core.common import section, exit_with_error, LAUNCHER, PROJECT_ROOT
 from source.core.records.run_info import load_run_info
 from source.core.runner_support.benchmark_args import parse_benchmark_args, usage_if_requested
-from source.core.common import exit_with_error, LAUNCHER, PROJECT_ROOT
 # The pipeline, plotting and provider modules (myQLM, matplotlib, …) are imported inside the functions that use
 # them, so a wrong argument prints the usage before those heavy imports.
 from source.core.records.run_names import (collective_folder_name, collective_plots_dir, entry_data_type, is_run_name, make_run_filter,

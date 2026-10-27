@@ -40,7 +40,7 @@ PATHS        = [f"datafiles/{folder}" for folder in RUN_FOLDERS]   # oldest firs
 # ── Connect to IBM ────────────────────────────────────────────────────────────
 print(f"\n[{BACKEND_NAME} — connection]")
 token   = read_token("ibm_token")
-service, INSTANCE = connect_ibm(token, ibm_instance_for_runs(parse_instance_arg(sys.argv[1:]), RUN_FOLDERS), BACKEND_NAME)   # the runs' recorded instance (jobs are found only through it)
+service, _ = connect_ibm(token, ibm_instance_for_runs(parse_instance_arg(sys.argv[1:]), RUN_FOLDERS), BACKEND_NAME)   # the runs' recorded instance (jobs are found only through it)
 
 # ── Health checks, then the finished chunks (non-blocking), merge, analyze (source/core/runner_support/run_collection.py) ──
 collect_runs(PATHS, service, SERVICE_NAME, BACKEND_NAME, BENCH, LNN, DO_SPAM)

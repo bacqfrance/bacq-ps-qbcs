@@ -264,7 +264,7 @@ pytest source/tests/
 Runs `test_00`/`test_01`/`test_07`/`test_08`/`test_10`/`test_11`/`test_12`/`test_13`/`test_14`/`test_15`/`test_16`/`test_17`/`test_18`/`test_19`/`test_20`/`test_21`/`test_22`/`test_23`/`test_24`/`test_25`/`test_26`/`test_27`/`test_28`/`test_29`/`test_30` (§9) —
 fundamental checks that confirm the circuits are built correctly, a full
 local-sim pipeline + post-processing integration check, and unit tests of the
-executed-circuit check and the timing bookkeeping — in 5 to 10 minutes (386 tests; longer on slower machines).
+executed-circuit check and the timing bookkeeping — in 5 to 10 minutes (387 tests; longer on slower machines).
 **Two venvs are needed**: `local_sim.venv` runs the suite (the run stops at once with instructions if `venvs/local_sim.venv` is missing; `test_10` also starts a child process in it), and `test_12` runs itself in `aqt.venv` — it fails with an error telling you to create `venvs/aqt.venv` (`source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/readme_aqt.md` §1, `requirements_aqt.txt`, which includes `pytest`) or to activate `aqt.venv` and run `python3 -m pip install pytest` (`py -m pip install pytest` on Windows) if only `pytest` is missing there.
 All tests passing (no failures, no errors) means the base venv, myQLM↔Qiskit
 translation, local Aer simulation, and `source/analysis_scripts/run_post_process.py` all work
@@ -329,8 +329,8 @@ rerun the script.
 **Circuit format.** LNN circuits are cached at Qiskit's default QPY version
 (`chunks_qiskit/chunk_{nc}_qiskit.qpy`); all-to-all circuits at QPY version 13
 (`chunks_qiskit_v13_qpy/chunk_{nc}_qiskit_v13.qpy`), the newest the older Qiskit of
-`aqt.venv` (1.4.6) and `iqm_vlq.venv` (2.1) can read — the two QPUs that run all-to-all
-circuits. Newer Qiskit reads both, so a local all-to-all simulation runs exactly the files
+`aqt.venv` (1.4.6) can read (AQT, IQM VLQ and IQM Resonance Sirius run all-to-all
+circuits; VLQ (`iqm_vlq.venv`, 2.1) and Sirius could read newer versions but use the same cache). Newer Qiskit reads both, so a local all-to-all simulation runs exactly the files
 sent to those QPUs. Loading these files in the older Qiskit would print a warning that
 they were written by a newer Qiskit. Qiskit checks the writer's version recorded in the
 header, not the QPY format version. Since this is the intended setup, `source/core/qbcs.py`
@@ -1098,7 +1098,7 @@ batch, health checks — sitting on the same physical qubits (`qubit_consistency
 `processed_results/circuit_qubit_check_cache.json`).
 
 **Legacy runs (recorded without timing blocks and circuit checks).** Every such run in the repository
-(the AQT full run and the runs in `datafiles/old_runs_full/`) was converted once to the current
+(the AQT full run and the older full runs) was converted once to the current
 format. A converted record carries `timing.converted_from_old_record: true` and
 `upgraded_from_old_format_at`; the original files are kept in `<run>/job_records_before_upgrade/`.
 IBM records got the billed QPU time and a circuit check from IBM. IQM Resonance did not keep the
@@ -1124,11 +1124,11 @@ runs synchronously, so its submit script runs the accompanying health checks and
 | IQM — VLQ (IT4Innovations, via LEXIS/HEAppE) | `source/benchmark_scripts/real_qpu_scripts/IQM_VLQ/` | async + separate collect | [`readme_iqm_vlq.md`](source/benchmark_scripts/real_qpu_scripts/IQM_VLQ/readme_iqm_vlq.md) |
 | AQT — PIAST-Q | `source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/` | synchronous, merged inline | [`readme_aqt.md`](source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/readme_aqt.md) |
 
-**All-to-all QPUs (AQT, VLQ)**: `aqt.venv` (Qiskit 1.4) and `iqm_vlq.venv` (Qiskit 2.1) are pinned to
+**All-to-all QPUs (AQT, VLQ, Sirius)**: `aqt.venv` (Qiskit 1.4) is pinned to an
 older Qiskit than the rest of the project and can't read the default QPY version. All-to-all
-circuits are therefore always cached at QPY version 13 (§4.1):
+circuits are therefore always cached at QPY version 13 (§4.1); `iqm_vlq.venv` (Qiskit 2.1) and Sirius could read newer versions but use the same cache, so it needn't be rebuilt:
 `source/benchmark_scripts/local_simulation_scripts/benchmark_noiseless_all_to_all.py` (§4.3) builds them in
-`local_sim.venv` for both.
+`local_sim.venv` for all three.
 
 **Credentials** (`tokens/`): every backend reads a token from a plain-text
 `tokens/<provider>_token` file (git-ignored except `tokens/README.md`), always through
@@ -1250,7 +1250,7 @@ The numbered tests skip 02-06 and 09 (those numbers belong to retired tests).
 | `source/tests/test_18_layout_args.py` | unit tests, no simulation or network: the `layout=` / `calibration_file=` arguments and their errors (refused by the noiseless and coherent-noise local simulation scripts; the FakeFez one takes `layout=` but not `calibration_file=`), the four layout modes (optimized, random with a recorded seed, lowest, a given list and the errors for an impossible one) on synthetic targets incl. AQT's coupling-free one, the calibration formats (provider files vs snapshot) with automatic conversion, the date a snapshot records for the provider's calibration (`measured_at`) and the layout scored on the saved snapshot, the run-folder names (the latest dated folder of a collect script, or that of `date=`, which without `layout=` takes each layout's run), the `scheduling_simulation=` argument of the simulate scripts, and the T1/T2 idle-decay term of the layout score |
 | `source/tests/test_19_circuit_cache_and_venvs.py` | unit tests, no build or network: the circuit caches live in `datafiles/circuits/` (`datafiles/tests/circuits/` for the tests, which add nothing elsewhere), a cache built by another or no `CIRCUIT_CODE_VERSION` is refused, and `venv_python_path()` finds the interpreter on Windows and Linux; a missing token or LEXIS project file ends the script with one ❌ line and exit code 2 (`exit_with_error()`); `scrub_paths()` takes the project and home folders out of saved error texts |
 | `source/tests/test_20_run_names.py` | unit tests, no simulation or network: run, plot and summary names (`source/core/records/run_names.py`) round-trip for every QPU folder and data type, the `<benchmark>` field of every kind of benchmark arguments, subset/summary/collective names, the service name of every QPU and of each run-name service field (`service_name()`); the figure label of every data type (`figure_label`, simulations marked as such); the run filters of `run_post_process.py` (`RunFilter`, `make_run_filter()`, `parse_date_filter()`) and the collective folder name of a filtered set; the date field (dated and undated names, `date_label`, `figure_label_full`, `dated_run_folder()` reusing only an unfinished run, `latest_run_folder()`) and the collective plots' run labels and order and time units (`_duration_fmt`: s, min, h, d), the run table CSV (`_write_run_table`, written by `make_collective_plots` as `<collective folder>/<collective folder name>.csv`) and the linear bar plots (`_bar_plot`); the data type of a `RUN_THESE` entry (`entry_data_type()`); the coherent noise of a run read from its job record (`coherent_noise_of_run()`) and the circuit cache folder it names; malformed names (and layouts of other than three qubits) refused |
-| `source/tests/test_21_docs_consistency.py` | unit tests, no simulation or network: the user docs (README.md, this manual, both QUICK_STARTs, the guide for new backends, `tokens/README.md`, the QPU readmes) have no TAB bytes, every `source/…` path they name exists, every relative link and in-page anchor resolves, no user doc names the maintainer-only folder, every `USER_MANUAL §N` reference (in the docs and the requirements files) names an existing section and none points to a `README §N`, every token file is named `tokens/<provider>_token` (never the reversed order), every QPU readme has the shared seven top-level sections (Prerequisites, Connecting, Config knobs, Workflow, Timing, billing and circuit check, Outputs & post-processing, Known issues) and the shared paragraphs in the same words, and every `readme_<qpu>.md §N` reference exists |
+| `source/tests/test_21_docs_consistency.py` | unit tests, no simulation or network: the user docs (README.md, this manual, both QUICK_STARTs, the guide for new backends, the guide for new dummy QPUs, `tokens/README.md`, the QPU readmes) have no TAB bytes, every `source/…` path they name exists, every relative link and in-page anchor resolves, no user doc names the maintainer-only folder, every `USER_MANUAL §N` reference (in the docs and the requirements files) names an existing section and none points to a `README §N`, every token file is named `tokens/<provider>_token` (never the reversed order), every QPU readme has the shared seven top-level sections (Prerequisites, Connecting, Config knobs, Workflow, Timing, billing and circuit check, Outputs & post-processing, Known issues) and the shared paragraphs in the same words, and every `readme_<qpu>.md §N` reference exists |
 | `source/tests/test_22_output_format.py` | unit tests, no simulation or network: the shared output helpers — `section()` headers, `print_done_block()` closing blocks, the one-line `print_chunk_saved()`, the two-line `format_retry()` notice (exception cut to 80 characters) and `top_counts()` for health-check counts |
 | `source/tests/test_23_no_absolute_paths_in_saved_files.py` | runs the mini local simulation and its post-processing in a test folder, then checks that no text file of the run folder or of its `analysis/tests/` output (job records, `run_info.json`, `submit.log`, health checks, `run_data*.json`, summaries) contains an absolute path (the project root or home folder, a drive-letter or UNC path, `/home/`, `/Users/`, ...); the patterns are checked against example paths and URLs too, and `saved_config()` is checked to keep JSON-writable values (like the `coherent_noise` dict) and drop arrays and machine-specific paths |
 | `source/tests/test_24_ibm_batch_and_optimized_layout.py` | `ibm_batch()` yields a sampler bound to the batch and closes it on success, on an error and with the default `max_time`; `layout=optimized` on a QPU with no SWAP-free placement exits with code 2 and one line without writing `physical_qubits.json`; an optimized or explicit layout that has a placement still resolves; the VLQ calibration source without an absolute path; `run_local_simulation.py` exiting cleanly |
@@ -1437,7 +1437,7 @@ from the run as above. If an entry matches several runs (e.g. two layouts or two
 QPU, layout, date, run number; to pick one, add fields or name it with
 `dict(run=…, layout="optimized")` (or `"random"`, `"lowest"`, `"legacy"`, `"15-14-21"`) and/or `date="2026-10-11"` (or `"2026-10-11_#1"`). A run of another benchmark is
 selected with `dict(run=…, benchmark=…)` (e.g. `benchmark="full+nshots-100"`), and an archived one with
-`dict(run_folder=…)` (e.g. `run_folder="old_runs_full/full_real-data_ibm-fez_lnn-True_service-ibm-cloud_spam-True_layout-lowest_2026-09-21_#1"`).
+`dict(run_folder=…)` (e.g. `run_folder="full_real-data_ibm-fez_lnn-True_service-ibm-cloud_spam-True_layout-lowest_2026-09-21_#1"`).
 Runs without a layout argument carry `layout-optimized` (scored; `layout-random` for AQT PIAST-Q and IQM EQE1 runs without `layout=` and `calibration_file=`), `layout-lowest`
 (the lexicographically lowest SWAP-free placement) or `layout-legacy` (runs made before layouts were recorded; qiskit chose the qubits per circuit).
 

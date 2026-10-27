@@ -509,8 +509,8 @@ def verification_warning(summary):
     if not summary:
         return None
     parts = []
-    for kind, word, key in (("mismatch", "Circuit mismatch", "mismatched_ids"),
-                            ("check_failed", "Circuit check failed", "check_failed_ids")):
+    for word, key in (("Circuit mismatch", "mismatched_ids"),
+                      ("Circuit check failed", "check_failed_ids")):
         items = [_first_and_others((summary.get("chunks") or {}).get(key) or [], "chunk"),
                  _first_and_others((summary.get("health_checks") or {}).get(key) or [], "health check")]
         items = [i for i in items if i]

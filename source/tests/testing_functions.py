@@ -291,7 +291,7 @@ def run_mitigation_pipeline_all_depths(infidelity_total, ratio_ct, noise_type="d
     CONFIG["exp_label"]             = f"{folder_prefix}_{noise_type}_{CONFIG['noise_val']:.1e}_{CONFIG['neighbor_noise_val']:.1e}"
     CONFIG["exp_label_nec"]         = f"{CONFIG['exp_label']}_nec"
     CONFIG["Nt"]                    = int(round(CONFIG["T"] / CONFIG["dt"])) if CONFIG["T"] is not None else None
-    CONFIG["exp_folder"]            = get_exp_folder(config=CONFIG, top_folder=True)
+    CONFIG["exp_folder"]            = get_exp_folder(config=CONFIG)
     CONFIG["exp_folder_nec"]        = f"{CONFIG['folder_path']}"#/{CONFIG['exp_label_nec']}_circuit_twirls_ns{CONFIG['samples']}_ntrotter{CONFIG['Nt']}_seed{CONFIG['rng_seed']}"
 
     if noise_type=="depolarizing":
@@ -313,7 +313,7 @@ def run_mitigation_pipeline_all_depths(infidelity_total, ratio_ct, noise_type="d
         print(f"post_processing_and_saving failed ({e}) — running full pipeline.")
 
 
-    TIMESTAMP_FILE = Path(get_exp_file(config=CONFIG, filename=TIMESTAMP_FILENAME, top_folder=True))
+    TIMESTAMP_FILE = Path(get_exp_file(config=CONFIG, filename=TIMESTAMP_FILENAME))
     timestamp(label="start", timestamp_file=TIMESTAMP_FILE)
 
     # Mirrors qbcs.py's build()/interleave_job_batches(): also log the
@@ -422,13 +422,13 @@ def run_mitigation_pipeline_all_depths(infidelity_total, ratio_ct, noise_type="d
 
     print(f"  [Build] {n_chunks} chunks of {chunk_size} jobs, {rc_samples_per_ems_chunk} RC samples per strategy and chunk")
 
-    if os.path.exists(get_exp_file(CONFIG, "results_counts.json", top_folder=True)) and os.path.exists(get_exp_file(CONFIG, "results_fidelity.json", top_folder=True)):
+    if os.path.exists(get_exp_file(CONFIG, "results_counts.json")) and os.path.exists(get_exp_file(CONFIG, "results_fidelity.json")):
         submit_to_qpu = False
     else:
         submit_to_qpu = True
     
     if submit_to_qpu:
-        folder_name = get_exp_folder(config=CONFIG, top_folder=True)
+        folder_name = get_exp_folder(config=CONFIG)
         for nc in range(n_chunks): # Submitting chunk by chunk to the QPU
             if CONFIG["SPAM_correction"]:
                 spam_batch = build_spam_calibration_batch(nqubits=CONFIG["nsites"], 

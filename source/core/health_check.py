@@ -134,8 +134,6 @@ def submit_health_check(run_folder, backend, sampler=None,
     QPU time) and re-raises AQTTaskTimeout. Every other failure of the synchronous services (AQT, local)
     and the accompanying=False (standalone) path propagates, and nothing is written.
     """
-    import time
-
     exp_results_folder_path = Path(os.path.join(PROJECT_ROOT, "datafiles", run_folder))
     if accompanying:
         assert record_suffix is None, "record_suffix must be None for accompanying health checks (auto-numbered)."
@@ -634,8 +632,6 @@ def collect_health_check(exp_results_folder_path, service=None,
 
 def _collect_health_check_one(exp_results_folder_path, record_path, service, fake_registry,
                               service_name, accompanying, backend_name=None, verb="Waiting for"):
-    import time
-
     if not record_path.exists():
         raise FileNotFoundError(f"No health check job record found in {rel_path(record_path)}")   # an exception, not an exit: collect_health_check() skips one bad record and goes on
 

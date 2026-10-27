@@ -146,14 +146,11 @@ def get_target_bitstring(circuit_key, n_input_states, nqubits, classical_nec_map
     return classical_nec_map[input_bitstring]
 
 
-def get_exp_folder(config, top_folder=False):
-    if not top_folder:
-        return f"{config['folder_path']}/{config['exp_label']}_circuit_twirls_ns{config['samples']}_ntrotter{config['Nt']}_seed{config['rng_seed']}"
-    else: 
-        return f"{config['folder_path']}"
+def get_exp_folder(config):
+    return f"{config['folder_path']}"
 
-def get_exp_file(config, filename, top_folder=False):
-    return os.path.join(get_exp_folder(config, top_folder=top_folder), filename)
+def get_exp_file(config, filename):
+    return os.path.join(get_exp_folder(config), filename)
 
 # Each depth list gets its own circuit cache, named by its Trotter steps (Nt = T/dt), e.g.
 # datafiles/circuits/all_to_all_Nt1-3 for the mini benchmark, since chunks hold one circuit
@@ -280,7 +277,7 @@ def get_run_subfolder(config, subfolder, filename=None):
     subfolder: one of 'job_records', 'transpiled_circuits', 'raw_results', 'processed_results'
     filename:  optional — if provided, returns full path to file; otherwise returns folder path
     """
-    base = get_exp_folder(config, top_folder=True)
+    base = get_exp_folder(config)
     path = os.path.join(base, subfolder)
     os.makedirs(path, exist_ok=True)
     if filename is not None:

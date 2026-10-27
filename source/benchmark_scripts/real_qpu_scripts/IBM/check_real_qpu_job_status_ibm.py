@@ -44,7 +44,7 @@ HC_FOLDER    = latest_run_folder(health_check_run_name("IBM", BACKEND_NAME, STAN
 # ── Connect ───────────────────────────────────────────────────────────────────
 print(f"\n[{BACKEND_NAME} — connection]")
 token   = read_token("ibm_token")
-service, INSTANCE = connect_ibm(token, ibm_instance_for_runs(parse_instance_arg(ARGV), RUN_FOLDERS), BACKEND_NAME)   # the runs' recorded instance (the standalone health check has none: instance= or the Open Plan one)
+service, _ = connect_ibm(token, ibm_instance_for_runs(parse_instance_arg(ARGV), RUN_FOLDERS), BACKEND_NAME)   # the runs' recorded instance (the standalone health check has none: instance= or the Open Plan one)
 
 def overview():
     status = service.backend(BACKEND_NAME).status()
