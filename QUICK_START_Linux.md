@@ -447,7 +447,7 @@ few chunks first. Expect ~1½–2 h CPU time on your side for loading and transp
 | IQM EQE1 | 480 (1 chunk each) + 2 | 32,640 + 2 | 326,400 + 200 | **~8 h** (0.9 s per circuit) | ~9 h |
 | IQM Resonance (Emerald) | 480 (1 chunk each) + 2 | 32,640 + 2 | 326,400 + 200 | **~7 min** (~0.85 s billed per job) | ~1 h |
 | IQM VLQ | 40 (12 chunks each; 48-chunk jobs failed at IT4I) + 2 | 32,640 + 2 | 326,400 + 200 | ~3½ min estimated (execution ≈ 3 ms per circuit + 0.3 ms per shot) | submission ~4.2 h (~2.7 h uploading + ~1.5 h transpiling), plus queue |
-| AQT PIAST-Q | 480 chunks, one after another + 481 health checks (1 PRE + 1 after each chunk) | 32,640 + 481 | 326,400 + 48,100 | **~28 h** (3 s per circuit ≈ 27 h, health checks ~1 h at ~9 s each) | weeks: the first 168 chunks took ~14 days |
+| AQT PIAST-Q | 480 chunks, one after another + 481 health checks (1 PRE + 1 after each chunk) | 32,640 + 481 | 326,400 + 48,100 | **~28 h** (3 s per circuit ≈ 27 h, health checks ~1 h at ~9 s each) | weeks: the first 206 chunks took ~17½ days (~2 h per chunk, 96 % of it queue) |
 
 For the AQT full run, keep the session alive for the duration: start the loop script inside `tmux` or
 `screen` (or with `nohup … &`) so that closing the terminal or a dropped SSH connection doesn't stop it, and

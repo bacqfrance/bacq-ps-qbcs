@@ -259,7 +259,7 @@ duplicated — the same circuits are simply run again.
 
 ### 4.3 Running on the PCSS cluster (Slurm)
 
-A full run takes weeks of wall time, mostly PCSS queue wait, so it is best left to
+A full run takes weeks of wall time (about 6 at the measured ~2 h per chunk), mostly PCSS queue wait, so it is best left to
 the PCSS cluster rather than a PC. The folder `PCSS_Quantum_UI/` holds the files for that.
 They are for the PCSS cluster (login node `quantum-ui`, partition `all`, worker nodes
 `quantum-cpu-[01-04]` and `quantum-gpu-01`). Jobs there are submitted with Slurm
