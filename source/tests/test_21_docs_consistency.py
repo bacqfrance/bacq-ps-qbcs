@@ -131,7 +131,7 @@ SHARED_PHRASES = [
     "`submit.log` (appended, never overwritten) holds one entry per submission, the same in every QPU folder "
     "(`append_submit_log()`): the time, backend, run folder, chunks and shots, the layout, the run qubits with the "
     "calibration summary of `calibration_snapshot.json`, and the run's health-check numbers",
-    "**Post-processing.** `python source/analysis_scripts/run_post_process.py mini --include-real-data` (or `full`) "
+    "**Post-processing.** `python3 source/analysis_scripts/run_post_process.py mini --include-real-data` (or `full`) "
     "merges, analyzes, summarizes and plots",
     "`run_post_process.py` runs the other scripts in `source/analysis_scripts/`, passing each run to them",
 ]

@@ -17,6 +17,8 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
+LAUNCHER = "py" if sys.platform == "win32" else "python3"   # how the docs say to start a script, in the activated venv (usage lines print it)
+
 # Every circuit cache lives under circuits_root(). The test suite (source/tests/conftest.py,
 # and only it, besides test_19, which sets it with monkeypatch to test circuits_root() itself)
 # sets BACQ_CIRCUITS_ROOT so that its caches go to datafiles/tests/circuits/

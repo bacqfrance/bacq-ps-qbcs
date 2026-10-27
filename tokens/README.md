@@ -22,7 +22,7 @@ Unless specified, the user should create the token files.
 A token file should hold the token alone, without quotes, a `KEY =` prefix or anything else; only spaces and newlines
 around it are ignored. To create one (here for IBM; use the file name from the table):
 
-Windows (PowerShell):
+Windows (Windows Terminal):
 
 ```powershell
 Set-Content -Path tokens\ibm_token -Value "<your IBM token>" -NoNewline -Encoding ascii

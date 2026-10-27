@@ -7,7 +7,7 @@ gives access to a Slurm cluster from which the benchmark can be run (§4.3).
 
 ## 1. Prerequisites
 
-Separate virtual environment: **aqt.venv** (created at `venvs/aqt.venv` in the project root). On top of the base
+Separate virtual environment: **aqt.venv** (created at `venvs/aqt.venv` in the project root). Run every command in this readme from the project root with it activated (`source venvs/aqt.venv/bin/activate`, then `python3 <script>`); the commands are written for Linux, and in Windows Terminal you use `.\venvs\aqt.venv\Scripts\activate` and `py` instead of `python3`. On top of the base
 `local_sim.venv` package family, it needs two independent top-level packages:
 
 | Package | Version (this project's `aqt.venv`) | Provides |
@@ -83,7 +83,7 @@ real_backend = PCSS_AQTProvider().get_direct_access_backend()
 The submit and simulate scripts here take the benchmark size on the command line: `mini`, `full`, a preset
 with other shots or a custom size — the same arguments as every script in `source/benchmark_scripts/` (main USER_MANUAL
 §4.3, with the table of all forms; the run-folder names are in main USER_MANUAL §5.4). AQT runs synchronously, so there is no collect
-or job-status script: the submit script saves each chunk's results as it completes. Called without arguments, a script prints its usage and does nothing. Example: `python source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/qbcs_real_submit_aqt_loop.py backend=PIAST-Q full`.
+or job-status script: the submit script saves each chunk's results as it completes. Called without arguments, a script prints its usage and does nothing. Example: `python3 source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/qbcs_real_submit_aqt_loop.py backend=PIAST-Q full`.
 The circuits must be cached for the same depth list first: run `source/benchmark_scripts/local_simulation_scripts/benchmark_noiseless_all_to_all.py` with the same arguments in `local_sim.venv` (main USER_MANUAL §4.3).
 
 **Qubit layout.** PIAST-Q reports **no calibration data**, so a live run cannot be optimized without a calibration
@@ -210,8 +210,8 @@ already in `SIMULATED_QPUS` of `RUN_THESE`; `--layouts=<mode>` narrows it), or w
 (main USER_MANUAL §7). Examples of the simulation:
 
 ```bash
-python source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/qbcs_real_simulate_aqt.py backend=PIAST-Q mini layout=random
-python source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/qbcs_real_simulate_aqt.py backend=PIAST-Q mini layout=optimized calibration_file=calibration_input_files/PIAST-Q/piastq_characterisation_2026-09-29.json scheduling_simulation=false
+python3 source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/qbcs_real_simulate_aqt.py backend=PIAST-Q mini layout=random
+python3 source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/qbcs_real_simulate_aqt.py backend=PIAST-Q mini layout=optimized calibration_file=calibration_input_files/PIAST-Q/piastq_characterisation_2026-09-29.json scheduling_simulation=false
 ```
 
 `scheduling_simulation=true|false` is optional, default `true`: `true` transpiles the circuits scheduled, so idle qubits relax through T1/T2 as on the QPU (full benchmark about 4 h); `false` does not schedule them, so idle relaxation is **not** taken into account (only the relaxation during gates), like the noiseless and coherent-noise simulations (about 1 h). The choice is recorded in `run_info.json` and `submit.log`, the health checks follow it, and an unfinished run folder cannot be resumed with the other value (main USER_MANUAL §4.2).
@@ -376,7 +376,7 @@ sbatch file as they are then (a running job keeps the copy of the sbatch file it
 - A job cannot submit new jobs from a worker node, so it continues by requeueing itself
   (`scontrol` works there). SSH from a worker node to the login node is refused as well.
 - The venvs are Linux venvs built on the cluster (*Access and setup* above), not copies
-  from a PC. The sbatch files call `venvs/aqt.venv/bin/python` (or `local_sim.venv`)
+  from a PC. The sbatch files run the scripts with the interpreter of `venvs/aqt.venv` (or `local_sim.venv`)
   directly.
 - `tokens/aqt_piast-q_token` goes on the cluster too. It is a bearer
   credential, so make it readable only by yourself (`chmod 600 tokens/aqt_piast-q_token`).
@@ -456,7 +456,7 @@ calibration summary of `calibration_snapshot.json`, and the run's health-check n
 
 None of them is committed (`.gitignore`).
 
-**Post-processing.** `python source/analysis_scripts/run_post_process.py mini --include-real-data` (or `full`) merges, analyzes, summarizes and plots
+**Post-processing.** `python3 source/analysis_scripts/run_post_process.py mini --include-real-data` (or `full`) merges, analyzes, summarizes and plots
 this QPU's runs together with the other QPUs' — see main USER_MANUAL §10 for the script, its `RUN_THESE` / `REAL_QPUS` lists,
 the analysis of a still-collecting run, and the outputs.
 
@@ -478,7 +478,7 @@ if not.
 
 From the project root (with Python 3.12: `python3.12`, or `python3` if that is 3.12; `py -3.12` on Windows):
 ```bash
-python3.12 -m venv ./venvs/aqt.venv
-source ./venvs/aqt.venv/bin/activate      # Windows PowerShell: .\venvs\aqt.venv\Scripts\Activate.ps1
+python3.12 -m venv venvs/aqt.venv
+source venvs/aqt.venv/bin/activate
 pip install -r source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/requirements_aqt.txt
 ```

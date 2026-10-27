@@ -30,6 +30,7 @@ def test_12_aqt_shot_split_in_aqt_venv():
     out = proc.stdout + proc.stderr
     if "No module named pytest" in out:
         raise RuntimeError(
-            f"pytest is not installed in venvs/aqt.venv. Install it there:\n"
-            f"    {python} -m pip install pytest")
+            "pytest is not installed in venvs/aqt.venv. Activate it and install pytest there:\n"
+            "    source venvs/aqt.venv/bin/activate   (Windows Terminal: .\\venvs\\aqt.venv\\Scripts\\activate)\n"
+            "    python3 -m pip install pytest   (py -m pip install pytest on Windows)")
     assert proc.returncode == 0, f"tests in aqt.venv failed (exit {proc.returncode}):\n{out[-6000:]}"

@@ -214,19 +214,22 @@ transitively — including the whole `qat-*` / `myqlm-*` family, which `myqlm`
 #### Setup (Windows)
 ```powershell
 py -3.12 -m venv venvs\local_sim.venv
-.\venvs\local_sim.venv\Scripts\Activate.ps1
+.\venvs\local_sim.venv\Scripts\activate
 pip install -r venvs\requirements_local_sim.txt
 ```
-(In PowerShell, allow local scripts once with `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`; `QUICK_START_Windows.md` §2 has the details.
-Without activating, call `venvs/<name>.venv/Scripts/python.exe` directly.)
+(In Windows Terminal, allow local scripts once with `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`; Windows remembers the setting, so it is needed only once. `QUICK_START_Windows.md` §2 has the details.)
 
 #### Setup (Linux)
 ```bash
-python3.12 -m venv ./venvs/local_sim.venv
-source ./venvs/local_sim.venv/bin/activate
+python3.12 -m venv venvs/local_sim.venv
+source venvs/local_sim.venv/bin/activate
 pip install -r venvs/requirements_local_sim.txt
 ```
-Without activating, call `venvs/<name>.venv/bin/python` directly.
+
+**How the commands in this manual are written.** Run every command from the project root, in the virtual environment the script needs
+(§3.2 and the QPU readmes): activate it first with `source venvs/<name>.venv/bin/activate` (Linux) or `.\venvs\<name>.venv\Scripts\activate`
+(Windows Terminal), then start the script with `python3 <script>`. The commands in this manual are written for Linux; on Windows,
+use `py` instead of `python3`, the activation command above, and backslashes in paths if you prefer (forward slashes work too).
 
 Note: All virtual environments live inside the `venvs/` folder (git-ignored), named `<name>.venv`. Each backend gets its own virtual environment — `local_sim.venv` (base pipeline: local
 simulator only, no provider SDK), `ibm.venv`, `aqt.venv`, ... and so on — each built from that QPU's own
@@ -237,13 +240,13 @@ For instance, for the runs on IBM Quantum Platform, the virtual environment ibm.
 Windows:
 ```powershell
 py -3.12 -m venv venvs\ibm.venv
-.\venvs\ibm.venv\Scripts\Activate.ps1
+.\venvs\ibm.venv\Scripts\activate
 pip install -r source\benchmark_scripts\real_qpu_scripts\IBM\requirements_ibm.txt
 ```
 Linux:
 ```bash
-python3.12 -m venv ./venvs/ibm.venv
-source ./venvs/ibm.venv/bin/activate
+python3.12 -m venv venvs/ibm.venv
+source venvs/ibm.venv/bin/activate
 pip install -r source/benchmark_scripts/real_qpu_scripts/IBM/requirements_ibm.txt
 ```
 
@@ -262,7 +265,7 @@ Runs `test_00`/`test_01`/`test_07`/`test_08`/`test_10`/`test_11`/`test_12`/`test
 fundamental checks that confirm the circuits are built correctly, a full
 local-sim pipeline + post-processing integration check, and unit tests of the
 executed-circuit check and the timing bookkeeping — in 5 to 10 minutes (386 tests; longer on slower machines).
-**Two venvs are needed**: `local_sim.venv` runs the suite (the run stops at once with instructions if `venvs/local_sim.venv` is missing; `test_10` also starts a child process in it), and `test_12` runs itself in `aqt.venv` — it fails with an error telling you to create `venvs/aqt.venv` (`source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/readme_aqt.md` §1, `requirements_aqt.txt`, which includes `pytest`) or to run `venvs/aqt.venv/Scripts/python -m pip install pytest` (`bin/python` on Linux) if only `pytest` is missing there.
+**Two venvs are needed**: `local_sim.venv` runs the suite (the run stops at once with instructions if `venvs/local_sim.venv` is missing; `test_10` also starts a child process in it), and `test_12` runs itself in `aqt.venv` — it fails with an error telling you to create `venvs/aqt.venv` (`source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/readme_aqt.md` §1, `requirements_aqt.txt`, which includes `pytest`) or to activate `aqt.venv` and run `python3 -m pip install pytest` (`py -m pip install pytest` on Windows) if only `pytest` is missing there.
 All tests passing (no failures, no errors) means the base venv, myQLM↔Qiskit
 translation, local Aer simulation, and `source/analysis_scripts/run_post_process.py` all work
 before you go any further.
@@ -475,8 +478,8 @@ called without arguments prints its usage and does nothing, so name `mini` (it c
 full one, though not none) or `full`. For example:
 
 ```bash
-python source/benchmark_scripts/local_simulation_scripts/benchmark_noiseless_lnn.py mini     # mini, a few seconds
-python source/benchmark_scripts/local_simulation_scripts/benchmark_noiseless_lnn.py full     # full, ~60 min the first time
+python3 source/benchmark_scripts/local_simulation_scripts/benchmark_noiseless_lnn.py mini     # mini, a few seconds
+python3 source/benchmark_scripts/local_simulation_scripts/benchmark_noiseless_lnn.py full     # full, ~60 min the first time
 ```
 
 The local runs are saved in `datafiles/<benchmark>_<data type>_local-aer_lnn-<bool>_service-local_spam-<bool>_layout-<mode>_<YYYY-MM-DD>_#<N>/`,
@@ -514,8 +517,8 @@ QPU's published prices and timings. It claims a fidelity-level noise only: no qu
 and the actual cost is 0.
 
 ```bash
-python source/benchmark_scripts/local_simulation_scripts/benchmark_dummy_noisy_emulators.py mini     # one run per dummy
-python source/benchmark_scripts/local_simulation_scripts/benchmark_dummy_noisy_emulators.py full
+python3 source/benchmark_scripts/local_simulation_scripts/benchmark_dummy_noisy_emulators.py mini     # one run per dummy
+python3 source/benchmark_scripts/local_simulation_scripts/benchmark_dummy_noisy_emulators.py full
 ```
 
 The script takes the benchmark arguments of §4.3 (`mini`, `full`, `nshots_per_circuit=`, `n_samples=`, `nt_list=`, …; without
@@ -946,8 +949,8 @@ run folder names the benchmark, the QPU, the layout and the date (§5.4),
 `mini_real-data_ibm-fez_lnn-True_service-ibm-cloud_spam-True_layout-optimized_2026-10-11_#1`, `mini+nshots-100_…_layout-15-14-21_2026-10-11_#1`), so runs of
 different sizes, layouts and days stay apart. Rerunning a submit script continues the latest run of its settings while
 it is unfinished (`--force-new-run` starts a new one regardless), else starts a new dated one. Analyze them with
-`python source/analysis_scripts/run_post_process.py mini --include-real-data` (mini) or
-`python source/analysis_scripts/run_post_process.py full --include-real-data` (see §10).
+`python3 source/analysis_scripts/run_post_process.py mini --include-real-data` (mini) or
+`python3 source/analysis_scripts/run_post_process.py full --include-real-data` (see §10).
 
 To add a new machine to a supported service, or a new QPU service, follow [GUIDE_FOR_ADDING_NEW_BACKENDS.md](GUIDE_FOR_ADDING_NEW_BACKENDS.md).
 
@@ -988,7 +991,7 @@ uses pre-saved calibration data — and resumes the run; once the run is finishe
 with fresh calibration (to start over on an unfinished one, remove its folder `datafiles/<benchmark>_sim-qpu-noise_<provider>-<backend>_…/` first). To post-process it, run
 `source/analysis_scripts/run_post_process.py` with `--include-simulations-real`: every layout of every QPU's `sim-qpu-noise_<provider>-<backend>_…` runs is already
 covered by `SIMULATED_QPUS` in `RUN_THESE` (narrow it with `--layouts=<mode>`), or run
-`python source/analysis_scripts/run_post_process.py nshots_per_circuit=<its shots> --include-simulations-real`.
+`python3 source/analysis_scripts/run_post_process.py nshots_per_circuit=<its shots> --include-simulations-real`.
 
 Legacy runs (recorded without timing blocks) were converted to the current format, so they are
 post-processed like any run; see below.
@@ -1291,10 +1294,10 @@ runs (`source/core/analysis/collective_plots.py`, see below). Without any argume
 
 | Command | Analyzes |
 |---|---|
-| `python source/analysis_scripts/run_post_process.py mini --include-real-data` | the mini benchmark: the runs `mini_<entry>…` of `RUN_THESE["mini"]` — of the kinds the `--include-*` flags select |
-| `python source/analysis_scripts/run_post_process.py full --include-real-data` | the full benchmark: the runs `full_<entry>…` of `RUN_THESE["full"]` — of the kinds the `--include-*` flags select |
-| `python source/analysis_scripts/run_post_process.py <benchmark arguments> --include-real-data` | any other arguments of the `source/benchmark_scripts/` (§4.3; not `layout=` or `calibration_file=`), e.g. `mini nshots_per_circuit=100` or `nshots_per_circuit=50 n_samples=8 n_depths=3`: every run folder in `datafiles/` with that `<benchmark>` field (`mini+nshots-100`, `custom+ndepths-3+nsamples-8+nshots-50`) |
-| `python source/analysis_scripts/run_post_process.py nshots_per_circuit=N --include-real-data` | every run folder in `datafiles/` with N shots per circuit (read from its `run_info.json`), whatever its size |
+| `python3 source/analysis_scripts/run_post_process.py mini --include-real-data` | the mini benchmark: the runs `mini_<entry>…` of `RUN_THESE["mini"]` — of the kinds the `--include-*` flags select |
+| `python3 source/analysis_scripts/run_post_process.py full --include-real-data` | the full benchmark: the runs `full_<entry>…` of `RUN_THESE["full"]` — of the kinds the `--include-*` flags select |
+| `python3 source/analysis_scripts/run_post_process.py <benchmark arguments> --include-real-data` | any other arguments of the `source/benchmark_scripts/` (§4.3; not `layout=` or `calibration_file=`), e.g. `mini nshots_per_circuit=100` or `nshots_per_circuit=50 n_samples=8 n_depths=3`: every run folder in `datafiles/` with that `<benchmark>` field (`mini+nshots-100`, `custom+ndepths-3+nsamples-8+nshots-50`) |
+| `python3 source/analysis_scripts/run_post_process.py nshots_per_circuit=N --include-real-data` | every run folder in `datafiles/` with N shots per circuit (read from its `run_info.json`), whatever its size |
 
 For `mini` and `full`, an entry that matches several run folders (e.g. one per layout) analyzes all of them, and an entry with no
 run folder is skipped silently. Only the entries of the selected kinds (the `--include-*` flags below) are looked up; the script lists
@@ -1308,7 +1311,7 @@ the run folders it analyzes, one per line, before starting.
 | `--include-simulations-coherent` | simulations with coherent CNOT noise (`sim-coherent`, `benchmark_coherent_noise_*.py`; not the dummy emulators) |
 | `--include-simulations-dummy` | dummy noisy emulators of QPUs (`sim-dummy`, `benchmark_dummy_noisy_emulators.py`, §4.4): coherent-noise simulations with a modelled QPU time and cost; `RUN_THESE` holds the prefix `sim-dummy`, which matches every dummy of the benchmark |
 
-Either scope flag can be added as well (e.g. `python source/analysis_scripts/run_post_process.py mini --include-real-data --collective-only`):
+Either scope flag can be added as well (e.g. `python3 source/analysis_scripts/run_post_process.py mini --include-real-data --collective-only`):
 
 | Flag | Does |
 |---|---|
@@ -1327,7 +1330,7 @@ before T1 and T2 entered the layout score (dated 2026-10-19 or earlier, or recor
 names too. In the collective plots and the run table, a run analyzed on fewer chunks than its sample size
 (e.g. 300 of 480) is marked `(300/480 chunks)`. Every collective plots folder also holds a copy of the summary json of each run it shows.
 
-`--nsamples-comparison` (full benchmark only, e.g. `python source/analysis_scripts/run_post_process.py full --include-real-data --nsamples-comparison`)
+`--nsamples-comparison` (full benchmark only, e.g. `python3 source/analysis_scripts/run_post_process.py full --include-real-data --nsamples-comparison`)
 additionally analyzes each run on its first 8, 48, 120, 240 and 480 samples (`NSAMPLES_COMPARISON`; `run_data*+nsamples-<N>.json`
 and `summary+nsamples-<N>.json` only, no per-N plots; only the RC samples vary, the SPAM correction uses the calibration of every collected chunk) and draws `analysis/plots+summaries/<run folder>/awae_best_ems_nsamples_comparison.png`
 (`source/analysis_scripts/plot_awae_nsamples_comparison.py`). It shows the AWAE of the run's best EMS at N_max (and at N_acc, if that one differs)
@@ -1346,7 +1349,7 @@ name (§5.4):
 | `--services=ibm-cloud,pcss` | service is listed (`local` for the local simulations) |
 | `--layouts=optimized,random` | qubit layout is listed (`optimized`, `random`, `lowest`, `legacy`, `none`, or three qubits such as `15-14-21`) |
 
-E.g. `python source/analysis_scripts/run_post_process.py mini --include-real-data --date=2026-09-01:2026-09-30 --layouts=optimized`.
+E.g. `python3 source/analysis_scripts/run_post_process.py mini --include-real-data --date=2026-09-01:2026-09-30 --layouts=optimized`.
 The script prints the active filters before the run list, and does nothing if no run matches. The collective plots and table of a
 filtered set go to their own folder and file, named like the unfiltered ones plus the filters
 (`mini_collective_real-data_dates-2026-09-01-to-2026-09-30_layouts-optimized/`; a long list of values is shortened to its count

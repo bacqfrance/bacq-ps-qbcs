@@ -7,10 +7,10 @@ the first time, then ~15 min to simulate (USER_MANUAL §4.3); mini: ~10 s.
 run_local_simulation() prints the time of each stage, so you get a number for your own machine.
 
 Usage (see source/core/runner_support/benchmark_args.py; the benchmark is required — without arguments, or with --help, the usage is printed):
-  python benchmark_noiseless_all_to_all.py mini                   mini benchmark: 8 samples, Nt = 1, 3, 200 shots
-  python benchmark_noiseless_all_to_all.py full                   full benchmark: 480 samples, Nt = 1…19, 10 shots
-  python benchmark_noiseless_all_to_all.py mini nshots_per_circuit=N
-  python benchmark_noiseless_all_to_all.py nshots_per_circuit=N n_samples=M n_depths=K   (or nt_list=1,5,9)
+  python3 benchmark_noiseless_all_to_all.py mini                   mini benchmark: 8 samples, Nt = 1, 3, 200 shots
+  python3 benchmark_noiseless_all_to_all.py full                   full benchmark: 480 samples, Nt = 1…19, 10 shots
+  python3 benchmark_noiseless_all_to_all.py mini nshots_per_circuit=N
+  python3 benchmark_noiseless_all_to_all.py nshots_per_circuit=N n_samples=M n_depths=K   (or nt_list=1,5,9)
 The run folder is <benchmark>_sim-noiseless_local-aer_lnn-False_service-local_spam-True_layout-none_<YYYY-MM-DD>_#<N> (source/core/records/run_names.py).
 """
 import os

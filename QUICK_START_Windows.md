@@ -89,7 +89,7 @@ side; if `py --version` shows another one, write `py -3.12` instead of `py` in t
 
 ## 2. Install the virtual environments
 
-PowerShell blocks the venv activation scripts by default. Allow local scripts once, for your user only:
+PowerShell blocks the venv activation scripts by default. Allow local scripts once, for your user only (Windows remembers the setting, so you never need to repeat it):
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
@@ -101,33 +101,33 @@ from its pinned requirements file — don't layer one venv on top of another.
 ```powershell
 # base pipeline: circuit building (myQLM), local simulation, analysis
 py -m venv venvs\local_sim.venv
-.\venvs\local_sim.venv\Scripts\Activate.ps1
+.\venvs\local_sim.venv\Scripts\activate
 pip install -r venvs\requirements_local_sim.txt
 deactivate
 
 # one per QPU (no myQLM in any of these)
 py -m venv venvs\ibm.venv
-.\venvs\ibm.venv\Scripts\Activate.ps1
+.\venvs\ibm.venv\Scripts\activate
 pip install -r source\benchmark_scripts\real_qpu_scripts\IBM\requirements_ibm.txt
 deactivate
 
 py -m venv venvs\iqm_eqe1.venv
-.\venvs\iqm_eqe1.venv\Scripts\Activate.ps1
+.\venvs\iqm_eqe1.venv\Scripts\activate
 pip install -r source\benchmark_scripts\real_qpu_scripts\IQM_EQE1\requirements_iqm_eqe1.txt
 deactivate
 
 py -m venv venvs\iqm_resonance.venv
-.\venvs\iqm_resonance.venv\Scripts\Activate.ps1
+.\venvs\iqm_resonance.venv\Scripts\activate
 pip install -r source\benchmark_scripts\real_qpu_scripts\IQM_RESONANCE\requirements_iqm_resonance.txt
 deactivate
 
 py -m venv venvs\iqm_vlq.venv           # qiskit 2.1 — pinned by IT4I's qaas client
-.\venvs\iqm_vlq.venv\Scripts\Activate.ps1
+.\venvs\iqm_vlq.venv\Scripts\activate
 pip install -r source\benchmark_scripts\real_qpu_scripts\IQM_VLQ\requirements_iqm_vlq.txt --extra-index-url https://opencode.it4i.eu/api/v4/projects/107/packages/pypi/simple
 deactivate
 
 py -m venv venvs\aqt.venv            # runs qiskit 1.4.6, not 2.5.x — required by qiskit-aqt-provider
-.\venvs\aqt.venv\Scripts\Activate.ps1
+.\venvs\aqt.venv\Scripts\activate
 pip install -r source\benchmark_scripts\real_qpu_scripts\AQT_PIAST-Q\requirements_aqt.txt
 deactivate
 ```
@@ -137,7 +137,7 @@ Leave a venv with `deactivate`. Keep myQLM out of the QPU venvs: circuits are bu
 **Check the base install** (recommended; `local_sim.venv`, 5 to 10 minutes on a recent PC):
 
 ```powershell
-.\venvs\local_sim.venv\Scripts\Activate.ps1
+.\venvs\local_sim.venv\Scripts\activate
 pytest source\tests\
 ```
 
@@ -149,7 +149,7 @@ own circuit caches (USER_MANUAL §9.1). `test_12` also needs `aqt.venv` (step 2 
 ## 3. Add the QPU tokens and run a health check on each QPU
 
 Save each token as a plain-text file in the `tokens/` folder (git-ignored; the scripts read them with
-`source/core/qpu/tokens.py: read_token()`, see `tokens/README.md`). In PowerShell, for example:
+`source/core/qpu/tokens.py: read_token()`, see `tokens/README.md`). In Windows Terminal, for example:
 
 ```powershell
 Set-Content -Path tokens\ibm_token -Value "<your IBM token>" -NoNewline -Encoding ascii
@@ -172,8 +172,8 @@ given `instance=NAME`, and `ibm_boston`, `ibm_pittsburgh`, `ibm_aachen` and `ibm
 instances; IQM Resonance: `emerald`, `garnet`, `sirius`; IQM EQE1: `EQE1`; IQM VLQ: `VLQ`; AQT: `PIAST-Q`). Run it in its venv, e.g.
 
 ```powershell
-.\venvs\ibm.venv\Scripts\Activate.ps1
-python source\benchmark_scripts\real_qpu_scripts\IBM\health_check_real_ibm.py backend=ibm_marrakesh
+.\venvs\ibm.venv\Scripts\activate
+py source\benchmark_scripts\real_qpu_scripts\IBM\health_check_real_ibm.py backend=ibm_marrakesh
 ```
 
 Each script submits a 3-qubit reference circuit, waits for the result and prints `P(011)`: **> 0.5 means
@@ -200,13 +200,13 @@ from the project root (the scripts are in `source/benchmark_scripts/local_simula
 | 3 | `benchmark_fake_fez_lnn.py` — #2 under IBM Fez noise, transpiled onto Fez's qubits; needs #2 first | `ibm.venv` | ~35 s with `scheduling_simulation=false` |
 
 ```powershell
-.\venvs\local_sim.venv\Scripts\Activate.ps1
-python source\benchmark_scripts\local_simulation_scripts\benchmark_noiseless_all_to_all.py mini
-python source\benchmark_scripts\local_simulation_scripts\benchmark_noiseless_lnn.py mini
+.\venvs\local_sim.venv\Scripts\activate
+py source\benchmark_scripts\local_simulation_scripts\benchmark_noiseless_all_to_all.py mini
+py source\benchmark_scripts\local_simulation_scripts\benchmark_noiseless_lnn.py mini
 deactivate
 
-.\venvs\ibm.venv\Scripts\Activate.ps1        # #3: FakeFez comes with qiskit-ibm-runtime
-python source\benchmark_scripts\local_simulation_scripts\benchmark_fake_fez_lnn.py mini
+.\venvs\ibm.venv\Scripts\activate        # #3: FakeFez comes with qiskit-ibm-runtime
+py source\benchmark_scripts\local_simulation_scripts\benchmark_fake_fez_lnn.py mini
 deactivate
 ```
 
@@ -229,7 +229,15 @@ The mini benchmark is a cheap end-to-end rehearsal of a hardware run: **8 chunks
 ### 5.1 Build the mini circuits (local, `local_sim.venv`, no cost)
 
 The QPU venvs have no myQLM, so the circuits must be built first: scripts #1 and #2 of §4 do it
-(#2 for IBM, IQM EQE1 and IQM Resonance Emerald / Garnet, #1 for AQT, IQM VLQ and IQM Resonance Sirius). Run them first if you haven't.
+(#2 for IBM, IQM EQE1 and IQM Resonance Emerald / Garnet, #1 for AQT, IQM VLQ and IQM Resonance Sirius). Run them first if you haven't,
+from the project root, each with the argument `mini`:
+
+```powershell
+.\venvs\local_sim.venv\Scripts\activate
+py source\benchmark_scripts\local_simulation_scripts\benchmark_noiseless_all_to_all.py mini
+py source\benchmark_scripts\local_simulation_scripts\benchmark_noiseless_lnn.py mini
+```
+
 Each also runs a noiseless simulation, whose AWAE should be ≈ 0 (shot noise only). The mini circuit caches take ≈ 5 MB each, and every mini run folder ≈ 2–3 MB.
 
 ### 5.2 Submit and collect
@@ -274,15 +282,15 @@ script runs a PRE health check, aborts if the QPU is degraded, submits, and subm
 
 | QPU | venv | Commands | Jobs | Circuits (executions) | Shots | QPU time |
 |---|---|---|---|---|---|---|
-| IBM | `ibm.venv` | `python ...\IBM\qbcs_real_submit_ibm.py backend=ibm_marrakesh mini`,<br>later `python ...\IBM\qbcs_real_collect_ibm.py backend=ibm_marrakesh mini` | 1 (all 8 chunks) + 2 health checks | 160 + 2 | 32,000 + 200 | **15 s billed**, measured on Fez, Kingston and Marrakesh (QPU execution alone ~8.5 s) |
-| IQM EQE1 | `iqm_eqe1.venv` | `python ...\IQM_EQE1\qbcs_real_submit_iqm_eqe1_with_retries.py backend=EQE1 mini`,<br>later `python ...\IQM_EQE1\qbcs_real_collect_iqm_eqe1.py backend=EQE1 mini` | 3 (≤ 70 circuits each: 3 + 3 + 2 chunks) + 2 | 160 + 2 | 32,000 + 200 | **~146 s** modelled (0.9 s per circuit × 162 circuits; EQE1 reports no QPU time) |
-| IQM Resonance | `iqm_resonance.venv` | `python ...\IQM_RESONANCE\qbcs_real_submit_iqm_resonance.py backend=emerald mini`,<br>later `python ...\IQM_RESONANCE\qbcs_real_collect_iqm_resonance.py backend=emerald mini` | 2 (≤ 100 circuits each: 5 + 3 chunks) + 2 | 160 + 2 | 32,000 + 200 | **billed: Emerald 18 s, Garnet 14 s, Sirius 15 s** (QPU execution alone: 14, 10 and 11 s) |
-| IQM VLQ | `iqm_vlq.venv` | `python ...\IQM_VLQ\qbcs_real_submit_iqm_vlq_with_retries.py backend=VLQ mini`,<br>later `python ...\IQM_VLQ\qbcs_real_collect_iqm_vlq.py backend=VLQ mini` | 1 (all 8 chunks) + 2 | 160 + 2 | 32,000 + 200 | **15 s** (IQM Resonance-equivalent billed time; QPU execution alone ~12 s) |
+| IBM | `ibm.venv` | `py ...\IBM\qbcs_real_submit_ibm.py backend=ibm_marrakesh mini`,<br>later `py ...\IBM\qbcs_real_collect_ibm.py backend=ibm_marrakesh mini` | 1 (all 8 chunks) + 2 health checks | 160 + 2 | 32,000 + 200 | **15 s billed**, measured on Fez, Kingston and Marrakesh (QPU execution alone ~8.5 s) |
+| IQM EQE1 | `iqm_eqe1.venv` | `py ...\IQM_EQE1\qbcs_real_submit_iqm_eqe1_with_retries.py backend=EQE1 mini`,<br>later `py ...\IQM_EQE1\qbcs_real_collect_iqm_eqe1.py backend=EQE1 mini` | 3 (≤ 70 circuits each: 3 + 3 + 2 chunks) + 2 | 160 + 2 | 32,000 + 200 | **~146 s** modelled (0.9 s per circuit × 162 circuits; EQE1 reports no QPU time) |
+| IQM Resonance | `iqm_resonance.venv` | `py ...\IQM_RESONANCE\qbcs_real_submit_iqm_resonance.py backend=emerald mini`,<br>later `py ...\IQM_RESONANCE\qbcs_real_collect_iqm_resonance.py backend=emerald mini` | 2 (≤ 100 circuits each: 5 + 3 chunks) + 2 | 160 + 2 | 32,000 + 200 | **billed: Emerald 18 s, Garnet 14 s, Sirius 15 s** (QPU execution alone: 14, 10 and 11 s) |
+| IQM VLQ | `iqm_vlq.venv` | `py ...\IQM_VLQ\qbcs_real_submit_iqm_vlq_with_retries.py backend=VLQ mini`,<br>later `py ...\IQM_VLQ\qbcs_real_collect_iqm_vlq.py backend=VLQ mini` | 1 (all 8 chunks) + 2 | 160 + 2 | 32,000 + 200 | **15 s** (IQM Resonance-equivalent billed time; QPU execution alone ~12 s) |
 | AQT PIAST-Q | `aqt.venv` | on the PCSS cluster (Linux), `sbatch source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/PCSS_Quantum_UI/run_aqt_loop.sbatch backend=PIAST-Q mini` \* (synchronous, no collect step) | 8 chunks (1 batch each) + 9 health checks (1 PRE + 1 after each chunk) | 160 circuits, **160 executions** (200 shots fit AQT's limit of 200 per circuit, so each chunk runs once) + 9 | 32,000 + 900 | **~41 min** estimated (160 executions × 15 s at 200 shots = 40 min, plus 9 health checks ≈ 1¼ min; AQT reports no QPU time), measured on 2026-10-02: 5 h wallclock including queue |
 
 `...` = `source\benchmark_scripts\real_qpu_scripts`.
 
-\* The PIAST-Q run was done through Slurm on the PCSS Quantum UI cluster (see below). Without Slurm, run the loop script directly: `python ...\AQT_PIAST-Q\qbcs_real_submit_aqt_loop.py backend=PIAST-Q mini`.
+\* The PIAST-Q run was done through Slurm on the PCSS Quantum UI cluster (see below). Without Slurm, run the loop script directly: `py ...\AQT_PIAST-Q\qbcs_real_submit_aqt_loop.py backend=PIAST-Q mini`.
 It then stays up for the whole run and takes **1.5–2.5 times longer** per circuit than on the PCSS cluster (probably less efficient network communication), so Slurm is the recommended way.
 
 **Qubit layout.** Every submit and simulate command also takes `layout=` — `optimized` (the default for IBM, IQM Resonance and
@@ -360,7 +368,7 @@ stopped.
 ### 5.3 Analyze (`local_sim.venv`)
 
 ```powershell
-python source\analysis_scripts\run_post_process.py mini --include-real-data
+py source\analysis_scripts\run_post_process.py mini --include-real-data
 ```
 
 Plots land in `analysis/plots+summaries/<run_folder>/`, the summary (timings, cost estimate) in
@@ -372,7 +380,7 @@ QPU time and effective cost per QPU — land in `analysis/plots+summaries/mini_c
 `--include-simulations-real` / `--include-simulations-noiseless` to compare the QPUs with
 simulations too, `--date=FROM:TO`, `--backends=…`, `--services=…` or `--layouts=…` to analyze only some runs (USER_MANUAL §10), or
 `--individual-only` / `--collective-only` to make only one kind of plot; e.g.
-`python source\analysis_scripts\run_post_process.py mini --include-real-data --collective-only` redraws the comparison without
+`py source\analysis_scripts\run_post_process.py mini --include-real-data --collective-only` redraws the comparison without
 re-analyzing anything. USER_MANUAL §10 has the details.
 
 ---
@@ -385,7 +393,7 @@ chunk = 60 benchmark circuits + 8 SPAM circuits = 68 circuits.
 ### 6.1 Build the full circuits (local, `local_sim.venv`, no cost — but hours of CPU time)
 
 Run the scripts in `source/benchmark_scripts/local_simulation_scripts/` once, from the project root (#3 after #2; #3 uses `ibm.venv`, the others `local_sim.venv`), each with the argument `full`
-(e.g. `python source\benchmark_scripts\local_simulation_scripts\benchmark_noiseless_lnn.py full`). Each builds a circuit set
+(e.g. `py source\benchmark_scripts\local_simulation_scripts\benchmark_noiseless_lnn.py full`). Each builds a circuit set
 (≈ 3.1 GB on disk for all-to-all, ≈ 4.1 GB for LNN; see "Disk space" below) and then runs the full noiseless benchmark on it — AWAE ≈ 0 confirms the
 circuits are right before any QPU time is spent.
 
@@ -427,7 +435,7 @@ Every simulate script takes the optional `scheduling_simulation=true|false` (def
 > | AQT PIAST-Q | 33,121 circuits × €0.30 + 374,500 shots × €0.021 | ≈ **€18,000** |
 
 Same scripts and commands as in §5.2 (AQT: `qbcs_real_submit_aqt_loop.py`), with **`full`** in place of `mini` — the collect scripts
-too, e.g. `python ...\IBM\qbcs_real_submit_ibm.py backend=ibm_marrakesh full`, later `python ...\IBM\qbcs_real_collect_ibm.py backend=ibm_marrakesh full`. Before
+too, e.g. `py ...\IBM\qbcs_real_submit_ibm.py backend=ibm_marrakesh full`, later `py ...\IBM\qbcs_real_collect_ibm.py backend=ibm_marrakesh full`. Before
 committing to the whole run, you can lower `CHUNKS_TO_SUBMIT` (IBM, IQM) or `CHUNK_STOP` (AQT) to submit a
 few chunks first. Expect ~1½–2 h CPU time on your side for loading and transpiling the circuits (measured
 `CPU_time_s` of past runs, circuit build included).
@@ -445,7 +453,7 @@ Terminal tab open and stop the PC from sleeping (*Settings → System → Power*
 cluster, run the loop script through Slurm with `AQT_PIAST-Q/PCSS_Quantum_UI/run_aqt_loop.sbatch` instead, which
 pauses and requeues itself between chunks (`readme_aqt.md` §4.3).
 
-For the IQM EQE1 and IQM VLQ full runs, submit with `python ...\IQM_EQE1\qbcs_real_submit_iqm_eqe1_with_retries.py backend=EQE1 full` and `python ...\IQM_VLQ\qbcs_real_submit_iqm_vlq_with_retries.py backend=VLQ full`, and collect with the plain collect scripts as above. These scripts submit the run and retry a failed submission instead of stopping. The VLQ one waits for the last submitted job to finish on the provider before each submission attempt, retries at once after an attempt that submitted a chunk and after 10 min otherwise, and gives up after 48 h without progress (exit code 14); the EQE1 one does not wait, retries a failed submission at once and then every 1 min, and gives up after 20 min without progress (exit code 14). If every chunk is submitted and only the health check after them could not be submitted, it repeats just that health check, at most 3 times (never a new run). Stop it with Ctrl-C and start it again with the same arguments to resume. Keep the session open as described above.
+For the IQM EQE1 and IQM VLQ full runs, submit with `py ...\IQM_EQE1\qbcs_real_submit_iqm_eqe1_with_retries.py backend=EQE1 full` and `py ...\IQM_VLQ\qbcs_real_submit_iqm_vlq_with_retries.py backend=VLQ full`, and collect with the plain collect scripts as above. These scripts submit the run and retry a failed submission instead of stopping. The VLQ one waits for the last submitted job to finish on the provider before each submission attempt, retries at once after an attempt that submitted a chunk and after 10 min otherwise, and gives up after 48 h without progress (exit code 14); the EQE1 one does not wait, retries a failed submission at once and then every 1 min, and gives up after 20 min without progress (exit code 14). If every chunk is submitted and only the health check after them could not be submitted, it repeats just that health check, at most 3 times (never a new run). Stop it with Ctrl-C and start it again with the same arguments to resume. Keep the session open as described above.
 
 The layout arguments of §5.2 apply to the full run too: IBM, IQM Resonance and IQM VLQ default to `layout=optimized`; IQM EQE1
 and AQT PIAST-Q run on a random layout unless you pass `layout=optimized calibration_file=calibration_input_files/<provider>/<file>.json`, `layout=lowest`
@@ -454,7 +462,7 @@ or the qubits (`layout=15,14,21` for IQM EQE1; AQT PIAST-Q has ions 0…19, e.g.
 ### 6.4 Analyze (`local_sim.venv`)
 
 ```powershell
-python source\analysis_scripts\run_post_process.py full --include-real-data
+py source\analysis_scripts\run_post_process.py full --include-real-data
 ```
 
 It also works on a run that is still being collected: it analyzes the chunks collected so far into

@@ -18,14 +18,14 @@ constants here, so e.g. mini, full and custom runs are analyzed alike.
 
 Usage (which runs to analyze — see RUN_THESE below; without arguments, or with --help, the usage is printed
 and nothing is done):
-  python source/analysis_scripts/run_post_process.py mini --include-real-data   the mini benchmark, real-QPU runs
-  python source/analysis_scripts/run_post_process.py full --include-real-data   the full benchmark, real-QPU runs
-  python source/analysis_scripts/run_post_process.py mini nshots_per_circuit=N --include-real-data
-  python source/analysis_scripts/run_post_process.py nshots_per_circuit=N n_samples=M n_depths=K --include-real-data
+  python3 source/analysis_scripts/run_post_process.py mini --include-real-data   the mini benchmark, real-QPU runs
+  python3 source/analysis_scripts/run_post_process.py full --include-real-data   the full benchmark, real-QPU runs
+  python3 source/analysis_scripts/run_post_process.py mini nshots_per_circuit=N --include-real-data
+  python3 source/analysis_scripts/run_post_process.py nshots_per_circuit=N n_samples=M n_depths=K --include-real-data
                                      (nt_list=... instead of n_depths=K for an explicit list of depths)
                                      the runs made with these source/benchmark_scripts/ arguments
                                      (source/core/runner_support/benchmark_args.py): run folders with that <benchmark> field
-  python source/analysis_scripts/run_post_process.py nshots_per_circuit=N --include-real-data   every run with N shots per circuit
+  python3 source/analysis_scripts/run_post_process.py nshots_per_circuit=N --include-real-data   every run with N shots per circuit
 Which kinds of runs to include — at least one flag is required (without any, nothing
 is analyzed and the usage is printed); they combine:
   --include-real-data               real-QPU runs (data type real-data)
@@ -75,7 +75,7 @@ from pathlib import Path
 from source.core.common import section
 from source.core.records.run_info import load_run_info
 from source.core.runner_support.benchmark_args import parse_benchmark_args, usage_if_requested
-from source.core.common import exit_with_error, PROJECT_ROOT
+from source.core.common import exit_with_error, LAUNCHER, PROJECT_ROOT
 # The pipeline, plotting and provider modules (myQLM, matplotlib, …) are imported inside the functions that use
 # them, so a wrong argument prints the usage before those heavy imports.
 from source.core.records.run_names import (collective_folder_name, collective_plots_dir, entry_data_type, is_run_name, make_run_filter,
@@ -84,11 +84,11 @@ from source.core.records.run_names import (collective_folder_name, collective_pl
 ANALYSIS_SCRIPTS = PROJECT_ROOT / "source" / "analysis_scripts"   # the post-processing scripts run_script() launches
 
 # ── What to analyze: three modes, chosen on the command line ─────────────────
-#   python source/analysis_scripts/run_post_process.py                          the usage (a selection is required)
-#   python source/analysis_scripts/run_post_process.py mini                     mini benchmark
-#   python source/analysis_scripts/run_post_process.py full                     full benchmark
-#   python source/analysis_scripts/run_post_process.py <benchmark arguments>    e.g. mini nshots_per_circuit=100
-#   python source/analysis_scripts/run_post_process.py nshots_per_circuit=N     every run with N shots per circuit
+#   python3 source/analysis_scripts/run_post_process.py                          the usage (a selection is required)
+#   python3 source/analysis_scripts/run_post_process.py mini                     mini benchmark
+#   python3 source/analysis_scripts/run_post_process.py full                     full benchmark
+#   python3 source/analysis_scripts/run_post_process.py <benchmark arguments>    e.g. mini nshots_per_circuit=100
+#   python3 source/analysis_scripts/run_post_process.py nshots_per_circuit=N     every run with N shots per circuit
 # full / mini analyze the lists below. Every run folder is named
 #   <benchmark>_<data type>_<provider>-<backend>_lnn-…_service-…_spam-…_layout-…_<YYYY-MM-DD>_#<N>   (source/core/records/run_names.py)
 # and a list entry is that name WITHOUT its "<benchmark>_" — the mode supplies the benchmark (full, mini) —
@@ -187,7 +187,7 @@ RUN_THESE = {
 
 NSAMPLES_COMPARISON = [8, 48, 120, 240, 480]   # sample counts of --nsamples-comparison
 
-USAGE = """usage: python source/analysis_scripts/run_post_process.py SELECTION INCLUDE... [FILTER...] [--latest-per-qpu | --best-Nacc-per-qpu | --best-Emin-at-Nmax-per-qpu] [--individual-only | --collective-only] [--nsamples-comparison]
+USAGE = f"usage: {LAUNCHER} " + """source/analysis_scripts/run_post_process.py SELECTION INCLUDE... [FILTER...] [--latest-per-qpu | --best-Nacc-per-qpu | --best-Emin-at-Nmax-per-qpu] [--individual-only | --collective-only] [--nsamples-comparison]
 
   Run the BACQ analysis pipeline (merge + analyze, summary, plots, collective plots) for a chosen set of runs,
   real-QPU and/or simulated. Nothing is analyzed unless at least one INCLUDE flag is given.

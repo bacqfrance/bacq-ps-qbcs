@@ -72,11 +72,11 @@ When no existing `pricing.model` fits (a different billing rule), or the time of
 ## 4. Run and check
 
 ```bash
-python source/benchmark_scripts/local_simulation_scripts/benchmark_dummy_noisy_emulators.py mini
-python source/analysis_scripts/run_post_process.py mini --include-simulations-dummy
+python3 source/benchmark_scripts/local_simulation_scripts/benchmark_dummy_noisy_emulators.py mini
+python3 source/analysis_scripts/run_post_process.py mini --include-simulations-dummy
 ```
 
-(the same commands work in a Windows terminal and in a Linux shell, from any directory, with `venvs/local_sim.venv` active.)
+(from the project root, with `venvs/local_sim.venv` active: `source venvs/local_sim.venv/bin/activate`. The commands are written for Linux; in Windows Terminal activate with `.\venvs\local_sim.venv\Scripts\activate` and use `py` instead of `python3`.)
 
 - The driver simulates every dummy of the JSON and skips the ones whose latest run is finished ("skipping"), so a new entry is
   the only one that runs; an unfinished run is resumed in its folder. A failed dummy prints a ❌ line on stderr and the exit

@@ -6,7 +6,7 @@ and reached through LRZ's Munich Quantum Software Stack (MQSS).
 
 ## 1. Prerequisites
 
-Separate virtual environment: **iqm_eqe1.venv** (created at `venvs/iqm_eqe1.venv` in the project root). On top of the base
+Separate virtual environment: **iqm_eqe1.venv** (created at `venvs/iqm_eqe1.venv` in the project root). Run every command in this readme from the project root with it activated (`source venvs/iqm_eqe1.venv/bin/activate`, then `python3 <script>`); the commands are written for Linux, and in Windows Terminal you use `.\venvs\iqm_eqe1.venv\Scripts\activate` and `py` instead of `python3`. On top of the base
 `local_sim.venv` package family, it needs one independent top-level package:
 
 | Package | Version (this project's `iqm_eqe1.venv`) | Provides |
@@ -61,7 +61,7 @@ Every submit, collect, job-status and simulate script here takes the benchmark s
 `mini`, `full`, a preset with other shots or a custom size — the same arguments as every script in
 `source/benchmark_scripts/` (main USER_MANUAL §4.3, with the table of all forms). A collect or status script needs the
 same arguments as the submission it belongs to, since they pick the run folder, whose name is described in
-main USER_MANUAL §5.4. Called without arguments, a script prints its usage and does nothing. Example: `python source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/qbcs_real_submit_iqm_eqe1.py backend=EQE1 full`.
+main USER_MANUAL §5.4. Called without arguments, a script prints its usage and does nothing. Example: `python3 source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/qbcs_real_submit_iqm_eqe1.py backend=EQE1 full`.
 The circuits must be cached for the same depth list first: run `source/benchmark_scripts/local_simulation_scripts/benchmark_noiseless_lnn.py` with the same arguments in `local_sim.venv` (main USER_MANUAL §4.3).
 
 **Qubit layout.** IQM EQE1 (MQSS) reports **no calibration data**, so a live run cannot be optimized without a calibration
@@ -147,8 +147,8 @@ already in `SIMULATED_QPUS` of `RUN_THESE`; `--layouts=<mode>` narrows it), or w
 (main USER_MANUAL §7). Examples of the simulation:
 
 ```bash
-python source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/qbcs_real_simulate_iqm_eqe1.py backend=EQE1 mini layout=random
-python source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/qbcs_real_simulate_iqm_eqe1.py backend=EQE1 mini layout=optimized calibration_file=calibration_input_files/Euro-Q-Exa/calibration_data_Euro-Q-Exa_20261020_active_qubits.json scheduling_simulation=false
+python3 source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/qbcs_real_simulate_iqm_eqe1.py backend=EQE1 mini layout=random
+python3 source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/qbcs_real_simulate_iqm_eqe1.py backend=EQE1 mini layout=optimized calibration_file=calibration_input_files/Euro-Q-Exa/calibration_data_Euro-Q-Exa_20261020_active_qubits.json scheduling_simulation=false
 ```
 
 `scheduling_simulation=true|false` is optional, default `true`: `true` transpiles the circuits scheduled, so idle qubits relax through T1/T2 as on the QPU (full benchmark about 4 h); `false` does not schedule them, so idle relaxation is **not** taken into account (only the relaxation during gates), like the noiseless and coherent-noise simulations (about 1 h). The choice is recorded in `run_info.json` and `submit.log`, the health checks follow it, and an unfinished run folder cannot be resumed with the other value (main USER_MANUAL §4.2).
@@ -208,7 +208,7 @@ by the collect script; the submit script skips checks and submission if all chun
 (`append_submit_log()`): the time, backend, run folder, chunks and shots, the layout, the run qubits with the
 calibration summary of `calibration_snapshot.json`, and the run's health-check numbers, plus EQE1's pending-job count at submission.
 
-**Post-processing.** `python source/analysis_scripts/run_post_process.py mini --include-real-data` (or `full`) merges, analyzes, summarizes and plots
+**Post-processing.** `python3 source/analysis_scripts/run_post_process.py mini --include-real-data` (or `full`) merges, analyzes, summarizes and plots
 this QPU's runs together with the other QPUs' — see main USER_MANUAL §10 for the script, its `RUN_THESE` / `REAL_QPUS` lists,
 the analysis of a still-collecting run, and the outputs.
 
@@ -223,7 +223,7 @@ None currently open.
 
 From the project root (with Python 3.12: `python3.12`, or `python3` if that is 3.12; `py -3.12` on Windows):
 ```bash
-python3.12 -m venv ./venvs/iqm_eqe1.venv
-source ./venvs/iqm_eqe1.venv/bin/activate      # Windows PowerShell: .\venvs\iqm_eqe1.venv\Scripts\Activate.ps1
+python3.12 -m venv venvs/iqm_eqe1.venv
+source venvs/iqm_eqe1.venv/bin/activate
 pip install -r source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/requirements_iqm_eqe1.txt
 ```

@@ -14,10 +14,10 @@ benchmark size must already be cached — run benchmark_noiseless_lnn.py with th
 arguments in venvs/local_sim.venv first.
 
 Usage (see source/core/runner_support/benchmark_args.py; the benchmark is required — without arguments, or with --help, the usage is printed):
-  python benchmark_fake_fez_lnn.py mini                               mini benchmark: 8 samples, Nt = 1, 3, 200 shots
-  python benchmark_fake_fez_lnn.py full scheduling_simulation=false   full benchmark: 480 samples, Nt = 1…19, 10 shots
-  python benchmark_fake_fez_lnn.py mini nshots_per_circuit=N
-  python benchmark_fake_fez_lnn.py nshots_per_circuit=N n_samples=M n_depths=K   (or nt_list=1,5,9)
+  python3 benchmark_fake_fez_lnn.py mini                               mini benchmark: 8 samples, Nt = 1, 3, 200 shots
+  python3 benchmark_fake_fez_lnn.py full scheduling_simulation=false   full benchmark: 480 samples, Nt = 1…19, 10 shots
+  python3 benchmark_fake_fez_lnn.py mini nshots_per_circuit=N
+  python3 benchmark_fake_fez_lnn.py nshots_per_circuit=N n_samples=M n_depths=K   (or nt_list=1,5,9)
 Any of them takes the optional scheduling_simulation=true | false (default true): true transpiles the circuits scheduled, so idle qubits relax through T1/T2 as on
 the QPU (slower: about 4 times the time of false on the full benchmark); false leaves idle-qubit relaxation out. It is recorded in run_info.json,
 and a run folder started with the other value is refused.

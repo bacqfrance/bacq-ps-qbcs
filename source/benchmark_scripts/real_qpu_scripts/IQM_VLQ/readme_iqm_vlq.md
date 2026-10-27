@@ -10,7 +10,7 @@ pair of qubits is connected: the benchmark runs the **all_to_all** circuits (`LN
 
 ## 1. Prerequisites
 
-Separate virtual environment: **iqm_vlq.venv** (created at `venvs/iqm_vlq.venv` in the project root). On top of the base
+Separate virtual environment: **iqm_vlq.venv** (created at `venvs/iqm_vlq.venv` in the project root). Run every command in this readme from the project root with it activated (`source venvs/iqm_vlq.venv/bin/activate`, then `python3 <script>`); the commands are written for Linux, and in Windows Terminal you use `.\venvs\iqm_vlq.venv\Scripts\activate` and `py` instead of `python3`. On top of the base
 `local_sim.venv` package family, it needs these independent top-level packages:
 
 | Package | Version (this project's `iqm_vlq.venv`) | Provides |
@@ -91,7 +91,7 @@ Every submit, collect, job-status and simulate script here takes the benchmark s
 `mini`, `full`, a preset with other shots or a custom size — the same arguments as every script in
 `source/benchmark_scripts/` (main USER_MANUAL §4.3, with the table of all forms). A collect or status script needs the
 same arguments as the submission it belongs to, since they pick the run folder, whose name is described in
-main USER_MANUAL §5.4. Called without arguments, a script prints its usage and does nothing. Example: `python source/benchmark_scripts/real_qpu_scripts/IQM_VLQ/qbcs_real_submit_iqm_vlq.py backend=VLQ full`.
+main USER_MANUAL §5.4. Called without arguments, a script prints its usage and does nothing. Example: `python3 source/benchmark_scripts/real_qpu_scripts/IQM_VLQ/qbcs_real_submit_iqm_vlq.py backend=VLQ full`.
 The circuits must be cached for the same depth list first: run `source/benchmark_scripts/local_simulation_scripts/benchmark_noiseless_all_to_all.py` with the same arguments in `local_sim.venv` (main USER_MANUAL §4.3).
 
 **Qubit layout.** `layout=optimized` (the default), `random`, `lowest` or a list such as `layout=15,14,21`
@@ -260,7 +260,7 @@ by the collect script; the submit script skips checks and submission if all chun
 (`append_submit_log()`): the time, backend, run folder, chunks and shots, the layout, the run qubits with the
 calibration summary of `calibration_snapshot.json`, and the run's health-check numbers, plus the calibration set id.
 
-**Post-processing.** `python source/analysis_scripts/run_post_process.py mini --include-real-data` (or `full`) merges, analyzes, summarizes and plots
+**Post-processing.** `python3 source/analysis_scripts/run_post_process.py mini --include-real-data` (or `full`) merges, analyzes, summarizes and plots
 this QPU's runs together with the other QPUs' — see main USER_MANUAL §10 for the script, its `RUN_THESE` / `REAL_QPUS` lists,
 the analysis of a still-collecting run, and the outputs.
 
@@ -281,7 +281,7 @@ through the `QPU_*` environment variables; each also works standalone (main USER
 
 From the project root (with Python 3.12: `python3.12`, or `python3` if that is 3.12; `py -3.12` on Windows):
 ```bash
-python3.12 -m venv ./venvs/iqm_vlq.venv
-source ./venvs/iqm_vlq.venv/bin/activate      # Windows PowerShell: .\venvs\iqm_vlq.venv\Scripts\Activate.ps1
+python3.12 -m venv venvs/iqm_vlq.venv
+source venvs/iqm_vlq.venv/bin/activate
 pip install -r source/benchmark_scripts/real_qpu_scripts/IQM_VLQ/requirements_iqm_vlq.txt --extra-index-url https://opencode.it4i.eu/api/v4/projects/107/packages/pypi/simple
 ```

@@ -42,7 +42,7 @@ from pathlib import Path
 
 import numpy as np
 
-from source.core.common import PROJECT_ROOT, exit_with_error
+from source.core.common import LAUNCHER, PROJECT_ROOT, exit_with_error
 from source.core.records.run_names import (benchmark_field, layout_field, run_name_with_any_layout, run_name_with_layout,
                                            latest_run_folder, parse_run_name)
 
@@ -127,7 +127,7 @@ def make_usage(script_file, description, backend=True, benchmark=True, health_ch
     scheduling = layout in ("simulate", "simulate_builtin", "simulate_required")   # the QPU-noise simulations
     synopsis = " ".join(filter(None, ["backend=NAME" if backend else "", "[instance=NAME]" if instance else "", bench if benchmark else "", lay_syn,
                                       "[scheduling_simulation=true|false]" if scheduling else ""]))
-    blocks = [f"usage: python {path} {synopsis}",
+    blocks = [f"usage: {LAUNCHER} {path} {synopsis}",
               textwrap.fill(description, width=110, initial_indent="  ", subsequent_indent="  ")]
     if backend:
         backends = json.loads((script.parent / "backends.json").read_text(encoding="utf-8"))["backends"]

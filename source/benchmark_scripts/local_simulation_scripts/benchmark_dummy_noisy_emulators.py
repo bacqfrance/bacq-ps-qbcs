@@ -10,10 +10,10 @@ Each run folder gets dummy_estimates.json, the dummy's pricing and timing inputs
 run's QPU time and cost (source/core/analysis/dummy_estimates.py).
 
 Usage (see source/core/runner_support/benchmark_args.py; the benchmark is required — without arguments, or with --help, the usage is printed):
-  python benchmark_dummy_noisy_emulators.py mini                   mini benchmark: 8 samples, Nt = 1, 3, 200 shots
-  python benchmark_dummy_noisy_emulators.py full                   full benchmark: 480 samples, Nt = 1…19, 10 shots
-  python benchmark_dummy_noisy_emulators.py mini nshots_per_circuit=N
-  python benchmark_dummy_noisy_emulators.py nshots_per_circuit=N n_samples=M n_depths=K   (or nt_list=1,5,9)
+  python3 benchmark_dummy_noisy_emulators.py mini                   mini benchmark: 8 samples, Nt = 1, 3, 200 shots
+  python3 benchmark_dummy_noisy_emulators.py full                   full benchmark: 480 samples, Nt = 1…19, 10 shots
+  python3 benchmark_dummy_noisy_emulators.py mini nshots_per_circuit=N
+  python3 benchmark_dummy_noisy_emulators.py nshots_per_circuit=N n_samples=M n_depths=K   (or nt_list=1,5,9)
 The run folders are <benchmark>_sim-dummy_<NAME>_lnn-<bool>_service-local_spam-True_layout-none_<YYYY-MM-DD>_#<N> (source/core/records/run_names.py),
 NAME being the dummy's key in the JSON (ibm-marrakesh, ionq-forte, ...).
 Exit code 2 if a dummy failed (the others are still run).
