@@ -5,7 +5,9 @@ calibration — same circuits, settings and physical-qubit selection as
 qbcs_real_submit_iqm_resonance.py, but no QPU time.
 
   1. Download BACKEND_NAME's calibration (get_backend(use_metrics=True)) once and save it to
-     datafiles/<RUN_FOLDER>/calibration_snapshot.json (source/core/qpu/qpu_snapshot.py).
+     datafiles/<RUN_FOLDER>/calibration_snapshot.json (source/core/qpu/qpu_snapshot.py). For Sirius (a star machine with a
+     computational resonator) the raw calibration set is downloaded instead, saved as star_calibration.json, and folded
+     into an all-to-all snapshot (source/core/qpu/iqm_star.py); layout=optimized then scores the qubits on it as on VLQ.
      A rerun of an unfinished run reuses that file (with a warning) — same calibration,
      no connection needed (a finished run is followed by a new dated folder, which
      downloads fresh calibration); remove the run folder to start over. With calibration_file=PATH
@@ -45,12 +47,14 @@ from source.core.qpu.providers import IQM_RESONANCE_URL
 from source.core.records.run_names import qpu_run_name, dated_run_folder
 from source.core.qpu.tokens import read_token
 usage_if_requested(sys.argv[1:], make_usage(__file__, "Run the BACQ benchmark on the local Aer simulator with an IQM Resonance QPU's calibration: same circuits, settings and qubit selection as qbcs_real_submit_iqm_resonance.py, but no QPU time.", layout="simulate"))   # no arguments or --help: print the usage and do nothing
+import json
 from pathlib import Path
 
 from iqm.qiskit_iqm import IQMProvider
 
 from source.core.runner_support.benchmark_args import parse_benchmark_args, DT, parse_backend_config, parse_layout_args, parse_scheduling_arg
 from source.core.qpu.calibration_input import use_calibration_file
+from source.core.qpu.iqm_star import STAR_CALIBRATION_FILENAME, attach_star_calibration, save_star_calibration
 from source.core.runner_support.run_simulation import simulate_run
 from source.core.qpu.qpu_snapshot import SNAPSHOT_FILENAME, save_calibration_snapshot, reuse_calibration_snapshot
 
@@ -73,8 +77,14 @@ elif not reuse_calibration_snapshot(snapshot_path):   # a rerun warns and reuses
     token        = read_token("iqm_resonance_token")
     provider     = IQMProvider(IQM_RESONANCE_URL, quantum_computer=BACKEND_NAME, token=token)
     real_backend = provider.get_backend(use_metrics=True)   # without use_metrics the Target has no errors
-    save_calibration_snapshot(real_backend, snapshot_path)
+    if attach_star_calibration(real_backend) is not None:   # Sirius (a star machine): the raw calibration, folded into an all-to-all snapshot
+        save_star_calibration(snapshot_path.parent, real_backend.vlq_calibration, real_backend.star_name)
+    else:
+        save_calibration_snapshot(real_backend, snapshot_path)
+STAR_CAL_PATH = Path("datafiles") / RUN_FOLDER / STAR_CALIBRATION_FILENAME
+STAR_CAL      = json.loads(STAR_CAL_PATH.read_text(encoding="utf-8")) if STAR_CAL_PATH.exists() else None   # the layout is scored on it, as on the real backend
 
 # ── Simulate: build, qubits, health checks, every chunk left, submit.log, analysis (source/core/runner_support/run_simulation.py) ──
 simulate_run(run_folder=RUN_FOLDER, bench=BENCH, layout=LAYOUT, lnn=LNN, snapshot_path=snapshot_path, cal_source=CAL_SOURCE,
-             do_spam=DO_SPAM, dt=DT, seed=SEED, scheduling_simulation=SCHEDULING)
+             do_spam=DO_SPAM, dt=DT, seed=SEED, scheduling_simulation=SCHEDULING,
+             customize_backend=None if STAR_CAL is None else lambda b: setattr(b, "vlq_calibration", STAR_CAL))   # Sirius: qubit selection as on the real backend

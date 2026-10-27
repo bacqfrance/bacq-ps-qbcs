@@ -22,7 +22,8 @@ from source.core.records.run_names import parse_run_name, run_summary_name, serv
 from source.core.analysis.derived_quantities import compute_derived_quantities, NaNEncoder, round_floats, cumulative_awae, EPSILON
 from source.core.analysis.mitigation import BASE_EMS_LIST
 from source.core.analysis.run_timing import aggregate_run_timing, derive_date_time_from_data, qpu_workload
-from source.core.records.job_timing import TIMING_NOTES, QPU_S_SOURCES, AQT_MAX_SHOTS, QPU_EXEC_S_SOURCES, QPU_EXECUTION_NOTE
+from source.core.analysis.dummy_estimates import model_run
+from source.core.records.job_timing import TIMING_NOTES, DUMMY_TIMING_NOTE, QPU_S_SOURCES, AQT_MAX_SHOTS, QPU_EXEC_S_SOURCES, QPU_EXECUTION_NOTE
 from source.core.records.circuit_check import load_run_verification, print_verification, verification_warning
 from source.core.records.chunk_scope import completeness, completeness_warning
 
@@ -43,6 +44,7 @@ RUN_FOLDER, INFO = resolve_run(RUN_FOLDER)   # QPU_RUN_FOLDER wins; the run's ow
 NAME         = parse_run_name(RUN_FOLDER)
 BACKEND_NAME = NAME.device          # ibm-fez, iqm-emerald, iqm-vlq, iqm-eqe1, aqt-piast-q, local-aer
 IS_SIM       = NAME.is_simulation
+IS_DUMMY     = NAME.is_dummy        # a dummy emulator (sim-dummy): a simulation whose QPU time and cost are modelled (dummy_estimates.json)
 NSHOTS, LNN, DO_SPAM = INFO.nshots, INFO.lnn, INFO.do_spam
 USE_SPAM = DO_SPAM   # run_data_spam*.json if the run has SPAM data, else run_data*.json
 SUFFIX     = subset_suffix(N_SAMPLES)
@@ -65,8 +67,9 @@ CPU_TIME   = TIMING["cpu"]["total_s"]
 # time fractions describe the whole run; the successful jobs' times stay in timing_breakdown, the failed
 # jobs' in failed_attempts.
 INCL_FAILED = None if IS_SIM else TIMING["failed_attempts"]["totals_incl_failed"]
-QPU_TIME   = 0.0 if IS_SIM else INCL_FAILED["qpu_s"]
-QUEUE_TIME = 0.0 if IS_SIM else INCL_FAILED["queue_s"]
+DUMMY_MODEL = model_run(RUN_FOLDER, N_SAMPLES) if IS_DUMMY else None   # modelled QPU time and cost (source/core/analysis/dummy_estimates.py)
+QPU_TIME   = DUMMY_MODEL["qpu_time_s"] if IS_DUMMY else 0.0 if IS_SIM else INCL_FAILED["qpu_s"]
+QUEUE_TIME = 0.0 if IS_SIM else INCL_FAILED["queue_s"]   # a dummy has no queue (stated in timing_notes)
 # QPU execution only — "N/A" when the provider does not report it for every job (and for simulations)
 QPU_EXEC   = "N/A" if IS_SIM or TIMING["qpu_execution"]["total_s"] is None \
              else TIMING["qpu_execution"]["total_s"]
@@ -77,7 +80,7 @@ SERVICE    = None if IS_SIM else service_name_of_run_service(NAME.service)
 # Legacy IBM runs recorded no billed time, only execution windows (up to ~4,500 s, far above what IBM bills).
 # They get 12 s per started block of 48 chunks instead (480 chunks: 120 s, 49 chunks: 24 s) — for QPU_time_s
 # and everything derived from it, and for the cost below. timing_breakdown keeps the recorded windows.
-WORKLOAD = None if IS_SIM else qpu_workload(os.path.join("datafiles", RUN_FOLDER), N_SAMPLES)
+WORKLOAD = None if IS_SIM and not IS_DUMMY else qpu_workload(os.path.join("datafiles", RUN_FOLDER), N_SAMPLES)
 LEGACY_IBM_S_PER_BLOCK, LEGACY_IBM_CHUNKS_PER_BLOCK = 12.0, 48
 if SERVICE == IBM_CLOUD and TIMING["legacy_run"]:
     QPU_TIME = LEGACY_IBM_S_PER_BLOCK * -(-WORKLOAD["n_chunks"] // LEGACY_IBM_CHUNKS_PER_BLOCK)
@@ -104,7 +107,16 @@ SCALEWAY_PRICING_URL      = "https://www.scaleway.com/en/quantum-as-a-service/"
 # PRICING picks how the effective cost is computed (below) from this run's own records;
 # FREE_BECAUSE says why the actual cost is 0.
 PROTOCOLS = "Protocols: bare, NEC, RC, NEC+RC, cRC, NEC+cRC, along with readout error mitigation for each."
-if IS_SIM:
+if IS_DUMMY:
+    # A dummy emulator of a QPU: a coherent-noise simulation, with the QPU's provider and architecture and a modelled time and cost.
+    QPU_PROVIDER  = {"ibm": "IBM", "iqm": "IQM", "rigetti": "Rigetti", "aqt": "AQT", "ionq": "IonQ", "quantinuum": "Quantinuum"}.get(NAME.provider, NAME.provider)
+    ARCHITECTURE  = DUMMY_MODEL["estimates"]["architecture"]   # the real QPU's architecture as its manufacturer spells it (definitions JSON)
+    DEVICE_LABEL  = f"{NAME.figure_label}, lnn-{NAME.lnn}"   # contains "dummy emulator": a real run of the same device has its own label
+    QPU_SERVICE   = f"Local Aer simulation (dummy emulator of {NAME.device}, coherent CNOT noise)"
+    PRICING       = "dummy"
+    FREE_BECAUSE  = f"the run is a simulation (a dummy emulator of {NAME.device}), not run on the QPU"
+
+elif IS_SIM:
     # Not a real QPU — no provider/service/cost to report, N/A placeholders throughout.
     QPU_PROVIDER  = "N/A"
     ARCHITECTURE  = "N/A"
@@ -116,7 +128,7 @@ if IS_SIM:
 
 elif BACKEND_NAME in ("ibm-marrakesh", "ibm-kingston", "ibm-fez", "ibm-boston", "ibm-pittsburgh", "ibm-aachen", "ibm-phoenix"):
     QPU_PROVIDER  = "IBM"
-    ARCHITECTURE  = {"ibm-boston": "Heron R3", "ibm-pittsburgh": "Heron R3", "ibm-aachen": "Heron R3", "ibm-phoenix": "Nighthawk R2"}.get(BACKEND_NAME, "Heron R2")
+    ARCHITECTURE  = {"ibm-boston": "Heron r3", "ibm-pittsburgh": "Heron r3", "ibm-aachen": "Heron r3", "ibm-phoenix": "Nighthawk r2"}.get(BACKEND_NAME, "Heron r2")
     QPU_SERVICE   = "IBM Quantum Platform (cloud)"
     PRICING       = "ibm_payg"
     if INFO.instance is None or INFO.instance_plan is None:   # every IBM run records the instance that received its jobs (run_info.json)
@@ -175,7 +187,13 @@ if not IS_SIM:
 CONNECTIVITY = "Linear nearest neighbor" if LNN else "All to all"
 EXTRA_INFO   = PROTOCOLS
 
-if IS_SIM:
+if IS_DUMMY:
+    _est = DUMMY_MODEL["estimates"]
+    EXTRA_INFO = (PROTOCOLS + f" Dummy emulator of {NAME.device}: a local simulation with coherent CNOT noise ({_est['noise_type']}, "
+                  f"infidelity {_est['infidelity_total']:.6g} from a two-qubit gate fidelity of {_est['fidelity_percent']}%, crosstalk ratio "
+                  f"{_est['ratio_ct']}; source: {_est['source_fidelity']}) — not a hardware result. Its QPU time and effective cost are "
+                  f"modelled estimates (see cost_explanation and timing_notes); the actual cost is 0.")
+elif IS_SIM:
     EXTRA_INFO = PROTOCOLS + " Local simulation — no QPU cost."
 
     # Any simulation with a calibration_snapshot.json (sim-qpu-noise: source/benchmark_scripts/real_qpu_scripts/*/qbcs_real_simulate_*.py;
@@ -217,7 +235,22 @@ else:
     if WORKLOAD["n_uncollected"]:
         counted += (f"; {WORKLOAD['n_uncollected']:,} jobs were submitted but never collected "
                     f"(cost unknown, not counted)")
-    if PRICING == "ibm_payg":
+    if PRICING == "dummy":                             # modelled for the dummy emulator (source/core/analysis/dummy_estimates.py)
+        _c, _p = DUMMY_MODEL["cost"], _est["pricing"]
+        EFFECTIVE_COST_USD = _c["usd"]
+        if _c["model"] == "ibm_payg":
+            _how = f"the modelled QPU time ({QPU_TIME:,.2f} s, not rounded up to whole seconds) at ${_p['usd_per_qpu_minute']} per QPU minute"
+        elif _c["model"] == "hqc":
+            _how = (f"{_c['hqc']:,.2f} Quantinuum HQC ({_p['hqc_fixed']} + C/{_p['hqc_divisor']} x ({_p['weights']['n1q']} N1q + "
+                    f"{_p['weights']['n2q']} N2q + {_p['weights']['nm']} Nm) per circuit, C its shots, one job per circuit) at "
+                    f"${_p['usd_per_hqc']} per HQC")
+        else:
+            _how = (f"${_p['usd_per_task']} per task + ${_p['usd_per_shot']} per shot ({_c['n_tasks']:,} tasks: one per job of up to "
+                    f"{_p['circuits_per_task']} circuits, one per health check; shots counted per circuit"
+                    f"{'; the per-shot price is a scaled estimate' if _c['model'] == 'braket_scaled' else ''})")
+        model = (f"An estimate for the simulated {NAME.device}, not a bill: {_how}, for this run's {counted}. Pricing model "
+                 f"{_c['model']}; source: {_est['source_pricing']} (definitions of {_est['lookup_date']}); at these prices the run")
+    elif PRICING == "ibm_payg":
         EFFECTIVE_COST_USD = QPU_TIME * IBM_PAYG_USD_PER_MIN / 60
         model = (f"Paying the QPU time ({QPU_TIME:,.0f} s"
                  + (f", of which {TIMING['failed_attempts']['qpu_s']:,.0f} s in failed jobs"
@@ -384,7 +417,10 @@ summary = {
                         "health checks) + submission; the circuit build is scaled to the analysed subset. "
                         "Runs from before transpilation/submission were logged separately count each chunk's "
                         "whole transpile+submit interval (AQT: minus its wall time, which is queue + QPU).",
-        "QPU_time_s":   TIMING_NOTES.get(SERVICE, "No QPU (local simulation).")
+        "QPU_time_s":   (DUMMY_TIMING_NOTE + f" Timing constants (s): {_est['timing']}; source: {_est['source_timing']}. Gate counts of "
+                         f"the {DUMMY_MODEL['cost']['n_circuits']:,} executed circuits (chunk jobs with SPAM, and health checks), summed over circuits: "
+                         f"N1q {DUMMY_MODEL['gates']['n1q']:,}, N2q {DUMMY_MODEL['gates']['n2q']:,}, Nm {DUMMY_MODEL['gates']['nm']:,}."
+                         if IS_DUMMY else TIMING_NOTES.get(SERVICE, "No QPU (local simulation)."))
                         + (f" This legacy run recorded no billed time, only execution windows "
                            f"(timing_breakdown.qpu), so its QPU time is set to {LEGACY_IBM_S_PER_BLOCK:.0f} s per "
                            f"started block of {LEGACY_IBM_CHUNKS_PER_BLOCK} chunks ({QPU_TIME:.0f} s)."
@@ -393,7 +429,8 @@ summary = {
         "Queue_time_s": "per job, from the end of submission to the start of execution. IBM, IQM Resonance, "
                         "IQM VLQ and IQM EQE1 queue many jobs at once, so the waits overlap: the longest single wait over all "
                         "chunk jobs and health checks, failed jobs included. Synchronous services (AQT, local) run their jobs one after "
-                        "another: the sum of the waits.",
+                        "another: the sum of the waits."
+                        + (" A dummy emulator has no queue: 0." if IS_DUMMY else ""),
         "QPU_submission_to_results_duration_s": "date_qc_end - date_qc_start: earliest submission to the latest "
                                                 "result over the chunk, failed-attempt and health-check jobs",
         "QPU_submission_to_results_duration_without_dead_time_s": "the same window minus the dead time: the gaps "
@@ -421,6 +458,8 @@ summary = {
     "failed_attempts":       {k: TIMING["failed_attempts"][k] for k in
                               ("n_attempts", "n_jobs", "n_submission_failures", "n_may_exist_on_provider",
                                "chunks", "qpu_s", "queue_s", "collect_s", "totals_incl_failed")},
+    **({"dummy_estimate": {k: DUMMY_MODEL[k] for k in ("qpu_time_s", "qpu_time_chunks_s", "qpu_time_health_checks_s", "cost", "gates")},
+        "dummy_inputs": DUMMY_MODEL["estimates"]} if IS_DUMMY else {}),
     "legacy_run":            TIMING["legacy_run"],   # old IBM / IQM records: times from the old fields
     "timing_breakdown":      TIMING,
     "circuit_verification":  VERIFICATION,

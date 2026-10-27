@@ -24,6 +24,7 @@ usage_if_requested(sys.argv[1:], make_usage(__file__, "Submit a BACQ benchmark r
 from pathlib import Path
 from iqm.qiskit_iqm import IQMProvider
 from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args, pop_force_new_run_flag
+from source.core.qpu.iqm_star import attach_star_calibration
 from source.core.qbcs import IQM_MAX_CIRCUITS_PER_JOB
 from source.core.runner_support.run_submission import submit_async_run
 
@@ -45,6 +46,7 @@ print(f"\n[{BACKEND_NAME} — connection]")
 token        = read_token("iqm_resonance_token")
 provider     = IQMProvider(IQM_RESONANCE_URL, quantum_computer=BACKEND_NAME, token=token)
 real_backend = provider.get_backend(use_metrics=True)   # calibration errors → Target, used to pick the run's physical qubits
+attach_star_calibration(real_backend)   # Sirius (a star machine): its raw calibration scores the layout and is saved with the run; other backends: nothing
 
 print(f"  Server:  {IQM_RESONANCE_URL}")
 print(f"  Backend: {real_backend.name}")

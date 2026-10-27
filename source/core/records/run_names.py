@@ -10,9 +10,11 @@ parameters of <benchmark>:
     <benchmark>   full | mini | full+nshots-10 | custom+ndepths-3+nsamples-8+nshots-50
                   | custom+nt-1-5-9+nsamples-8+nshots-50 | health-check+reps-1+nshots-100
                   (a subset analysis of N samples appends +nsamples-N, or replaces it)
-    <data type>   real-data | sim-noiseless | sim-coherent | sim-fake-fez | sim-qpu-noise
+    <data type>   real-data | sim-noiseless | sim-coherent | sim-dummy | sim-fake-fez | sim-qpu-noise
     <provider>-<backend>   ibm-fez, iqm-emerald, iqm-vlq, iqm-eqe1, aqt-piast-q; local-aer for
-                  simulations without a QPU's noise. A sim-qpu-noise run names the QPU it simulates.
+                  simulations without a QPU's noise. A sim-qpu-noise run names the QPU it simulates, a sim-dummy
+                  run the QPU it is a dummy emulator of (ibm-marrakesh, ionq-forte, ...: a real run of that device
+                  has data type real-data, so a device alone does not tell the two apart).
     lnn / spam    True | False | none (standalone health checks)
     service       ibm-cloud | iqm-resonance | qaas-it4i | mqss-lrz | pcss | local
     layout        optimized | random | lowest | legacy | none | three qubits (15-14-21)
@@ -39,7 +41,7 @@ import re
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-DATA_TYPES = ("real-data", "sim-noiseless", "sim-coherent", "sim-fake-fez", "sim-qpu-noise")
+DATA_TYPES = ("real-data", "sim-noiseless", "sim-coherent", "sim-dummy", "sim-fake-fez", "sim-qpu-noise")
 
 # The QPU script folders (source/benchmark_scripts/real_qpu_scripts/<QPU>/) → (provider, service, service name).
 # The service is the access platform, as the run-name field (lower case, "-" — "_" separates the fields);
@@ -152,6 +154,7 @@ class RunName:
         kind = {"real-data":     "real QPU",
                 "sim-noiseless": "noiseless simulation",
                 "sim-coherent":  "simulation (coherent CNOT noise)",
+                "sim-dummy":     "dummy emulator (simulation)",
                 "sim-fake-fez":  "simulation (FakeFez noise)",
                 "sim-qpu-noise": "simulation (calibration noise)"}[self.data_type]
         return f"{name} — {kind}"
@@ -160,6 +163,11 @@ class RunName:
     def figure_label_full(self):
         """figure_label with the layout and the run's date, e.g. "ibm-fez — real QPU, layout optimized, 11/10/2026 #1"."""
         return f"{self.figure_label}, layout {layout_label(self)}, {self.date_label}"
+
+    @property
+    def is_dummy(self):
+        """True for a dummy emulator of a QPU (sim-dummy): a coherent-noise simulation whose QPU time and cost are modelled."""
+        return self.data_type == "sim-dummy"
 
     @property
     def is_health_check(self):

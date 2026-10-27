@@ -11,8 +11,8 @@ The file may be in either format:
     snapshot_from_aqt_json / snapshot_from_iqm_eqe1_json, automatically.
 
 A run keeps its calibration: the snapshot is saved as <run>/calibration_snapshot.json, and a rerun with
-the same file reuses it (a different file — another measured_at, or another content when
-there is none — is an error — a run never changes calibration halfway).
+the same file reuses it; a different file (another measured_at, or other content when
+there is none) is an error: a run never changes calibration halfway.
 Plain json + qpu_snapshot: no qiskit and no myQLM at import time.
 """
 
@@ -116,7 +116,7 @@ def use_calibration_file(path, run_path, label):
 
 def save_live_calibration(backend, run_folder):
     """Save the calibration a real run is working with — what the QPU's SDK reports now — as
-    datafiles/<run_folder>/calibration_snapshot.json (VLQ: also vlq_calibration.json), so the run records the
+    datafiles/<run_folder>/calibration_snapshot.json (VLQ: also vlq_calibration.json; Sirius: star_calibration.json), so the run records the
     calibration its layout was chosen on and its results can be read against it. Done once: a run that already
     has a snapshot (a calibration file, or an earlier session of the same run) keeps it. A QPU that reports no
     calibration data (AQT, EQE1) has nothing to save. Never raises — a missing snapshot must not stop a run."""
@@ -127,7 +127,10 @@ def save_live_calibration(backend, run_folder):
     try:
         vlq_cal = getattr(backend, "vlq_calibration", None)
         run_path.mkdir(parents=True, exist_ok=True)
-        if vlq_cal is not None:
+        if vlq_cal is not None and getattr(backend, "star_name", None):   # IQM Resonance's Sirius
+            from source.core.qpu.iqm_star import save_star_calibration
+            save_star_calibration(run_path, vlq_cal, backend.star_name)
+        elif vlq_cal is not None:
             from source.core.qpu.iqm_vlq import save_vlq_calibration
             save_vlq_calibration(run_path, vlq_cal)
         else:
@@ -155,7 +158,7 @@ def resolve_layout_or_exit(qbcs, backend, **kwargs):
 def _saved_snapshot_backend(backend, run_folder):
     """The offline backend of the run's saved calibration_snapshot.json, which a live run's layout is scored on, or
     None (score on the live `backend`) when there is no usable snapshot or the QPU's circuits are laid out another
-    way (VLQ scores on its vlq_calibration.json). Never raises."""
+    way (VLQ and Sirius score on their raw calibration). Never raises."""
     if getattr(backend, "vlq_calibration", None) is not None:
         return None
     path = PROJECT_ROOT / "datafiles" / run_folder / SNAPSHOT_FILENAME

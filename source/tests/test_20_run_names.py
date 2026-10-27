@@ -19,6 +19,7 @@ plot-folder and summary names are built and parsed:
   - the run filters of run_post_process.py (RunFilter, make_run_filter, parse_date_filter) and the collective folder name of a filtered set;
   - the collective plots' run labels and run order (collective_plots._labels, run_order), time units
     (_duration_fmt), the run table CSV (_write_run_table) and the linear bar plot (_bar_plot, log=False);
+  - a sim-dummy (dummy emulator) run: its name, figure label, run kind, post-processing flag and the "estimated" marks of the collective table;
   - the coherent noise of a run read back from its job record (run_post_process.coherent_noise_of_run) and
     the circuit cache folder it names (common.get_circuit_folder).
 """
@@ -384,6 +385,42 @@ def test_coherent_noise_of_run_names_the_cache(tmp_path):
     rec.write_text(json.dumps({"CONFIG": {}}), encoding="utf-8")   # an old or noiseless record
     assert coherent_noise_of_run(tmp_path) is None
     assert coherent_noise_of_run(tmp_path / "no_such_run") is None
+
+
+def test_dummy_emulator_names_kind_and_filter(tmp_path):
+    """A sim-dummy run takes the device of the QPU it imitates: only its data type tells it from the real run, and
+    --include-simulations-dummy (kind sim_dummy) selects it, --include-simulations-coherent does not."""
+    from source.analysis_scripts import run_post_process as P
+    undated = RN.local_run_name("mini", "sim-dummy", True, device="ibm-marrakesh")
+    assert undated == "mini_sim-dummy_ibm-marrakesh_lnn-True_service-local_spam-True_layout-none"
+    r = RN.parse_run_name(f"{undated}_2026-10-26_#1")
+    assert (r.data_type, r.device, r.service, r.layout, r.is_simulation, r.is_dummy) == ("sim-dummy", "ibm-marrakesh", "local", "none", True, True)
+    assert r.figure_label == "ibm-marrakesh — dummy emulator (simulation)"
+    assert not RN.parse_run_name("mini_sim-coherent_local-aer_lnn-True_service-local_spam-True_layout-none").is_dummy
+    real = RN.parse_run_name("mini_real-data_ibm-marrakesh_lnn-True_service-ibm-cloud_spam-True_layout-optimized_2026-10-20_#1")
+    assert real.device == r.device and real.figure_label != r.figure_label and not real.is_dummy
+    assert P.run_kind(f"{undated}_2026-10-26_#1") == "sim_dummy"
+    assert P.entry_kind(dict(run="sim-dummy")) == "sim_dummy" and P.entry_kind(dict(run_folder=f"{undated}_2026-10-26_#1")) == "sim_dummy"
+    assert P.INCLUDE_FLAGS["--include-simulations-dummy"] == "sim_dummy" and P.KIND_DATA_TYPES["sim_dummy"] == ("sim-dummy",)
+    assert "sim-dummy" not in P.KIND_DATA_TYPES["sim_coherent"] and P.run_kind("mini_sim-coherent_local-aer_lnn-True_service-local_spam-True_layout-none") == "sim_coherent"
+    assert P.parse_include(["mini", "--include-simulations-dummy"]) == (["mini"], {"sim_dummy"})
+    assert "--include-simulations-dummy" in P.USAGE
+    assert RN.collective_folder_name("mini", P.KIND_DATA_TYPES["sim_dummy"][:1]) == "mini_collective_sim-dummy"
+    # the backends filter alone matches the real run and its dummy: the data type (the selection) tells them apart
+    f = RN.make_run_filter(backends=["ibm-marrakesh"])
+    assert f.matches(r) and f.matches(real)
+
+
+def test_dummy_run_table_marks_estimates(tmp_path):
+    from source.core.analysis import collective_plots as CP
+    base = dict(run_folder="x", n_samples=None, sample_size=8, qpu_time_s=2.0, cost_eur=3.0, n_acc=1, n_max=1, emin_nmax=0.1,
+                best_ems_nmax="NEC", best_ems_nacc="NEC")
+    path = tmp_path / "t.csv"
+    CP._write_run_table([dict(base, estimated=True), dict(base, estimated=False)], ["D", "R"], path)
+    rows = [[c.strip() for c in r] for r in csv.reader(path.read_text(encoding="utf-8").splitlines(), delimiter=";")]
+    assert rows[0][-1] == "estimated" and rows[1][-1] == "estimated" and rows[2][-1] == ""
+    CP._bar_plot([dict(base, estimated=True)], ["D"], "qpu_time_s", "t", "QPU time", str, tmp_path / "q.png", mark_estimated=True)
+    assert (tmp_path / "q.png").stat().st_size > 0
 
 
 if __name__ == "__main__":

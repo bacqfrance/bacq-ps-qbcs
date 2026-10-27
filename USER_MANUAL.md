@@ -29,6 +29,7 @@ Based on:
     - [4.1 Circuit caches and format](#41-circuit-caches-and-format)
     - [4.2 Local simulator with a real backend's noise model](#42-local-simulator-with-a-real-backends-noise-model)
     - [4.3 Minimal script sequence — build every circuit the QPU runs need](#43-minimal-script-sequence--build-every-circuit-the-qpu-runs-need)
+    - [4.4 Dummy noisy emulators — QPUs the benchmark was not run on](#44-dummy-noisy-emulators--qpus-the-benchmark-was-not-run-on)
   - [5. The pipeline — `bacq_ps_qbcs`](#5-the-pipeline--bacq_ps_qbcs)
     - [5.1 Constructor](#51-constructor)
     - [5.2 `build(circuit_transpilation_LNN=False)`](#52-buildcircuit_transpilation_lnnfalse)
@@ -103,7 +104,8 @@ Quantum_Benchmarking_project/
 │   │   ├── qpu/                         #   provider access and QPU data
 │   │   │   ├── providers.py             #   constants the QPU scripts share (IQM Resonance URL, health-check shots, standalone health check), `connect_ibm()` (the IBM connection), `job_state_of_status()` (done / failed / pending from a job-status text) and `ibm_batch()`, the IBM Batch + sampler that is always closed
 │   │   │   ├── tokens.py                #   read_token() / token_path(): the provider tokens and access files in tokens/
-│   │   │   ├── iqm_vlq.py               #   IQM VLQ (LEXIS/HEAppE) login, upload and calibration
+│   │   │   ├── iqm_vlq.py               #   IQM VLQ (LEXIS/HEAppE) login, upload and calibration download
+│   │   │   ├── iqm_star.py              #   IQM star machines (VLQ, Sirius): raw calibration → per-qubit metrics, per-role qubit scoring, effective all-to-all snapshot
 │   │   │   ├── qpu_snapshot.py          #   calibration snapshot → offline backend + Aer noise model — see §7
 │   │   │   ├── calibration_input.py     #   calibration_file= (provider format or snapshot) → snapshot + offline backend — see §5.4
 │   │   │   ├── layout_selection.py      #   picks a run's physical qubits (optimized / random / lowest / given) — see §5.4
@@ -123,6 +125,7 @@ Quantum_Benchmarking_project/
 │   │       ├── mitigation.py            #   expectation values, NEC/RC/cRC mitigation, AWAE, run_data*.json
 │   │       ├── run_timing.py            #   CPU/QPU/queue time, failed attempts, QPU workload (prices) — see §10.2
 │   │       ├── derived_quantities.py    #   summary quantities from AWAE and times, cumulative AWAE, EPSILON, best schemes; JSON helpers
+│   │       ├── dummy_estimates.py       #   the dummy noisy emulators' modelled QPU time and cost, dummy_estimates.json — see §4.4
 │   │       └── collective_plots.py      #   plots comparing all analyzed runs (AWAE, QPU, submission and collection time, window, cost, N_acc, E_min) and their table as a CSV — see §10
 │   ├── analysis_scripts/                #   every analysis script; run_post_process.py launches the others — see §10
 │   │   ├── run_post_process.py          #   post-processing driver for a set of runs
@@ -138,6 +141,9 @@ Quantum_Benchmarking_project/
 │   │   │   ├── benchmark_noiseless_all_to_all.py       # noiseless, all-to-all — builds the circuits for AQT, VLQ and Sirius (QPY version 13)
 │   │   │   ├── benchmark_coherent_noise_lnn.py         # LNN, with coherent CNOT noise compiled into the circuits
 │   │   │   ├── benchmark_coherent_noise_all_to_all.py  # all-to-all, with coherent CNOT noise
+│   │   │   ├── benchmark_dummy_noisy_emulators.py      # one coherent-noise run per dummy QPU of the JSON below, with modelled QPU time and cost — see §4.4
+│   │   │   ├── definitions_dummy_noisy_emulators.json  # the dummies: fidelity, pricing and timing, each with its source — see §4.4
+│   │   │   ├── GUIDE_FOR_ADDING_NEW_DUMMY_QPUS.md      # how to add a dummy QPU to the JSON, or a pricing/timing model — see §4.4
 │   │   │   └── benchmark_fake_fez_lnn.py               # LNN, with FakeFez noise (ibm.venv, offline)
 │   │   └── real_qpu_scripts/            # one folder per real QPU — see §7
 │   │       ├── IBM/            + readme_IBM.md
@@ -252,10 +258,10 @@ run this from the project root, with `local_sim.venv` active:
 ```bash
 pytest source/tests/
 ```
-Runs `test_00`/`test_01`/`test_07`/`test_08`/`test_10`/`test_11`/`test_12`/`test_13`/`test_14`/`test_15`/`test_16`/`test_17`/`test_18`/`test_19`/`test_20`/`test_21`/`test_22`/`test_23`/`test_24`/`test_25`/`test_26`/`test_27`/`test_28`/`test_29` (§9) —
+Runs `test_00`/`test_01`/`test_07`/`test_08`/`test_10`/`test_11`/`test_12`/`test_13`/`test_14`/`test_15`/`test_16`/`test_17`/`test_18`/`test_19`/`test_20`/`test_21`/`test_22`/`test_23`/`test_24`/`test_25`/`test_26`/`test_27`/`test_28`/`test_29`/`test_30` (§9) —
 fundamental checks that confirm the circuits are built correctly, a full
 local-sim pipeline + post-processing integration check, and unit tests of the
-executed-circuit check and the timing bookkeeping — in 5 to 10 minutes (366 tests; longer on slower machines).
+executed-circuit check and the timing bookkeeping — in 5 to 10 minutes (386 tests; longer on slower machines).
 **Two venvs are needed**: `local_sim.venv` runs the suite (the run stops at once with instructions if `venvs/local_sim.venv` is missing; `test_10` also starts a child process in it), and `test_12` runs itself in `aqt.venv` — it fails with an error telling you to create `venvs/aqt.venv` (`source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/readme_aqt.md` §1, `requirements_aqt.txt`, which includes `pytest`) or to run `venvs/aqt.venv/Scripts/python -m pip install pytest` (`bin/python` on Linux) if only `pytest` is missing there.
 All tests passing (no failures, no errors) means the base venv, myQLM↔Qiskit
 translation, local Aer simulation, and `source/analysis_scripts/run_post_process.py` all work
@@ -306,7 +312,7 @@ transpiled). Nothing is drawn in the terminal.
 **Circuit caches.** The circuit cache (§5.4) is kept per topology *and* per
 depth list: each depth list gets its own folder named by its Trotter steps, `datafiles/circuits/<topology>_Nt<steps>/`
 (`_Nt1-3-5-7-9-11-13-15-17-19` for the full benchmark, `_Nt1-3` for the mini one; the coherent-noise
-simulations add their noise, `_<noise type>_I<infidelity>_rct<ratio>`, so they never share a cache with the noiseless circuits),
+simulations add their noise, `_<noise type>_I<infidelity>_rct<ratio>`, so they never share a cache with the noiseless circuits; each dummy emulator's noise setting names its own cache folder, §4.4),
 because a chunk holds one circuit per (role, depth) and so can't be shared
 between depth lists. Mini and full benchmarks therefore never touch each
 other's circuits. The rest of what shapes the circuits — `sample_size`, `dt` and
@@ -474,7 +480,7 @@ python source/benchmark_scripts/local_simulation_scripts/benchmark_noiseless_lnn
 ```
 
 The local runs are saved in `datafiles/<benchmark>_<data type>_local-aer_lnn-<bool>_service-local_spam-<bool>_layout-<mode>_<YYYY-MM-DD>_#<N>/`,
-with data type `sim-noiseless`, `sim-coherent` or `sim-fake-fez` — e.g.
+with data type `sim-noiseless`, `sim-coherent`, `sim-dummy` (§4.4) or `sim-fake-fez` — e.g.
 `datafiles/mini_sim-noiseless_local-aer_lnn-True_service-local_spam-True_layout-none_2026-10-11_#1/` (§5.4; the
 noiseless and coherent-noise runs have `layout-none`, the FakeFez run its layout, §4.2).
 
@@ -497,6 +503,66 @@ venv), so it stops with a message pointing back to this step.
 
 The circuit cache for the full-size runs (10 depths × 480 samples) is ≈3.1 GB (all-to-all) or ≈4.1 GB (LNN)
 on disk per topology.
+
+### 4.4 Dummy noisy emulators — QPUs the benchmark was not run on
+
+A **dummy noisy emulator** stands for a QPU the benchmark was not run on (no access, or not yet). It is one local
+coherent-noise simulation, exactly like `benchmark_coherent_noise_lnn.py` / `benchmark_coherent_noise_all_to_all.py`
+(same seed, `rng_seed = 0`), with the dummy's own total infidelity (`1 - Fidelity/100`, `Fidelity` being the QPU's two-qubit
+gate fidelity in %), crosstalk ratio `r_ct`, noise type and topology (`lnn`), plus a **modelled QPU time and cost** from the
+QPU's published prices and timings. It claims a fidelity-level noise only: no queue is modelled, nothing was run on the QPU,
+and the actual cost is 0.
+
+```bash
+python source/benchmark_scripts/local_simulation_scripts/benchmark_dummy_noisy_emulators.py mini     # one run per dummy
+python source/benchmark_scripts/local_simulation_scripts/benchmark_dummy_noisy_emulators.py full
+```
+
+The script takes the benchmark arguments of §4.3 (`mini`, `full`, `nshots_per_circuit=`, `n_samples=`, `nt_list=`, …; without
+arguments it prints its usage) and simulates every dummy of
+[`definitions_dummy_noisy_emulators.json`](source/benchmark_scripts/local_simulation_scripts/definitions_dummy_noisy_emulators.json)
+(`ibm-marrakesh`, `iqm-emerald`, `iqm-garnet`, `iqm-sirius`, `rigetti-cepheus-108q`, `aqt-ibex-q1`, `ionq-forte`,
+`quantinuum-h2`). A dummy whose latest run is finished is skipped ("skipping"), so no `#2` run is opened; an unfinished one is
+resumed in its folder. A dummy that fails prints a ❌ line on stderr, the others still run, and the exit code is 2. Each dummy's
+noise setting (topology, noise type, infidelity, `r_ct`) has its own circuit cache (§4.1): build the largest sample size
+first, as for the coherent-noise scripts; a first `full` build per cache takes as long as for the other caches (§4.3).
+
+The runs are saved as `datafiles/<benchmark>_sim-dummy_<NAME>_lnn-<bool>_service-local_spam-True_layout-none_<YYYY-MM-DD>_#<N>/`
+(§5.4), `NAME` being the dummy's key in the JSON. Because `NAME` is also a real QPU's name, tell dummy and real runs apart by the
+data type: `--include-simulations-dummy` of `run_post_process.py` selects the dummies (§10), and the plot labels and
+`device_label` read "dummy emulator (simulation)". Each run folder also holds `dummy_estimates.json` (§8), the dummy's entry
+copied before the simulation starts (an existing file is kept, so a resumed run keeps its inputs); the analysis reads it, so it
+needs neither the JSON nor the script.
+
+**The JSON.** One entry per dummy:
+
+| Field | Holds |
+|---|---|
+| `architecture` | the real QPU's architecture as its manufacturer spells it (`Heron r2`, `Crystal 54`, `Forte`, …), shown as `Architecture` in the summary; required |
+| `Fidelity` | the two-qubit gate fidelity in % (the infidelity is `1 - Fidelity/100`) |
+| `r_ct`, `noise_type`, `lnn` | the crosstalk ratio, the noise type (`Pauli`) and the topology (`"True"`: LNN, `"False"`: all-to-all) |
+| `pricing` | the pricing `model` and its constants: `ibm_payg` (`usd_per_qpu_minute`), `braket` and `braket_scaled` (`usd_per_task`, `usd_per_shot`, `circuits_per_task`), `hqc` (`hqc_fixed`, `weights`, `hqc_divisor`, `usd_per_hqc`) |
+| `timing` | `t_1q`, `t_2q`, `t_meas`, `per_shot_overhead` in seconds; no cell may be `null` (a null term is an error, never 0) |
+| `source_fidelity`, `source_pricing`, `source_timing` | where each group of values comes from: a URL, quote or file with its date for a quoted value, and `ASSUMPTION` plus the rule used for a value that was not found |
+
+**The models.** The time of one shot is `per_shot_overhead + N1q·t_1q + N2q·t_2q + t_meas`, from the gate counts of the logical
+circuits as simulated (no transpilation, so native gate sets and couplings are ignored): `rz` is free, every other 1-qubit
+gate is N1q, every 2-qubit gate (`cx`, `cz`, `rzz`, …) is N2q, and gates are summed (no parallelism between them). The modelled QPU
+time is that time over every circuit and shot of the chunk jobs (SPAM circuits included) and of the pre- and post-run health
+checks (simulated, one circuit each). The cost is in USD, then EUR at the exchange rate of §10.2:
+
+| `pricing.model` | Cost |
+|---|---|
+| `ibm_payg` | modelled seconds / 60 × `usd_per_qpu_minute` (not rounded up to whole seconds) |
+| `braket` | tasks × `usd_per_task` + shots × `usd_per_shot` (shots counted per circuit); a chunk job is ⌈circuits / `circuits_per_task`⌉ tasks, a health check one task |
+| `braket_scaled` | as `braket`, with the project's scaled per-shot estimate for a machine Braket does not offer |
+| `hqc` | Quantinuum: per circuit (one job each) HQC = `hqc_fixed` + C/`hqc_divisor` × (n1q·N1q + n2q·N2q + nm·Nm), C its shots and Nm its measurements; summed over all circuits, health checks included, × `usd_per_hqc` |
+
+The modelled values are estimates: the summary JSON (§10.2) carries them in `QPU_time_s`, `effective_cost_*` and the fields
+`dummy_estimate` and `dummy_inputs`, and says so in `cost_explanation`, `timing_notes` and `extra_info`.
+
+To add a dummy, or a new pricing or timing model, follow
+[GUIDE_FOR_ADDING_NEW_DUMMY_QPUS.md](source/benchmark_scripts/local_simulation_scripts/GUIDE_FOR_ADDING_NEW_DUMMY_QPUS.md).
 
 ---
 
@@ -646,7 +712,7 @@ one after another, so the circuit lasts the sum of their durations plus the long
 device-wide T1/T2, so the term cannot tell its ions apart. `physical_qubits.json` records `decoherence_included` and the
 estimated `t_circuit_s`. IQM VLQ's star is scored per role instead — each virtual qubit's `prx`
 gates, MOVE pairs and CZs with the resonator, over every ordered choice of qubits with
-complete calibration (`source/core/qpu/iqm_vlq.py`, `readme_iqm_vlq.md` §4.1). Backends that report no error data
+complete calibration (`source/core/qpu/iqm_star.py`, shared by IQM VLQ and IQM Resonance's Sirius; `readme_iqm_vlq.md` §4.1). Backends that report no error data
 (IQM EQE1 via MQSS, AQT) are scored from a calibration file instead (below). Transpilation asserts that the 2q-gate count is unchanged and that all
 circuits, SPAM included, sit on those qubits. Every health check is transpiled
 like the chunks — for the backend, or for local runs for `layout_backend` (a
@@ -719,11 +785,11 @@ Fields are separated by `_`; inside a field `-` joins a name and its value, and 
 | Field | Values |
 |---|---|
 | `<benchmark>` | `full`, `mini`, `full+nshots-100` (a preset with other shots), `custom+ndepths-3+nsamples-8+nshots-50`, `custom+nt-1-5-9+nsamples-8+nshots-50`, `health-check+reps-1+nshots-100` (standalone health checks) |
-| `<data type>` | `real-data`, `sim-noiseless`, `sim-coherent`, `sim-fake-fez`, `sim-qpu-noise` (a simulate script: local Aer with a QPU's calibration) |
-| `<provider>-<backend>` | `ibm-fez`, `ibm-kingston`, `ibm-marrakesh`, `iqm-emerald`, `iqm-garnet`, `iqm-sirius`, `iqm-vlq`, `iqm-eqe1`, `aqt-piast-q`; `local-aer` for local simulations without a QPU's noise (also the `sim-fake-fez` runs, which carry FakeFez's noise); the simulated QPU's `<provider>-<backend>` for `sim-qpu-noise` runs |
+| `<data type>` | `real-data`, `sim-noiseless`, `sim-coherent`, `sim-dummy` (a dummy emulator of a QPU, §4.4), `sim-fake-fez`, `sim-qpu-noise` (a simulate script: local Aer with a QPU's calibration) |
+| `<provider>-<backend>` | `ibm-fez`, `ibm-kingston`, `ibm-marrakesh`, `iqm-emerald`, `iqm-garnet`, `iqm-sirius`, `iqm-vlq`, `iqm-eqe1`, `aqt-piast-q`; `local-aer` for local simulations without a QPU's noise (also the `sim-fake-fez` runs, which carry FakeFez's noise); the simulated QPU's `<provider>-<backend>` for `sim-qpu-noise` runs; the dummy's name (`ibm-marrakesh`, `ionq-forte`, …) for `sim-dummy` runs, whose data type tells them from a real run of the same device |
 | `lnn`, `spam` | `True`, `False`, or `none` (standalone health checks) |
 | `service` | `ibm-cloud`, `iqm-resonance`, `qaas-it4i` (VLQ), `mqss-lrz` (EQE1), `pcss` (AQT), `local` (every simulation) |
-| `layout` | `optimized`, `random`, `lowest`, three qubits (`15-14-21`), `legacy` (old runs: qiskit chose per circuit), `none` (no QPU run: the noiseless and coherent-noise local simulations and standalone health checks; `sim-fake-fez` runs carry their layout) |
+| `layout` | `optimized`, `random`, `lowest`, three qubits (`15-14-21`), `legacy` (old runs: qiskit chose per circuit), `none` (no QPU run: the noiseless, coherent-noise and dummy-emulator local simulations and standalone health checks; `sim-fake-fez` runs carry their layout) |
 | `<YYYY-MM-DD>_#<N>` | the UTC day the submit, simulate or health-check script first made the folder, and the number of the run that day (`#1` for the first) |
 
 **The date tells runs of the same settings apart.** A submit, simulate or health-check script works in the latest
@@ -1107,6 +1173,7 @@ datafiles/<run_folder>/
 ├── STOP                                       # optional — AQT loop: made with `touch`, ends the loop before its next chunk (exit code 4)
 ├── run_info.json                              # what the run was: shots, samples, depths, dt, topology, SPAM (§10.2)
 ├── calibration_snapshot.json                  # real runs: the calibration the layout was chosen with (§5.4)
+├── dummy_estimates.json                       # dummy-emulator runs (§4.4): the dummy's pricing and timing inputs, with their sources
 ├── transpiled_circuits/                       # backend-specific ISA circuits (per-run): chunks, SPAM,
 │                                              # the health check circuit, physical_qubits.json
 ├── timestamps_utc.csv                         # pipeline stage timing, UTC — durations are computed from this
@@ -1167,7 +1234,7 @@ The numbered tests skip 02-06 and 09 (those numbers belong to retired tests).
 | `source/tests/test_10_no_myqlm_on_qpu_path.py` | with myQLM imports blocked (as in the real-QPU venvs), `build()` from the cache, a local submission and the analysis all run without loading myQLM, and an uncached `build()` stops with the "build in local_sim.venv" message; every `source.core` module except `circuits/main.py`, `rc_functions.py`, `circuit_functions.py` imports with myQLM blocked |
 | `source/tests/test_11_circuit_check_and_timing.py` | unit tests, no simulation: the executed-vs-submitted circuit check on real IBM/IQM Resonance job data (`source/tests/circuit_check_data_executed_vs_submitted/`, all must match except the fixture marked `mismatch`) and on altered synthetic circuits (all must mismatch; malformed server data gives `check_failed`, never an exception); the analysis summary incl. the qubit-consistency fallback; the figure warning line; Europe/Berlin → UTC incl. the repeated DST hour; durations from `timestamps_utc.csv` across a DST change, with fallback to the local-time log; append-only logs and skipping interrupted attempts; the build time as a sum of stages; refusing old AQT records without a timing block; reading old EQE1 runs, and records whose QPU time comes from their old fields, as legacy runs; `QPU_execution_time_s` per backend (summed over jobs, `N/A` when any job lacks it); the health check transpile time counted once per run (whole-run in a subset analysis); layout selection counting native single-qubit gates on the transpiled circuit; the shared UTC helpers (`parse_utc`, `iso_utc`, `now_utc_iso`) |
 | `source/tests/test_12_aqt_shot_split.py` | **runs in `aqt.venv`, not `local_sim.venv`** (Qiskit 1.4.6, as AQT runs it): `test_12` only launches `source/tests/aqt_venv_test_12_shot_split.py` with `venvs/aqt.venv`'s Python, and fails with instructions if `aqt.venv` (or `pytest` in it) is missing. Unit tests, no simulation: AQT's 200-shots-per-circuit limit — the even split of larger shot counts (`job_timing.aqt_shot_parts`), `_aqt_run` refusing more than 200 shots, per-batch QPU-time modelling, and `submit_chunk_aqt` against a stub backend: parts checkpointed and summed per circuit, an interrupted chunk leaving a `failed` record (archived on the retry) and resumed at the first missing part, each execution counted as circuits in `qpu_workload`, and a failure inside a batch keeping the circuits finished before it in the `failed` record (circuits, shots, QPU time; its wall time booked once as queue time); a circuit not executed within `AQT_TASK_TIMEOUT_S` raising `AQTTaskTimeout` and leaving a `failed` record; the AQT connection-retry notices and a timed-out accompanying health check leaving a failed record; the shot parts' timestamps in `timestamps_*.csv`; the loop script's `STOP` file (honoured once, then deleted) and its `AQT_PAUSE_AFTER_HOURS` time limit, with their exit codes 4 and 3 |
-| `source/tests/test_13_iqm_vlq.py` | unit tests, no simulation or network: VLQ's qubit selection on a saved calibration set (`source/tests/iqm_vlq_check_data/`): each virtual qubit's prx / MOVE / CZ counts read from a transpiled star circuit, every ordered choice of qubits with complete metrics scored by those roles (T1/T2 idle decay breaks ties between equal fidelities), the effective all-to-all snapshot for the local simulation (written beside the raw calibration by `save_vlq_calibration()`), MOVEs not counted as two-qubit gates, and the timing of a real VLQ job (Resonance-equivalent billed time, `remote_hw_runtime`, IT4I/IQM queue split), and the connection log (every call to IT4I / HEAppE logged and time-limited, a hung request reported with where it waited), and the simulate script's `calibration_file=` (a run's `vlq_calibration.json`, or a snapshot accepted only with its `vlq_calibration.json` beside it) |
+| `source/tests/test_13_iqm_vlq.py` | unit tests, no simulation or network: VLQ's and Sirius's qubit selection on saved calibration sets (`source/tests/iqm_vlq_check_data/`; the MOVE-pair fidelity, the per-locus CZ implementation): each virtual qubit's prx / MOVE / CZ counts read from a transpiled star circuit, every ordered choice of qubits with complete metrics scored by those roles (T1/T2 idle decay breaks ties between equal fidelities), the effective all-to-all snapshot for the local simulation (written beside the raw calibration by `save_vlq_calibration()`), MOVEs not counted as two-qubit gates, and the timing of a real VLQ job (Resonance-equivalent billed time, `remote_hw_runtime`, IT4I/IQM queue split), and the connection log (every call to IT4I / HEAppE logged and time-limited, a hung request reported with where it waited), and the simulate script's `calibration_file=` (a run's `vlq_calibration.json`, or a snapshot accepted only with its `vlq_calibration.json` beside it) |
 | `source/tests/test_14_incomplete_runs_and_collection.py` | unit tests, no simulation or network: runs with uncollected chunks in the middle — merging keeps each chunk's own number (the NEC input state depends on it), an analysis of n chunks covers the first n collected ones (timing, workload), a subset analysis corrects SPAM with every collected chunk's calibration (no `+nsamples-N` SPAM matrix by default), the `completeness` block and its warning; the collection time (`chunk{nc}_collect_*` labels, health checks' `collect_s`, N/A for older runs, `FT_collect`); non-blocking collection of chunk jobs and health checks (finished ones collected in any order, unfinished left pending, failed ones marked failed) against a faked provider; the chunks a submission covers (no `submitted` / `complete` record, gaps included), required by every accompanying health check as `chunks` (older `jobs` / `prior_chunks` records still read); the health check plot of an incomplete run (`+nsamples-N` files, uncollected checks and jobs); collecting a run while no job has finished analyzes nothing and does not fail (`collect_runs()` then ends with the incomplete banner), and collecting an aborted run (no chunk submitted) ends with one `❌` line (exit code 2); the run banner (complete, or incomplete with its pending, failed and unsubmitted chunks) and the summary banner closing a collection of several runs; one reading of provider job-status texts (`job_state_of_status()`: a cancelled job counts as failed) shared by collection and the status report |
 | `source/tests/test_15_health_check_network_retries.py` | unit tests, no simulation or network (a fake backend/collect-service stands in for the provider): `_is_transient_network_error`'s classification of connection/DNS/timeout errors (incl. walking `__cause__`); `submit_health_check`'s async-service (`IBM_Cloud`/`MQSS_LRZ`/`IQM_Resonance`/`QAAS_IT4I`) submission-failure handling — writes a numbered `status="failed"` record with its transpile and submit timing and raises `HealthCheckSubmitError` — vs. AQT/local and the standalone path, which stay unwrapped (raw exception propagates, nothing written); `require_functional_health_check`'s bounded retry on transient errors only and its three distinct exit codes (`EXIT_HC_DEGRADED` / `EXIT_HC_NOT_COLLECTED` / `EXIT_HC_NOT_SUBMITTED`) — a degraded verdict is never retried, and a failed collection attempt submits a fresh check under a new number rather than re-polling the same job; `submit_post_health_check` never raising or exiting (chunks are already on the QPU by then); and `collect_health_check(number=None)` / `plot_health_checks.py` handling a run with a mix of failed, uncollected and complete health checks without error, with failed ones counted/labelled separately; and the one verdict rule for every QPU (`health_check_verdict`: P(011) above the threshold), the shared verdict lines, P011 + the verdict in a synchronous standalone record, and an async standalone check keeping its collected result (counts, P011, verdict) in its own record |
 | `source/tests/test_16_failed_job_attempts.py` | unit tests, no simulation or network (a temporary run folder): a failed chunk record archived to `job_records/failed_attempts/job_record_chunk_<nc>_failed_<k>.json` before a resubmission overwrites it (`k` counts up, the same failure never archived twice, other statuses left alone); readers of `job_record_chunk_<nc>.json` never taking an archived file for a chunk; `chunks_without_submission()` still listing failed and missing chunks; `failed_attempts_breakdown()` summing the failed jobs' QPU / queue / collection time (a batched job shared by several chunks counted once, each AQT attempt a job of its own, its executed circuits and shots summed and reported by `qpu_workload` as `n_failed_circuits` / `n_failed_shots`; IBM-style failed jobs shared by several chunks counted in full once, with string fields, plus a submission failure with `may_exist_on_provider` and an uncollected job reported as `n_may_exist_on_provider` / `n_uncollected`); the health check plot's jobs marking failed ones; chunk submission against fake IBM / IQM samplers — `_submit_error_kind` (provider never reached → retried; answer lost, the job may exist → not retried; other errors), retried submissions keeping `submit_attempts`, and a submission that gives up writing `"submission failed"` records for every chunk of the job (one `submission_id`, `may_exist_on_provider`, chunks already submitted left alone) and re-raising, archived on the rerun; records written with `status` near the top; the run window (`_job_intervals_for_window()`) spanning failed attempts and health checks, and its active length (`_active_seconds()`) without dead time (gaps between merged jobs over 30 min, 2 h on AQT, subtracted) |
@@ -1184,6 +1251,7 @@ The numbered tests skip 02-06 and 09 (those numbers belong to retired tests).
 | `source/tests/test_27_submit_with_retries.py` | the retry loop of the EQE1 and VLQ `*_with_retries.py` submit scripts (`submit_with_retries.py`) with fake status and launch: the latest job (chunk or health check), the final statuses that launch and every other status that waits, the 10 min steps, the 48 h budget and its restart on progress, a folder that never appears, the exit codes, `--force-new-run` only until the folder exists, progress on a new run, and the final health check (repeated 3 times with `--retry-health-check`, never a new run; a failed check before the submission keeps the normal wait), and the EQE1 setting (no job wait, the first retry at once, 1 min waits, a 20 min budget), the VLQ setting (a retry at once only after a launch that submitted a chunk) with the 21 min age below which the check before the submission is skipped |
 | `source/tests/test_28_ibm_instance.py` | the explicit IBM instance choice with a fake service: the default is the Open Plan instance (not the first one listed), a named instance is found by name or CRN, an unknown name, no Open Plan instance or several exit with code 2 and one line; `connect_ibm()` builds one service, limited to Open Plan by default or for the named instance, refuses an unknown name (listing the instances) and a QPU the instance does not list; a run's recorded instance wins, a different `instance=` for it and runs on different instances exit with code 2; `run_info.json` records the instance, keeps it through later writes and leaves it out for other providers, records `scheduling_simulation` (a mismatch is refused), and records `physical_qubits`, kept through later writes; `parse_instance_arg()` and the usage text |
 | `source/tests/test_29_job_cancel.py` | the shared body of the `cancel_real_qpu_jobs_*.py` scripts (`job_cancel.py`) with fake status and cancellation: only queued or running jobs are cancelled, a job shared by chunks once, records without a job and ended jobs are left alone, the standalone health check, records unchanged on disk, and exit code 2 when a cancellation or a status query fails (the next run folder still runs) |
+| `source/tests/test_30_dummy_estimates.py` | unit tests, no simulation or network (temporary folders): the gate counts of a circuit (`rz` free, 2-qubit gates, measurements), the time model and each pricing model (`ibm_payg`, `braket`, `braket_scaled`, `hqc`) against hand-computed values, a null or missing term refused (all shipped dummies valid), `dummy_estimates.json` written once with no absolute path, a run's jobs read from a cached circuit folder and its records, and the driver's skip/resume rule (§4.4) |
 
 ### 9.1 Your circuit caches are safe during `pytest source/tests/`
 
@@ -1232,7 +1300,8 @@ the run folders it analyzes, one per line, before starting.
 | `--include-real-data` | real-QPU runs (data type `real-data`) |
 | `--include-simulations-real` | simulations with a real backend's noise: `sim-qpu-noise` (the `qbcs_real_simulate_*.py` scripts) and `sim-fake-fez` |
 | `--include-simulations-noiseless` | noiseless simulations (`sim-noiseless`) |
-| `--include-simulations-coherent` | simulations with coherent CNOT noise (`sim-coherent`, `benchmark_coherent_noise_*.py`) |
+| `--include-simulations-coherent` | simulations with coherent CNOT noise (`sim-coherent`, `benchmark_coherent_noise_*.py`; not the dummy emulators) |
+| `--include-simulations-dummy` | dummy noisy emulators of QPUs (`sim-dummy`, `benchmark_dummy_noisy_emulators.py`, §4.4): coherent-noise simulations with a modelled QPU time and cost; `RUN_THESE` holds the prefix `sim-dummy`, which matches every dummy of the benchmark |
 
 Either scope flag can be added as well (e.g. `python source/analysis_scripts/run_post_process.py mini --include-real-data --collective-only`):
 
@@ -1284,7 +1353,7 @@ settings (samples, depths, shots) still come from its run folder; the argument o
 **Collective plots** (`source/core/analysis/collective_plots.py`), written to `analysis/plots+summaries/<benchmark>_collective_<data types>/`:
 `<benchmark>` is `mini`, `full`, the `<benchmark>` field of other benchmark arguments, or `any+nshots-N` for
 `nshots_per_circuit=N` alone; `<data types>` joins the included kinds with `+` — `real-data`, `sim-qpu-noise`,
-`sim-noiseless`, `sim-coherent` (`sim-qpu-noise` also stands for the `sim-fake-fez` runs that
+`sim-noiseless`, `sim-coherent`, `sim-dummy` (`sim-qpu-noise` also stands for the `sim-fake-fez` runs that
 `--include-simulations-real` adds) — e.g. `mini_collective_real-data+sim-noiseless/`.
 
 | File | Shows |
@@ -1292,16 +1361,16 @@ settings (samples, depths, shots) still come from its run folder; the argument o
 | `awae_best_ems_vs_Nt.png` | AWAE vs $N_t$ of each run's best EMS at $N_{max}$ (solid) and at $N_{acc}$ (dashed) — one line if they coincide — with the threshold ε = 0.05 (`derived_quantities.EPSILON`) |
 | `cumul_awae_best_ems_vs_Nt.png` | the same for the cumulative AWAE (Z_exact-weighted mean over the depths up to $N_t$, `derived_quantities.cumulative_awae()`), the quantity $N_{acc}$ is defined by |
 | `awae_and_cumul_awae_best_ems_vs_Nt.png` | both side by side |
-| `qpu_time.png` | `QPU_time_s` per run, log scale; bar labels and ticks in seconds (up to 60 s), minutes (up to 60 min), hours (up to 24 h) or days |
+| `qpu_time.png` | `QPU_time_s` per run, log scale; bar labels and ticks in seconds (up to 60 s), minutes (up to 60 min), hours (up to 24 h) or days; a dummy emulator's modelled time is labelled `[estimated]` |
 | `submission_time.png` | summed submission time per run (`timing_breakdown.cpu.submit_s` + `health_check_submit_s`, a part of `CPU_time_s`), log scale, units as above; runs without it (synchronous services, old runs) are left out |
 | `collection_time.png` | `Collect_time_s` per run (summed result-collection time, failed jobs included), log scale, units as above; runs collected before it was timed are left out |
 | `submission_to_results_duration.png` | `QPU_submission_to_results_duration_s` per run (earliest job submission to latest job result, wall clock, chunk, failed-attempt and health-check jobs), log scale, units as above; simulations are left out |
 | `submission_to_results_duration_without_dead_time.png` | `QPU_submission_to_results_duration_without_dead_time_s` per run (the window minus long idle gaps), log scale, units as above; simulations and runs summarized without it are left out |
-| `effective_cost_EUR.png` | `effective_cost_EUR` per run, log scale with € labels |
+| `effective_cost_EUR.png` | `effective_cost_EUR` per run, log scale with € labels; a dummy emulator's modelled cost is labelled `[estimated]` |
 | `n_acc.png` | $N_{acc}$ per run, linear scale (a run with $N_{acc}$ = 0 shows a bar at 0); runs whose summary lacks it are left out |
 | `e_min_nmax.png` | `E_min_Nmax` (the lowest AWAE over the schemes at $N_{max}$) per run, linear scale 0 to 1.05, with the threshold ε = 0.05 as a dashed line |
 
-The same runs in one table, `<benchmark>_collective_<data types>.csv` in the same folder as the plots (e.g. `analysis/plots+summaries/mini_collective_real-data+sim-noiseless/mini_collective_real-data+sim-noiseless.csv`), which also holds a copy of each run's `summary_<run name>.json`: `;`-separated and padded with spaces so it also reads as a text table, UTF-8, one row per run, in the order of the plots; columns `run` (the plot label), `n_samples`, `sample_size`, `N_acc`, `best_scheme_Nacc`, `N_max`, `E_min_Nmax` (4 significant digits), `best_scheme_Nmax`, `QPU_time_s` (whole seconds), `QPU_time` (readable), `effective_cost_EUR` (2 decimals); a quantity the summary lacks is an empty cell.
+The same runs in one table, `<benchmark>_collective_<data types>.csv` in the same folder as the plots (e.g. `analysis/plots+summaries/mini_collective_real-data+sim-noiseless/mini_collective_real-data+sim-noiseless.csv`), which also holds a copy of each run's `summary_<run name>.json`: `;`-separated and padded with spaces so it also reads as a text table, UTF-8, one row per run, in the order of the plots; columns `run` (the plot label), `n_samples`, `sample_size`, `N_acc`, `best_scheme_Nacc`, `N_max`, `E_min_Nmax` (4 significant digits), `best_scheme_Nmax`, `QPU_time_s` (whole seconds), `QPU_time` (readable), `effective_cost_EUR` (2 decimals), and `estimated` (only when a dummy emulator is among the runs; `estimated` in its row); a quantity the summary lacks is an empty cell.
 
 Each run is labelled `<device_label>, layout <mode>, DD/MM/YYYY #N` (`device_label`, a key of the saved summary; older summaries on disk carry `computer_name`; the per-run figures use `figure_label_full`, §5.4:
 e.g. `ibm-fez — real QPU, lnn-True`, or for a simulation `fake-fez — simulation (FakeFez noise), lnn-True`; a legacy summary without either uses the backend name).
@@ -1417,7 +1486,7 @@ are included in all of them:
 - `QPU_execution_time_s`: the QPU's execution time alone (no compilation, set-up or billing rounding), summed
   over the run's jobs, where the provider reports it: IQM VLQ `remote_hw_runtime` (what VLQ charges the
   project allocation), IQM Resonance `metrics.execution_seconds`, IBM
-  `circuits_execution_time_ns`. It is `"N/A"` for IQM EQE1, AQT and simulations, and whenever
+  `circuits_execution_time_ns`. It is `"N/A"` for IQM EQE1, AQT and simulations (dummy emulators included), and whenever
   any job of the run lacks it.
 - `Queue_time_s`: per job, end of submission → start of execution (table in §7); for IQM VLQ, end of the upload
   → IQM's compilation start, which includes the wait in IT4I's HEAppE job system. IBM, IQM Resonance, IQM VLQ and
@@ -1447,6 +1516,12 @@ are included in all of them:
 - `QPU_time_s` is the successful jobs' QPU time plus the failed jobs' (§7); `Queue_time_s` and
   `Collect_time_s` include the failed jobs too.
   Everything derived from `QPU_time_s`, including the cost, uses this value.
+- A dummy emulator's summary (§4.4) has its QPU time and effective cost modelled from `dummy_estimates.json`: `QPU_time_s` is the
+  modelled time (`Queue_time_s` stays 0, `QPU_execution_time_s` `"N/A"`), `timing_notes["QPU_time_s"]` gives the formula, the timing
+  constants, `source_timing` and the summed gate counts, `extra_info` the noise parameters and `source_fidelity`, and two extra
+  fields hold the numbers: `dummy_estimate` (`qpu_time_s` with its chunk and health-check parts, the `cost` and the summed gate
+  counts `gates`) and `dummy_inputs` (the run's `dummy_estimates.json`). The provider, architecture and `device_label` are those of
+  the dummied QPU ("dummy emulator" in the label).
 
 **Incomplete runs.** The collect scripts do not wait: they collect the jobs that have finished, in
 whatever order they finished, leave the others for a later run of the script, and mark failed jobs failed
@@ -1474,6 +1549,7 @@ run would have cost at public list prices. It is computed from the run's own rec
 - submissions that may have run on the provider and jobs never collected: not counted, named in `cost_explanation` with their cost unknown.
 
 `cost_explanation` gives the reason the actual cost is 0 (or that it was billed on the named instance), the pricing model with links, and the result.
+For a dummy emulator (§4.4) the actual cost is 0 (a simulation), the effective cost is the model's estimate, and `cost_explanation` names the model, its constants, `source_pricing` and the date of the definitions.
 VAT is excluded. The prices and the exchange rate are hard-coded at the top of the script, with the date they
 were looked up (2026-09-27; the IQM Resonance credits, used for the VLQ/Sirius estimate, 2026-09-28).
 
@@ -1485,7 +1561,7 @@ were looked up (2026-09-27; the IQM Resonance credits, used for the VLQ/Sirius e
 | IQM VLQ | a synthetic estimate combining the IQM Resonance and Amazon Braket billing schemes: $0.30 per task + $0.00064 per shot (Braket's Emerald price × Resonance's credits per second for Sirius, a Star 24 machine like VLQ, 0.3, over Emerald's, 0.75). A job holds up to 12 chunks (`VLQ_CHUNKS_PER_JOB`), so it counts as the 100-circuit program sets its whole chunks fill (5 chunks of 20 circuits in the mini benchmark, 1 of 68 in the full one); a health check is one task; failed jobs count the same way. | as for IBM |
 | IQM Resonance Sirius | Braket does not offer Sirius, a Star 24 machine like VLQ: the same synthetic estimate as IQM VLQ | as for IBM |
 | AQT PIAST-Q | Scaleway, AQT IBEX-Q1: €0.30 per circuit + €0.021 per shot | `effective_cost_EUR` only |
-| simulations (`sim-*` data types) | no QPU | `effective_cost_EUR` = 0 |
+| simulations (`sim-*` data types) | no QPU | `effective_cost_EUR` = 0, except `sim-dummy` runs: modelled from `dummy_estimates.json` (§4.4) |
 
 ### 10.3 Things that will trip you up
 

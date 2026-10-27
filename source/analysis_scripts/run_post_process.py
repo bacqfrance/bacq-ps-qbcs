@@ -32,6 +32,7 @@ is analyzed and the usage is printed); they combine:
   --include-simulations-real        simulations with a real backend's noise (sim-qpu-noise, sim-fake-fez)
   --include-simulations-noiseless   noiseless simulations (sim-noiseless)
   --include-simulations-coherent    simulations with coherent CNOT noise (sim-coherent)
+  --include-simulations-dummy       dummy emulators of QPUs (sim-dummy): coherent-noise simulations with a modelled QPU time and cost
 Optional filters narrow the selected runs, for the individual and the collective analysis alike, and combine freely:
   --date=2026-09-01 | --date=2026-09-01:2026-09-30 | --date=2026-09-01: | --date=:2026-09-30   the run's date
   --backends=ibm-fez,iqm-garnet     the run's <provider>-<backend>
@@ -157,6 +158,7 @@ LOCAL_SIMULATIONS = [   # source/benchmark_scripts/local_simulation_scripts/
     "sim-fake-fez_local-aer_lnn-True",
     "sim-coherent_local-aer_lnn-False",   # coherent CNOT noise (benchmark_coherent_noise_*.py)
     "sim-coherent_local-aer_lnn-True",
+    "sim-dummy",   # the dummy emulators (benchmark_dummy_noisy_emulators.py): every dummy of the benchmark
 ]
 
 RUN_THESE = {
@@ -204,6 +206,7 @@ USAGE = """usage: python source/analysis_scripts/run_post_process.py SELECTION I
   --include-simulations-real        simulations with a real backend's noise (sim-qpu-noise, sim-fake-fez)
   --include-simulations-noiseless   noiseless simulations (sim-noiseless)
   --include-simulations-coherent    simulations with coherent CNOT noise (sim-coherent)
+  --include-simulations-dummy       dummy emulators of QPUs (sim-dummy): coherent-noise simulations with a modelled QPU time and cost
 
   FILTERS — optional; narrow the selected runs, for the individual and the collective analysis alike. They combine
   (a run must pass every filter given; within one list any value matches):
@@ -242,6 +245,7 @@ INCLUDE_FLAGS = {
     "--include-simulations-real":      "sim_real",
     "--include-simulations-noiseless": "sim_noiseless",
     "--include-simulations-coherent":  "sim_coherent",
+    "--include-simulations-dummy":     "sim_dummy",
 }
 
 
@@ -253,6 +257,7 @@ KIND_DATA_TYPES = {   # run kind → the data types it covers; the first names i
     "sim_real":      ("sim-qpu-noise", "sim-fake-fez"),
     "sim_noiseless": ("sim-noiseless",),
     "sim_coherent":  ("sim-coherent",),
+    "sim_dummy":     ("sim-dummy",),
 }
 
 
@@ -271,7 +276,7 @@ def _kind_of_data_type(dtype):
 
 
 def run_kind(run_folder):
-    """"real", "sim_real", "sim_noiseless" or "sim_coherent" — the --include-* kind of a run folder."""
+    """"real", "sim_real", "sim_noiseless", "sim_coherent" or "sim_dummy" — the --include-* kind of a run folder."""
     return _kind_of_data_type(parse_run_name(run_folder).data_type)
 
 

@@ -11,6 +11,10 @@ Unit tests (no simulator run, no QPU, no network) for IT4I's VLQ (IQM Star 24) s
     one is chosen (T1/T2 idle decay breaks ties between equal fidelities);
   - iqm_vlq.snapshot_from_calibration: the effective all-to-all CZ (error 1 - F_cz·F_move of
     the better direction, duration 2·MOVE + CZ; prx error per native gate) rebuilds into a Target and an Aer noise model;
+  - iqm_star.qubit_metrics: F_move is the MOVE pair of the moved qubit (move_ncz_move, n_interleaved_gates=0), a qubit without
+    it is excluded; on Sirius's calibration (source/tests/iqm_vlq_check_data/iqm_sirius_calibration_fixture.json) the CZ
+    implementation is read per locus (tgss on QB2 / QB10), the median of F_move(a)·F_cz(b) over the 240 pairs is 96.83 % and
+    agrees with the directly measured MOVE·CZ·MOVE; iqm_star.calibration_from_station_control gives the vlq_calibration.json shape;
   - layout_selection.count_2q_ops ignores MOVEs;
   - iqm_vlq.vlq_collect_timing on a real job (source/tests/iqm_vlq_check_data/iqm_vlq_job_timing_fixture.json: the mini
     benchmark's IQM timeline and qaas runtimes, 2026-09-29) — reproduces what collection recorded:
@@ -39,6 +43,7 @@ from types import SimpleNamespace
 import pytest
 from qiskit import QuantumCircuit
 
+from source.core.qpu import iqm_star as S
 from source.core.qpu import iqm_vlq as V
 from source.core.records import job_timing as JT
 from source.core.qpu.layout_selection import count_2q_ops
@@ -95,16 +100,74 @@ def test_idle_decay_decides_between_equal_fidelities():
     flat    = metrics[usable[0]]                                           # one qubit's fidelities and durations for all
     m_flat  = {q: dict(flat, t1=50e-6, t2=20e-6) for q in usable}
     m_flat[usable[3]].update(t1=500e-6, t2=400e-6)                         # one qubit that outlives the rest
-    orig    = V.qubit_metrics
+    orig    = S.qubit_metrics
     try:
-        V.qubit_metrics = lambda cal: {q: dict(m) for q, m in m_flat.items()}
+        S.qubit_metrics = lambda cal: {q: dict(m) for q, m in m_flat.items()}
         rec = V.select_vlq_qubits(ROLES, CAL)
         assert rec["decoherence_included"] and usable[3] in rec["qubit_names"]
         m_flat[usable[3]]["t2"] = None
         rec = V.select_vlq_qubits(ROLES, CAL)
         assert not rec["decoherence_included"] and rec["t_circuit_s"] is None and rec["idle_log"] is None
     finally:
-        V.qubit_metrics = orig
+        S.qubit_metrics = orig
+
+
+def test_move_fidelity_is_the_move_pair_of_the_moved_qubit():
+    """F_move = irb.circuit.move_ncz_move with n_interleaved_gates=0 (any spectator partner), not the n=2 move IRB; a qubit
+    without it has no move metric and is excluded."""
+    fields = {o["dut_field"]: o["value"] for o in CAL["metrics"]["observations"]}
+    m = V.qubit_metrics(CAL)
+    n0 = fields["metrics.irb.circuit.move_ncz_move.QB1__COMPR1__QB24.fidelity:n_interleaved_gates=0"]
+    assert m["QB1"]["move"] == n0 != fields["metrics.irb.move.crf_crf.QB1__COMPR1.fidelity:n_interleaved_gates=2"]
+    n1 = fields["metrics.irb.circuit.move_ncz_move.QB1__COMPR1__QB24.fidelity:n_interleaved_gates=1"]
+    assert n1 == pytest.approx(n0 * m["QB24"]["cz"])                    # the directly measured MOVE·CZ·MOVE
+    assert m["QB24"]["move"] is None or m["QB24"]["move"] == fields[
+        "metrics.irb.circuit.move_ncz_move.QB24__COMPR1__QB1.fidelity:n_interleaved_gates=0"]
+    gap = json.loads(json.dumps(CAL))
+    gap["metrics"]["observations"] = [o for o in gap["metrics"]["observations"]
+                                      if not o["dut_field"].startswith("metrics.irb.circuit.move_ncz_move.QB2__")]
+    assert V.qubit_metrics(gap)["QB2"]["move"] is None
+    assert "QB2" in V.select_vlq_qubits(ROLES, gap)["excluded_qubits"]
+
+
+SIRIUS = json.loads((DATA / "iqm_sirius_calibration_fixture.json").read_text(encoding="utf-8"))   # Sirius, calibration set d26f1f86 (2026-10-26)
+
+
+def test_sirius_calibration_reads_the_per_locus_cz_implementation_and_the_move_pair():
+    import statistics
+    m = S.qubit_metrics(SIRIUS)
+    assert S.resonator_name(SIRIUS) == "COMPR1"
+    fields = {o["dut_field"]: o["value"] for o in SIRIUS["metrics"]["observations"]}
+    assert m["QB2"]["cz"] == fields["metrics.irb.cz.tgss.QB2__COMPR1.fidelity"]          # tgss on QB2 and QB10 ...
+    assert m["QB1"]["cz"] == fields["metrics.irb.cz.crf_crf.QB1__COMPR1.fidelity"]       # ... crf_crf elsewhere
+    assert m["QB2"]["cz_s"] is not None and m["QB2"]["move_s"] is not None
+    usable = [q for q, v in m.items() if S._qubit_logs(v) is not None]
+    assert len(usable) == 16
+    pairs = [m[a]["move"] * m[b]["cz"] for a in usable for b in usable if a != b]
+    assert len(pairs) == 240 and statistics.median(pairs) == pytest.approx(0.9683, abs=5e-5)
+    # the directly measured MOVE·CZ·MOVE (n=1, one partner per qubit) agrees with F_move(a) · F_cz(b) within 1 point
+    for f, n1 in fields.items():
+        mm = f.startswith("metrics.irb.circuit.move_ncz_move.") and f.endswith("n_interleaved_gates=1") and f.split(".")[4].split("__")
+        if mm:
+            a, b = mm[0], mm[2]
+            assert abs(n1 - m[a]["move"] * m[b]["cz"]) < 0.01
+    snap = S.snapshot_from_calibration(SIRIUS, "Sirius")
+    assert snap["backend"] == "Sirius" and snap["measured_at"].startswith("2026-10-26T05:48:41")
+
+
+def test_calibration_from_station_control_has_the_shape_of_a_vlq_calibration():
+    import numpy as np
+    obs = lambda f, v: SimpleNamespace(dut_field=f, value=v, unit=None, invalid=False)
+    ts  = datetime(2026, 10, 26, 5, 48, 41, tzinfo=__import__("datetime").timezone.utc)
+    sets = {"cal": SimpleNamespace(observation_set_id="cal-id", end_timestamp=ts, observations=[obs("a.b", np.array([1.0, 2.0])), obs("c", 0.5)]),
+            "met": SimpleNamespace(observation_set_id="met-id", end_timestamp=ts, observations=[obs("metrics.x", np.float64(0.9))])}
+    server = SimpleNamespace(get_calibration_set=lambda i: sets["cal"], get_calibration_set_quality_metric_set=lambda i: sets["met"])
+    dqa    = {"calibration_set_id": "cal-id", "qubits": ["QB1"], "computational_resonators": ["COMPR1"], "gates": {"move": {}}}
+    cal    = S.calibration_from_station_control(server, dqa, "default")
+    assert json.loads(json.dumps(cal)) == cal and cal["calibration_set_id"] == "cal-id"
+    assert cal["calibration_set"]["end_timestamp"] == "2026-10-26T05:48:41Z"
+    assert cal["calibration_set"]["observations"][0]["value"] == [1.0, 2.0]
+    assert S.is_star_architecture(dqa) and not S.is_star_architecture({"gates": {"cz": {}}})
 
 
 def test_snapshot_folds_the_resonator_into_an_all_to_all_cz():

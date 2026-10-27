@@ -6,54 +6,32 @@ VLQ-specific the pipeline needs, kept out of qbcs.py:
 
   lexis_backend()          the qaas backend, logging in with the saved LEXIS refresh token
   fetch_calibration()      a calibration set + its quality metrics from IT4I's public API
-  qubit_metrics()          per-qubit fidelities, coherence times and gate durations
-  representative_roles()   each virtual qubit's prx / MOVE / CZ counts on VLQ (see below)
-  select_vlq_qubits()      the run's physical qubits: every ordered choice scored from those roles
-  snapshot_from_calibration()  an effective all-to-all calibration snapshot for the local
-                           simulation (source/core/qpu/qpu_snapshot.py format)
+  qubit_metrics(), representative_roles(), select_vlq_qubits(), snapshot_from_calibration()   from iqm_star.py
   vlq_collect_timing()     QPU / queue time of a finished job (source/core/records/job_timing.py terms)
 
-Qubit selection. On the star every two-qubit gate is a CZ between a qubit and the
-resonator: a CX between virtual qubits a and b becomes MOVE(a -> COMPR1), CZ(b, COMPR1),
-MOVE(COMPR1 -> a). Which qubit is moved is the transpiler's choice, and it is fixed per
-pair (on VLQ, 2026-09-29: the lower virtual index), so each virtual qubit has its own
-roles. representative_roles() reads them from the representative circuit transpiled onto
-the VLQ backend (transpile() runs locally; nothing is submitted): per virtual qubit v,
-n_prx(v) native single-qubit gates, n_move(v) MOVE pairs (in and out) and n_cz(v) CZs.
-Placing v on physical qubit q scores
-
-    log P(v -> q) = log F_readout(q) + n_prx(v) · log F_prx(q)
-                    + n_move(v) · log F_move(q) + n_cz(v) · log F_cz(q)
-
-with F_move the MOVE-pair fidelity (interleaved RB with two MOVEs) and F_prx the Clifford
-RB fidelity converted to one native gate, 1 - (1 - F_clifford) / PRX_PER_CLIFFORD. Every
-ordered choice of three distinct usable qubits is scored and the best sum wins (method "star_roles"). A qubit missing any of
-the four metrics is excluded, whatever its role: a gap in its calibration signals a
-problem with the qubit.
-
-Idle decay. The fidelities hold the decay during a gate, not a qubit waiting for the others. The resonator serializes
-the CZ and MOVE gates, so the circuit lasts  T = Σ_v (2·n_move(v)·t_move + n_cz(v)·t_cz) + max_v n_prx(v)·t_prx
-and a qubit idles for T minus its own gate time; each choice also gets  Σ_v log F(t_idle; T1, T2)
-(layout_selection.idle_decay_log(), exact for any t_idle). Where a usable qubit lacks T1, T2 or a gate duration
-the term is left out for every choice (record field "decoherence_included").
+Qubit selection, the scoring and the effective all-to-all snapshot are shared with IQM Resonance's Sirius and live in
+source/core/qpu/iqm_star.py (re-exported here: select_vlq_qubits(), choose_vlq_layout(), snapshot_from_calibration(), …).
 
 Imports qaas / py4lexis only inside lexis_backend() and lexis_session(), so the module loads in every venv
 (the local simulation uses the calibration functions from local_sim.venv or iqm_vlq.venv).
 """
 
-import itertools
 import json
 import math
-import re
 import sys
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
 from source.core.common import PROJECT_ROOT, exit_with_error, rel_path, scrub_paths
-from source.core.qpu.layout_selection import idle_decay_log
+from source.core.qpu.iqm_star import (PRX_PER_CLIFFORD, _fields, _qubit_logs, gate_roles, offline_backend,   # noqa: F401 — re-exported
+                                      physical_index, prx_fidelity, qubit_metrics, qubit_names, representative_roles)
+from source.core.qpu.iqm_star import choose_star_layout
+from source.core.qpu.iqm_star import select_star_qubits as select_vlq_qubits          # noqa: F401
+from source.core.qpu.iqm_star import snapshot_from_calibration as _star_snapshot
+from source.core.qpu.iqm_star import usable_star_qubits as usable_vlq_qubits          # noqa: F401
 from source.core.qpu.tokens import token_path
-from source.core.records.job_timing import iso_utc, now_utc_iso
+from source.core.records.job_timing import now_utc_iso
 
 TOKEN_FILE        = token_path("iqm_vlq_token")             # tokens/ is git-ignored
 LEXIS_LOG_NAME    = "iqm_vlq_authentication_lexis_logs.log"   # py4lexis' own log, in the run folder (git-ignored)
@@ -63,7 +41,6 @@ STATUS_URL        = "https://quantum.heappe.it4i.cz/vlq-status.json"
 RESONATOR         = "COMPR1"
 BACKEND_NAME      = "iqm_vlq"               # kept for reference; nothing uses it
 WALLTIME_LIMIT_S  = 7200                    # HEAppE walltime of one job: the most IT4I accepts (6 h was refused)
-PRX_PER_CLIFFORD  = 1.875                   # average native prx gates per single-qubit Clifford
 CONNECTION_LOG_NAME = "iqm_vlq_connection.log"   # every network call to IT4I / HEAppE, in the run folder
 
 # Time limits (s) of the network calls. The qaas client sets none: a HEAppE request that is never
@@ -333,277 +310,14 @@ def fetch_calibration(calibration_set_id="default"):
     return cal
 
 
-def _fields(observation_set):
-    return {o["dut_field"]: o["value"] for o in observation_set.get("observations", [])
-            if not o.get("invalid") and o.get("value") is not None}
+def choose_vlq_layout(mode, roles, cal, qubits=None, seed=None, label="VLQ"):
+    """iqm_star.choose_star_layout(), naming `label` (the machine; Sirius passes its own) in its messages."""
+    return choose_star_layout(mode, roles, cal, qubits, seed, label=label)
 
 
-def qubit_names(cal):
-    names = cal["dynamic_architecture"].get("qubits") or sorted(
-        {m.group(0) for f in _fields(cal["metrics"]) for m in [re.search(r"\bQB\d+\b", f)] if m},
-        key=lambda n: int(n[2:]))
-    return sorted(names, key=lambda n: int(n[2:]))
-
-
-def physical_index(name):
-    """'QB7' -> 6: the qaas backend's qubit index (backend._idx_to_qb)."""
-    return int(name[2:]) - 1
-
-
-def qubit_metrics(cal):
-    """{qubit name: {readout, f1q, cz, move, t1, t2, prx_s, cz_s, move_s, measure_s}} —
-    fidelities (None when not measured), coherence times and gate durations in s."""
-    m, c = _fields(cal["metrics"]), _fields(cal["calibration_set"])
-    out = {}
-    for q in qubit_names(cal):
-        qr = f"{q}__{RESONATOR}"
-        out[q] = {
-            "readout":   m.get(f"metrics.ssro.measure.constant.{q}.fidelity"),
-            "f1q":       m.get(f"metrics.rb.clifford.xy.{q}.fidelity"),
-            "cz":        m.get(f"metrics.irb.cz.crf_crf.{qr}.fidelity"),
-            "move":      m.get(f"metrics.irb.move.crf_crf.{qr}.fidelity:n_interleaved_gates=2"),
-            "t1":        m.get(f"characterization.model.{q}.t1_time"),
-            "t2":        m.get(f"characterization.model.{q}.t2_time"),
-            "prx_s":     c.get(f"gates.prx.drag_crf.{q}.duration"),
-            "cz_s":      c.get(f"gates.cz.crf_crf.{qr}.duration"),
-            "move_s":    c.get(f"gates.move.crf_crf.{qr}.duration"),
-            "measure_s": c.get(f"gates.measure.constant.{q}.duration"),
-        }
-    return out
-
-
-def _log(f):
-    return math.log(f) if f is not None and 0 < f <= 1 else None
-
-
-def prx_fidelity(f_clifford):
-    """The Clifford RB fidelity converted to one native prx gate: 1 - (1 - F_clifford) / PRX_PER_CLIFFORD."""
-    return None if f_clifford is None else 1 - (1 - f_clifford) / PRX_PER_CLIFFORD
-
-
-def _qubit_logs(m):
-    """{ro, prx, move, cz: log fidelity} of one qubit's qubit_metrics() entry, or None if any is missing or outside
-    (0, 1]: such a qubit is used in no role (the one test select_vlq_qubits() and usable_vlq_qubits() share)."""
-    logs = {"ro": _log(m["readout"]), "prx": _log(prx_fidelity(m["f1q"])), "move": _log(m["move"]), "cz": _log(m["cz"])}
-    return None if None in logs.values() else logs
-
-
-def gate_roles(isa, layout):
-    """Per virtual qubit v (on physical qubit layout[v]) of a circuit transpiled onto VLQ:
-    {'n_prx': [...], 'n_move': [...] (MOVE pairs, in + out), 'n_cz': [...]}."""
-    from source.core.records.circuit_check import physical_index_map   # circuit qubit -> physical index, either layout convention
-    phys   = physical_index_map(isa)
-    phys2v = {p: v for v, p in enumerate(layout)}
-    roles  = {"n_prx": [0] * len(layout), "n_move": [0] * len(layout), "n_cz": [0] * len(layout)}
-    key    = {"r": "n_prx", "prx": "n_prx", "move": "n_move", "cz": "n_cz"}
-    for ins in isa.data:
-        k = key.get(ins.operation.name)
-        if k is None:
-            continue
-        own = [phys2v[phys[q]] for q in ins.qubits if phys[q] in phys2v]
-        roles[k][own[0]] += 1
-    roles["n_move"] = [m // 2 for m in roles["n_move"]]
-    return roles
-
-
-def offline_backend(cal):
-    """A transpilation-only VLQ backend built from the calibration's dynamic quantum
-    architecture (qubits, resonator, gate loci) with iqm-client's own IQM target — the
-    transpiler the qaas backend uses, without logging in. Needs iqm-client (iqm_vlq.venv)."""
-    from qiskit.providers import Options
-    from iqm.qiskit_iqm.iqm_backend import IQMBackendBase
-    from iqm.station_control.interface.models.dynamic_quantum_architecture import DynamicQuantumArchitecture
-
-    class OfflineVLQ(IQMBackendBase):
-        max_circuits = None
-
-        @classmethod
-        def _default_options(cls):
-            return Options()
-
-        def run(self, *args, **kwargs):
-            raise NotImplementedError("offline VLQ backend: transpilation only")
-
-    return OfflineVLQ(DynamicQuantumArchitecture(**cal["dynamic_architecture"]), name="VLQ_offline")
-
-
-def representative_roles(circuit, cal, backend=None):
-    """gate_roles() of `circuit` (raw) transpiled for VLQ on the first qubits with MOVE and CZ data (the roles
-    don't depend on which: every qubit reaches the resonator). backend: the live qaas backend,
-    or None to build one from the calibration's architecture (offline_backend()). Nothing is
-    submitted."""
-    from qiskit import transpile
-    from source.core.qpu.layout_selection import final_physical_qubits, count_2q_ops
-    probe = [physical_index(q) for q, v in qubit_metrics(cal).items()
-             if None not in (v["move"], v["cz"])][:circuit.num_qubits]
-    isa   = transpile(circuit, backend or offline_backend(cal), optimization_level=1, initial_layout=probe)
-    assert final_physical_qubits(isa) == probe, "representative circuit not transpiled onto the probe qubits"
-    roles = gate_roles(isa, probe)
-    assert sum(roles["n_cz"]) == count_2q_ops(circuit), "every two-qubit gate should become one CZ"
-    return roles
-
-
-def select_vlq_qubits(roles, cal, n_top=5):
-    """The run's physical qubits, given each virtual qubit's gate roles (representative_roles()):
-    every ordered choice of distinct physical qubits is scored — see the module docstring.
-    Returns a physical_qubits.json record (like layout_selection.select_physical_qubits)."""
-    n_virtual = len(roles["n_prx"])   # 3 in the benchmark: every ordered choice of distinct usable qubits is scored
-    metrics = qubit_metrics(cal)
-
-    grades, excluded = {}, []         # (physical name, virtual) -> log P
-    for q, m in metrics.items():
-        logs = _qubit_logs(m)
-        if logs is None:              # a calibration gap or an invalid fidelity: the qubit is not used in any role
-            excluded.append(q)
-            continue
-        for v in range(n_virtual):
-            need = {"ro": 1, "prx": roles["n_prx"][v], "move": roles["n_move"][v], "cz": roles["n_cz"][v]}
-            grades[q, v] = sum(n * logs[k] for k, n in need.items())
-
-    names  = sorted((q for q in metrics if q not in excluded), key=lambda n: int(n[2:]))
-    need_t = ("t1", "t2", "prx_s", "cz_s", "move_s")
-    decoherence = bool(names) and all(isinstance(metrics[q][k], (int, float)) and metrics[q][k] > 0
-                                      for q in names for k in need_t)
-
-    def duration(phys, v):
-        """(own gate time of virtual qubit v on phys[v], its prx time) in s."""
-        m, prx = metrics[phys[v]], roles["n_prx"][v] * metrics[phys[v]]["prx_s"]
-        return prx + 2 * roles["n_move"][v] * m["move_s"] + roles["n_cz"][v] * m["cz_s"], prx
-
-    def score(phys):
-        """(log P, circuit duration in s or None) of one ordered choice."""
-        log_p = sum(grades[q, v] for v, q in enumerate(phys))
-        if not decoherence:
-            return log_p, None
-        own    = [duration(phys, v) for v in range(n_virtual)]
-        t_circ = sum(b - p for b, p in own) + max(p for _, p in own)
-        for v, q in enumerate(phys):
-            log_p += idle_decay_log(metrics[q]["t1"], metrics[q]["t2"], max(t_circ - own[v][0], 0.0))
-        return log_p, t_circ
-
-    scored = []
-    for phys in itertools.permutations(names, n_virtual):
-        log_p, t_circ = score(phys)
-        scored.append((log_p, phys, t_circ))
-    scored.sort(key=lambda s: (-s[0], [physical_index(q) for q in s[1]]))
-    t_circuit = {phys: t for _, phys, t in scored[:n_top]}
-    scored    = [(log_p, phys) for log_p, phys, _ in scored]
-    base = dict(gates={"1q": "prx", "2q": "cz with the resonator + move pairs"}, gate_roles=roles,
-                prx_per_clifford=PRX_PER_CLIFFORD, calibration_set_id=cal.get("calibration_set_id"),
-                calibration_source=cal.get("source"))
-    if not scored:
-        return dict(base, physical_qubits=None, method="star_roles_no_data", log_success=None,
-                    top_candidates=[], n_candidates=0)
-    best_log, best = scored[0]
-    return dict(
-        base,
-        physical_qubits = [physical_index(q) for q in best],
-        qubit_names     = list(best),
-        method          = "star_roles",
-        log_success     = best_log,
-        decoherence_included = decoherence,
-        t_circuit_s     = t_circuit[best] if decoherence else None,
-        idle_log        = best_log - sum(grades[q, v] for v, q in enumerate(best)) if decoherence else None,
-        top_candidates  = [[[physical_index(q) for q in p], s] for s, p in scored[:n_top]],
-        n_candidates    = len(scored),
-        excluded_qubits = sorted(excluded, key=lambda n: int(n[2:])),
-        chosen_grades   = {q: grades[q, v] for v, q in enumerate(best)},
-        chosen_metrics  = {q: metrics[q] for q in best},
-    )
-
-
-def usable_vlq_qubits(cal):
-    """Physical indices of the qubits a layout may use: every qubit of the architecture that has no calibration gap
-    or invalid fidelity, as select_vlq_qubits() decides (all of them reach the resonator, which every layout uses
-    through CZ and MOVE), and the excluded ones' names."""
-    ok, excluded = [], []
-    for q, m in qubit_metrics(cal).items():
-        (excluded if _qubit_logs(m) is None else ok).append(q)
-    key = lambda n: int(n[2:])
-    return sorted(physical_index(q) for q in ok), sorted(excluded, key=key)
-
-
-def choose_vlq_layout(mode, roles, cal, qubits=None, seed=None):
-    """The run's physical qubits on VLQ by layout mode (source/core/runner_support/benchmark_args.py): `optimized` is
-    select_vlq_qubits(); `lowest`, `random` (random.Random(seed), a fresh recorded seed if None) and a forced
-    list `qubits` choose among the ordered triples of usable_vlq_qubits() — the resonator is always part of the
-    layout. ValueError if a forced list is not valid. Returns a physical_qubits.json record."""
-    if mode == "optimized":
-        rec = select_vlq_qubits(roles, cal)
-        rec["layout_mode"] = mode
-        return rec
-    n_virtual = len(roles["n_prx"])
-    usable, excluded = usable_vlq_qubits(cal)
-    if mode == "list":
-        qubits = list(qubits)
-        bad = [q for q in qubits if q not in usable]
-        if len(qubits) != n_virtual or len(set(qubits)) != n_virtual or bad:
-            usable_range = f"{usable[0]}…{usable[-1]}" if usable else "(none)"
-            raise ValueError(f"layout {qubits} is not valid on VLQ: needs {n_virtual} distinct qubits from the usable ones "
-                             f"{usable_range} (without {[physical_index(q) for q in excluded]}); the resonator "
-                             f"is always included" + (f"; not usable: {bad}" if bad else ""))
-        chosen, method = qubits, "user"
-    elif mode == "lowest":
-        chosen, method = usable[:n_virtual], "lowest"
-    elif mode == "random":
-        import random
-        import secrets
-        seed   = secrets.randbits(32) if seed is None else seed
-        chosen, method = random.Random(seed).sample(usable, n_virtual), "random"
-    else:
-        raise ValueError(f"unknown layout mode {mode!r}")
-    n_cand = math.perm(len(usable), n_virtual)
-    return dict(physical_qubits=chosen, qubit_names=[f"QB{q + 1}" for q in chosen], method=method, layout_mode=mode,
-                log_success=None, top_candidates=[], n_candidates=None if mode == "list" else n_cand, gates=None, gate_roles=roles,
-                calibration_set_id=cal.get("calibration_set_id"), calibration_source=cal.get("source"),
-                excluded_qubits=excluded, **({"seed": seed} if mode == "random" else {}))
-
-
-# ── Local simulation: an effective all-to-all snapshot ────────────────────────
 def snapshot_from_calibration(cal):
-    """A calibration snapshot (source/core/qpu/qpu_snapshot.py format) of VLQ with the resonator
-    folded into an effective all-to-all CZ: CZ(a, b) on the device is MOVE(a), CZ(b, COMPR1),
-    MOVE back, so its error is 1 - F_cz(b) · F_move(a) (F_move: the MOVE pair), taking the
-    better choice of which qubit is moved, and its duration 2 · MOVE + CZ. Single-qubit gates use the
-    Clifford RB fidelity converted to one native prx gate (prx_fidelity()), readout the SSRO fidelity, and T1/T2 give the relaxation. A pair gets
-    no CZ entry when neither direction has both MOVE and CZ data (a choice of which qubit is moved lacking either is dropped, the other kept). Qubit index i is QB(i+1)."""
-    metrics = qubit_metrics(cal)
-    names   = qubit_names(cal)
-    err     = lambda f: None if f is None else max(0.0, 1.0 - f)
-
-    ops = {"r": [], "cz": [], "measure": []}
-    for q in names:
-        v, i = metrics[q], physical_index(q)
-        ops["r"].append({"qargs": [i], "error": err(prx_fidelity(v["f1q"])), "duration": v["prx_s"]})
-        ops["measure"].append({"qargs": [i], "error": err(v["readout"]), "duration": v["measure_s"]})
-    for a, b in itertools.permutations(names, 2):
-        options = []
-        for moved, target in ((a, b), (b, a)):
-            fm, fc = metrics[moved]["move"], metrics[target]["cz"]
-            if fm is None or fc is None:
-                continue
-            dur = None
-            if metrics[moved]["move_s"] is not None and metrics[target]["cz_s"] is not None:
-                dur = 2 * metrics[moved]["move_s"] + metrics[target]["cz_s"]
-            options.append((fc * fm, dur))
-        if options:
-            f, dur = max(options, key=lambda o: o[0])
-            ops["cz"].append({"qargs": [physical_index(a), physical_index(b)], "error": err(f), "duration": dur})
-
-    return {
-        "backend":            "VLQ",
-        "downloaded_at":      cal.get("downloaded_at"),
-        "measured_at":        iso_utc((cal.get("calibration_set") or {}).get("end_timestamp")),   # when IT4I made the calibration
-        "calibration_set_id": cal.get("calibration_set_id"),
-        "calibration_source": cal.get("source"),
-        "num_qubits":         len(names),
-        "dt":                 None,
-        "operations":         ops,
-        "qubit_properties":   [{"t1": metrics[q]["t1"], "t2": metrics[q]["t2"], "frequency": None} for q in names],
-        "skipped_operations": ["move (folded into the effective CZ)", "prx_12", "cc_prx", "reset_wait"],
-        "effective_model":    "resonator folded into an all-to-all CZ: error 1 - F_cz(target)·F_move(moved), "
-                              "better choice of which qubit is moved; duration 2·MOVE + CZ",
-    }
+    """The effective all-to-all calibration snapshot of VLQ (iqm_star.snapshot_from_calibration())."""
+    return _star_snapshot(cal, "VLQ")
 
 
 VLQ_CALIBRATION_FILENAME = "vlq_calibration.json"

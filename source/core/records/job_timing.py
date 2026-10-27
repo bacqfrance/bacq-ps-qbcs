@@ -88,6 +88,12 @@ QPU_S_SOURCES = {
     "not executed":            "chunk was never executed (its submission failed): no QPU time",
 }
 
+DUMMY_TIMING_NOTE = ("QPU time of a dummy emulator is modelled, not measured: for every shot of every circuit (chunk jobs with their SPAM "
+                     "circuits, and the accompanying health checks) per_shot_overhead + N1q t_1q + N2q t_2q + t_meas, with the gate "
+                     "counts of the logical circuits as simulated (no transpilation; rz free, other 1-qubit gates N1q, 2-qubit gates N2q; "
+                     "gates summed, no parallelism; native gate sets and couplings ignored) and the timing constants of "
+                     "dummy_estimates.json. No queue is modelled: Queue_time_s is 0.")
+
 # Dead time of a run: a gap between its merged job intervals (chunk, failed-attempt and health-check jobs) longer
 # than this is idle time (a failure noticed hours later, a pause), not the pipeline's own transpile/submit work.
 DEAD_TIME_MIN_GAP_S      = 30 * 60

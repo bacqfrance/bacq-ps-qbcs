@@ -5,16 +5,17 @@ Plots comparing all runs analyzed by source/analysis_scripts/run_post_process.py
   cumul_awae_best_ems_vs_Nt.png  the same for the cumulative AWAE (Z_exact-weighted mean up to N_t,
                                  as in source/analysis_scripts/plot_awae.py — the quantity N_acc is defined by)
   awae_and_cumul_awae_best_ems_vs_Nt.png  both side by side
-  qpu_time.png              QPU time per run (log scale)
+  qpu_time.png              QPU time per run (log scale; a dummy emulator's modelled time is labelled "[estimated]")
   submission_time.png       submission time per run, summed over jobs (log scale)
   collection_time.png       result collection time per run, summed over jobs (log scale)
   submission_to_results_duration.png  earliest job submission to latest job result per run (log scale)
   submission_to_results_duration_without_dead_time.png  the same window minus long idle gaps (log scale)
-  effective_cost_EUR.png    effective cost in EUR per run (log scale)
+  effective_cost_EUR.png    effective cost in EUR per run (log scale; a dummy emulator's modelled cost is labelled "[estimated]")
   n_acc.png                 N_acc per run (linear scale)
   e_min_nmax.png            E_min at N_max per run (linear scale, with the threshold epsilon)
 and, in the same folder, <benchmark>_collective_<data types>[<filter suffix>][_latest-per-qpu|_best-nacc-per-qpu|_best-emin-at-nmax-per-qpu].csv (the suffixes only for a filtered set of runs): one row per run with
   run, n_samples, sample_size, N_acc, best_scheme_Nacc, N_max, E_min_Nmax, best_scheme_Nmax, QPU_time_s, QPU_time, effective_cost_EUR
+  and a twelfth column, estimated ("estimated" for a dummy emulator), only when a dummy emulator is among the runs
 
 Reads each run's processed_results/summary.json (a subset: summary+nsamples-N.json) and
 run_data[_spam][+nsamples-N].json. Works with both the current summary format and the
@@ -95,6 +96,7 @@ def _load_run(run_folder, n_samples):
         date       = parse_run_name(run_folder).date,         # YYYY-MM-DD (None: an undated test run)
         run_number = parse_run_name(run_folder).run_number,   # N of _#N (None: an undated test run)
         date_label = parse_run_name(run_folder).date_label,   # DD/MM/YYYY #N
+        estimated  = parse_run_name(run_folder).is_dummy,   # a dummy emulator: its QPU time and cost are modelled, not measured
         qpu_time_s = summary.get("QPU_time_s"),
         submit_s   = submit_s,   # summed submission time (chunks + health checks), part of CPU_time_s
         collect_s  = summary.get("Collect_time_s"),   # "N/A" for runs collected before it was timed
@@ -157,9 +159,16 @@ def _plain_log_axis(ax, tick_fmt=None):
         ax.yaxis.set_minor_formatter(NullFormatter())
 
 
-def _bar_plot(runs, labels, key, ylabel, title, value_fmt, path, tick_fmt=None, log=True):
+ESTIMATED = " [estimated]"   # marks a dummy emulator's modelled QPU time and cost in the plots and the run table
+
+
+def _bar_plot(runs, labels, key, ylabel, title, value_fmt, path, tick_fmt=None, log=True, mark_estimated=False):
     """Bar plot of r[key] per run; log=True: log scale, positive values only; log=False: linear axis from 0
-    (zero kept), with the threshold line epsilon for E_min."""
+    (zero kept), with the threshold line epsilon for E_min. mark_estimated: a dummy emulator's bar is labelled
+    "[estimated]" (its value is modelled) and the title says so."""
+    if mark_estimated and any(r.get("estimated") for r in runs):
+        labels = [l + (ESTIMATED if r.get("estimated") else "") for l, r in zip(labels, runs)]
+        title += " (dummy emulators: estimated)"
     def usable(v):
         return isinstance(v, (int, float)) and not math.isnan(v) and (v > 0 or (not log and v >= 0))
     pts = [(l, r[key]) for l, r in zip(labels, runs) if usable(r[key])]
@@ -233,13 +242,15 @@ def _awae_plot(runs, labels, kinds, path):
 
 def _write_run_table(runs, labels, path):
     """The collective run table: one row per run, ";"-separated, each column padded with spaces to a common width
-    so the file also reads as a text table (a missing value, None / NaN / "N/A", is an empty cell)."""
+    so the file also reads as a text table (a missing value, None / NaN / "N/A", is an empty cell). A twelfth column, `estimated`, is added only when a dummy emulator is among the runs."""
     def num(v, fmt):
         return fmt.format(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and not math.isnan(v) else ""
     def text(v):
         return v if isinstance(v, str) and v != "N/A" else ""
     rows = [["run", "n_samples", "sample_size", "N_acc", "best_scheme_Nacc", "N_max", "E_min_Nmax", "best_scheme_Nmax",
              "QPU_time_s", "QPU_time", "effective_cost_EUR"]]
+    if any(r.get("estimated") for r in runs):   # a column only when a dummy emulator (modelled time and cost) is among the runs
+        rows[0].append("estimated")
     for l, r in zip(labels, runs):
         q = r["qpu_time_s"]
         q_ok = isinstance(q, (int, float)) and not math.isnan(q)
@@ -247,7 +258,7 @@ def _write_run_table(runs, labels, path):
                      num(r.get("n_acc"), "{:.0f}"), text(r.get("best_ems_nacc")), num(r.get("n_max"), "{:.0f}"),
                      num(r.get("emin_nmax"), "{:.4g}"), text(r.get("best_ems_nmax")),
                      num(q, "{:.0f}"), _duration_fmt(round(q)) if q_ok else "",
-                     num(r["cost_eur"], "{:.2f}")])
+                     num(r["cost_eur"], "{:.2f}")] + (["estimated" if r.get("estimated") else ""] if len(rows[0]) > 11 else []))
     widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f, delimiter=";")
@@ -274,7 +285,7 @@ def make_collective_plots(analyzed, out_dir):
     _awae_plot(runs, labels, ["cumul"], out_dir / "cumul_awae_best_ems_vs_Nt.png")
     _awae_plot(runs, labels, ["awae", "cumul"], out_dir / "awae_and_cumul_awae_best_ems_vs_Nt.png")
     _bar_plot(runs, labels, "qpu_time_s", "QPU time", "QPU time per run",
-              _duration_fmt, out_dir / "qpu_time.png", _duration_fmt)
+              _duration_fmt, out_dir / "qpu_time.png", _duration_fmt, mark_estimated=True)
     _bar_plot(runs, labels, "submit_s", "Submission time", "Submission time per run (summed over jobs)",
               _duration_fmt, out_dir / "submission_time.png", _duration_fmt)
     _bar_plot(runs, labels, "collect_s", "Collection time", "Result collection time per run (summed over jobs)",
@@ -284,7 +295,7 @@ def make_collective_plots(analyzed, out_dir):
     _bar_plot(runs, labels, "window_active_s", "Duration", "Submission-to-results window per run, without dead time",
               _duration_fmt, out_dir / "submission_to_results_duration_without_dead_time.png", _duration_fmt)
     _bar_plot(runs, labels, "cost_eur", "Effective cost (EUR)", "Effective cost per run (excl. VAT)",
-              lambda v: f"€{v:,.2f}", out_dir / "effective_cost_EUR.png")
+              lambda v: f"€{v:,.2f}", out_dir / "effective_cost_EUR.png", mark_estimated=True)
     _bar_plot(runs, labels, "n_acc", "$N_{acc}$", "$N_{acc}$ per run",
               lambda v: f"{v:.0f}", out_dir / "n_acc.png", log=False)
     _bar_plot(runs, labels, "emin_nmax", "$E_{min}$ at $N_{max}$", "$E_{min}$ at $N_{max}$ per run",

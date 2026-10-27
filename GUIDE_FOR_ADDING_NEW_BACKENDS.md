@@ -45,7 +45,7 @@ mini benchmark, 480 in the full one); a provider job holds one or several chunks
    Resonance `emerald` → `iqm-emerald`). Check that the new name comes out as expected, and add a case to
    `source/tests/test_20_run_names.py` if the name follows a new pattern.
 4. **Summary metadata.** In `source/analysis_scripts/bacq_ps_qbcs_summary_json.py` the machine needs a branch (IBM: its name in the
-   tuple of IBM machines and its `ARCHITECTURE` if it is not a Heron R2; IQM Resonance: an `elif` with `ARCHITECTURE`, `QPU_SERVICE`,
+   tuple of IBM machines and its `ARCHITECTURE` if it is not a Heron r2; IQM Resonance: an `elif` with `ARCHITECTURE`, `QPU_SERVICE`,
    `PRICING`, `FREE_BECAUSE`). Without it the summary stops with "no QPU metadata". A machine with its own price needs a
    pricing entry (procedure B, step 8).
 5. **Post-processing.** Add `real-data_<provider>-<backend>` to `REAL_QPUS` and, if the service has a simulate script,
@@ -180,7 +180,7 @@ Every script must:
 
 **Coherence times and durations in the layout score.** `layout=optimized` scores each placement by its calibrated success
 probability and by the idle decay of the qubits that wait while others work (`layout_selection.idle_decay_log()`, from T1, T2 and the
-gate durations; VLQ has its own scorer in `source/core/qpu/iqm_vlq.py`). The snapshot (`source/core/qpu/qpu_snapshot.py`) must therefore carry:
+gate durations; the IQM star machines VLQ and Sirius have their own scorer in `source/core/qpu/iqm_star.py`). The snapshot (`source/core/qpu/qpu_snapshot.py`) must therefore carry:
 - per-qubit `t1` and `t2` in seconds in `qubit_properties` (T2 as described in step 2, its kind in `notes`);
 - the duration of every gate and of `measure` in the operations. If the calibration lists none, use documented assumed values
   and say so (EQE1: `EQE1_TYPICAL_DURATIONS`, the figures of IQM Emerald's live Target).

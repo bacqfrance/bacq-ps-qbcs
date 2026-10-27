@@ -90,7 +90,7 @@ def check_scheduling_simulation(run_folder, scheduling_simulation, root="datafil
 
 def write_run_info(config, run_folder_path, lnn, circuits_qiskit_v13_qpy=False, instance=None, instance_plan=None,
                    scheduling_simulation=None, physical_qubits=None):
-    """Called by bacq_ps_qbcs.submit() on every call (and by record_run_info()), once the run folder is known. Writes the manifest
+    """Called by bacq_ps_qbcs.submit() on every call (and by record_run_info() and qbcs._record_qubits_in_run_info()), once the run folder is known. Writes the manifest
     if missing, leaves it untouched if it already holds the same info, and rewrites it in place if it
     differs. The write itself is atomic (temp file + os.replace()), so a crash mid-write can't leave a
     truncated manifest. Skipping unchanged writes is what avoids the Windows problem: replacing the same

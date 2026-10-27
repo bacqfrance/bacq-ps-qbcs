@@ -30,6 +30,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 USER_DOCS = sorted([ROOT / "README.md", ROOT / "USER_MANUAL.md", ROOT / "QUICK_START_Windows.md", ROOT / "QUICK_START_Linux.md",
                     ROOT / "GUIDE_FOR_ADDING_NEW_BACKENDS.md", ROOT / "tokens" / "README.md",
+                    ROOT / "source" / "benchmark_scripts" / "local_simulation_scripts" / "GUIDE_FOR_ADDING_NEW_DUMMY_QPUS.md",
                     *(ROOT / "source" / "benchmark_scripts" / "real_qpu_scripts").glob("*/readme_*.md")])
 IDS = [d.relative_to(ROOT).as_posix() for d in USER_DOCS]
 

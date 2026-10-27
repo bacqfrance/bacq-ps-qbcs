@@ -2366,7 +2366,7 @@ class bacq_ps_qbcs:
 
         score_backend = layout_backend or backend
         target  = getattr(score_backend, "target", None)
-        vlq_cal = getattr(backend, "vlq_calibration", None)   # set by the VLQ scripts (source/core/qpu/iqm_vlq.py)
+        vlq_cal = getattr(backend, "vlq_calibration", None)   # set by the VLQ and Sirius scripts (source/core/qpu/iqm_vlq.py, iqm_star.py)
         if target is None and mode == "list":   # a forced list on a backend that describes no Target: nothing to check it against
             record = dict(physical_qubits=list(forced), method="user", layout_mode=mode,
                           log_success=None, top_candidates=[], n_candidates=None, gates=None)
@@ -2384,7 +2384,8 @@ class bacq_ps_qbcs:
                        if layout_backend is not None and getattr(backend, "target", None) is not None else None)
             if vlq_cal is not None:   # IQM star: each virtual qubit's prx/MOVE/CZ roles, graded from VLQ's public calibration
                 roles  = VLQ.representative_roles(rep, vlq_cal, backend if VLQ.is_vlq_backend(backend) else None)   # else: offline target
-                record = VLQ.choose_vlq_layout(mode, roles, vlq_cal, forced)
+                record = VLQ.choose_vlq_layout(mode, roles, vlq_cal, forced,
+                                               **({"label": backend.star_name} if getattr(backend, "star_name", None) else {}))   # Sirius: its name in the messages
             elif mode == "optimized":
                 # Native single-qubit gate counts from one transpilation onto any SWAP-free
                 # placement (they don't depend on which), then every placement scored with them.

@@ -27,6 +27,7 @@ Based on:
 - [QUICK_START_Windows.md](QUICK_START_Windows.md) / [QUICK_START_Linux.md](QUICK_START_Linux.md): the shortest path from a fresh clone to runs on every QPU.
 - [USER_MANUAL.md](USER_MANUAL.md): the full documentation (setup, pipeline, configuration, post-processing, tests).
 - [GUIDE_FOR_ADDING_NEW_BACKENDS.md](GUIDE_FOR_ADDING_NEW_BACKENDS.md): how to add a new QPU machine or service.
+- [GUIDE_FOR_ADDING_NEW_DUMMY_QPUS.md](source/benchmark_scripts/local_simulation_scripts/GUIDE_FOR_ADDING_NEW_DUMMY_QPUS.md): how to add a dummy noisy emulator of a QPU the benchmark was not run on.
 
 ## Repository tree
 
@@ -35,7 +36,7 @@ Based on:
 ├── source/                          # all code
 │   ├── core/                        #   the library: pipeline, circuit construction, run records, QPU access, analysis
 │   ├── analysis_scripts/            #   post-processing and plotting scripts
-│   ├── benchmark_scripts/           #   the benchmark: local simulation and one folder per real QPU
+│   ├── benchmark_scripts/           #   the benchmark: local simulation (with the dummy noisy emulators and their guide) and one folder per real QPU
 │   └── tests/                       #   the pytest suite
 ├── calibration_input_files/         # provider calibration files when the QPU interface does not provide calibration data automatically
 ├── tokens/                          # provider API tokens and access files (git-ignored except README.md)
