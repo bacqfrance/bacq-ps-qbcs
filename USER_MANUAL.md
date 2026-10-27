@@ -527,6 +527,11 @@ resumed in its folder. A dummy that fails prints a ❌ line on stderr, the other
 noise setting (topology, noise type, infidelity, `r_ct`) has its own circuit cache (§4.1): build the largest sample size
 first, as for the coherent-noise scripts; a first `full` build per cache takes as long as for the other caches (§4.3).
 
+**Time and disk space.** Every dummy builds its own new circuits with coherent noise (never shared with the noiseless or another
+dummy's circuits). For the full benchmark that is ≈5 GB per QPU (measured: 5.1 GB for an LNN dummy; an all-to-all one is somewhat
+smaller, ≈4 GB) and about 2¼ h of circuit creation (measured: 134 min for an LNN dummy) plus the simulation. With the 8 dummies of
+the JSON, a first `full` run of all of them takes about 36–40 GB and 18 h or more.
+
 The runs are saved as `datafiles/<benchmark>_sim-dummy_<NAME>_lnn-<bool>_service-local_spam-True_layout-none_<YYYY-MM-DD>_#<N>/`
 (§5.4), `NAME` being the dummy's key in the JSON. Because `NAME` is also a real QPU's name, tell dummy and real runs apart by the
 data type: `--include-simulations-dummy` of `run_post_process.py` selects the dummies (§10), and the plot labels and
