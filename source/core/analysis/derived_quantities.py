@@ -146,7 +146,7 @@ def compute_derived_quantities(awae_cumul_Nt, awae_Nt, T_cpu_total, T_qpu_total,
     FT_queue = _sdiv(T_queue, T_total)
     FT_collect = _sdiv(T_collect, T_total) if T_collect_total is not None else "N/A"
 
-    n_ems = len(base_ems_list) * (2 if has_spam else 1)
+    n_ems = len(base_ems_list)   # the 6 base schemes; the +SPAM variants reuse the same executed circuits
 
     result =  {
         "N_max"              : Nt_max,                                   # N^max_steps ,

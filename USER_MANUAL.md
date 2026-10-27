@@ -1511,7 +1511,8 @@ are included in all of them:
   synchronously, so theirs is the handling of the received results. `"N/A"` for runs collected before it was
   timed (then 0 in the total); `timing_breakdown.collect` counts the chunks and checks without a measurement.
   Failed jobs' collection is included (§7).
-- The same per EMS (`*_per_EMS_s`), `FT_clas + FT_quant + FT_queue + FT_collect = 1`, and
+- The same per EMS (`*_per_EMS_s`: the total divided by the 6 base schemes, also for a run with SPAM data; likewise
+  `effective_cost_per_EMS_EUR` and `actual_cost_per_EMS_EUR`, the costs below divided by 6), `FT_clas + FT_quant + FT_queue + FT_collect = 1`, and
   `T_generation_submission_execution_s` = CPU + QPU + queue + collection. Summaries of version 1
   have no queue term and those below version 3 no collection term, so their `FT_*` and total are not comparable.
 - `completeness`: the chunks analysed, and the chunks and health checks of the run not collected yet (see

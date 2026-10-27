@@ -190,6 +190,16 @@ def test_collection_is_part_of_the_total_time():
     assert d["Collect_time_s"] == "N/A" and d["FT_collect"] == "N/A" and d["T_generation_submission_execution_s"] == 18.0
 
 
+def test_per_ems_times_divide_by_the_six_base_schemes_with_or_without_spam():
+    names = ["bare", "NEC", "RC", "NEC+RC", "cRC", "NEC+cRC"]
+    awae = {e: [0.1] for e in names}
+    d = DQ.compute_derived_quantities(awae, {}, 12.0, 6.0, Nt_vals=[1], T_queue_total=3.0)
+    awae_spam = {**awae, **{f"{e}+SPAM": [0.1] for e in names}}
+    d_spam = DQ.compute_derived_quantities(awae_spam, {}, 12.0, 6.0, Nt_vals=[1], T_queue_total=3.0)
+    for x in (d, d_spam):
+        assert x["QPU_time_per_EMS_s"] == 1.0 and x["CPU_time_per_EMS_s"] == 2.0 and x["Queue_time_per_EMS_s"] == 0.5
+
+
 def test_best_ems_skips_nan_and_is_none_when_nothing_beats_one():
     names = ["bare", "NEC", "RC", "NEC+RC", "cRC", "NEC+cRC"]
     awae = {e: [0.5] for e in names}

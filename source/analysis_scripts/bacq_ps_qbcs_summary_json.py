@@ -311,6 +311,9 @@ COST_FIELDS = {
     **({"exchange_rate_EUR_per_USD": EXCHANGE_RATE} if EXCHANGE_RATE is not None else {}),
     "effective_cost_EUR": round(EFFECTIVE_COST_EUR, 2),
     "actual_cost_EUR":    round(ACTUAL_COST_EUR, 2),
+    # the run's cost split evenly over the 6 base schemes, like the *_per_EMS_s times (derived_quantities.py; the +SPAM variants reuse the same circuits)
+    "effective_cost_per_EMS_EUR": EFFECTIVE_COST_EUR / len(BASE_EMS_LIST),
+    "actual_cost_per_EMS_EUR":    ACTUAL_COST_EUR / len(BASE_EMS_LIST),
     "cost_explanation":   COST_EXPLANATION,
 }
 
