@@ -546,7 +546,7 @@ needs neither the JSON nor the script.
 
 | Field | Holds |
 |---|---|
-| `architecture` | the real QPU's architecture as its manufacturer spells it (`Heron r2`, `Crystal 54`, `Forte`, …), shown as `Architecture` in the summary; required |
+| `architecture` | the real QPU's architecture as its manufacturer spells it (`Heron r2`, `Crystal 54`, `Forte`, …), shown as `QPU_Architecture` in the summary; required |
 | `Fidelity` | the two-qubit gate fidelity in % (the infidelity is `1 - Fidelity/100`) |
 | `r_ct`, `noise_type`, `lnn` | the crosstalk ratio, the noise type (`Pauli`) and the topology (`"True"`: LNN, `"False"`: all-to-all) |
 | `pricing` | the pricing `model` and its constants: `ibm_payg` (`usd_per_qpu_minute`), `braket` and `braket_scaled` (`usd_per_task`, `usd_per_shot`, `circuits_per_task`), `hqc` (`hqc_fixed`, `weights`, `hqc_divisor`, `usd_per_hqc`) |

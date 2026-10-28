@@ -175,7 +175,7 @@ elif BACKEND_NAME == "iqm-vlq":
 
 elif BACKEND_NAME == "aqt-piast-q":
     QPU_PROVIDER  = "AQT"
-    ARCHITECTURE  = "Trapped ion (20 qubits)"          # AQT IBEX-class system
+    ARCHITECTURE  = "MARTEN"                           # AQT PIAST-Q's system
     QPU_SERVICE   = "EuroHPC, PCSS (Poznań Supercomputing and Networking Center)"
     PRICING       = "scaleway_aqt"
     FREE_BECAUSE  = "of the free access to the machine within the EuroHPC project"
@@ -397,10 +397,10 @@ derived = compute_derived_quantities(
 
 # ── Build summary ─────────────────────────────────────────────────────────────
 summary = {
-    "QPU_provider":          QPU_PROVIDER,
-    "Architecture":          ARCHITECTURE,
+    "QPU_Manufacturer":      QPU_PROVIDER,
+    "QPU_Architecture":      ARCHITECTURE,
     "device_label":          DEVICE_LABEL,
-    "QPU_service":           QPU_SERVICE,
+    "QPU_Provider":          QPU_SERVICE,
     "connectivity":          CONNECTIVITY,
     "date_qc_start":         DATE_START,
     "date_qc_end":           DATE_END,
