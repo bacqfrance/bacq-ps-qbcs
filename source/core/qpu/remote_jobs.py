@@ -64,7 +64,7 @@ def _failed_job_timing(service_name, service, record):
         if service_name == IBM_CLOUD:
             out = ibm_collect_timing(service.job(job_id))
         elif service_name == IQM_RESONANCE:
-            out = iqm_resonance_collect_timing(service, service.retrieve_job(job_id), job_id)
+            out = iqm_resonance_collect_timing(service, job_id)
         elif service_name == QAAS_IT4I:
             out = VLQ.vlq_collect_timing(VLQ.retrieve_job(service, job_id),
                                          record.get("upload_end_at") or record.get("submitted_at"))

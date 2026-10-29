@@ -74,7 +74,7 @@ def _iso_z(ts):
 
 def calibration_from_station_control(server_client, dynamic_architecture, calibration_set_id="default", source=None):
     """Sirius's raw calibration, in the shape of VLQ's vlq_calibration.json (see the module docstring).
-    server_client: IQMClient._iqm_server_client (iqm-client's private station-control client); dynamic_architecture:
+    server_client: IQMClient._storage (iqm-client's private calibration storage); dynamic_architecture:
     IQMClient.get_dynamic_quantum_architecture(); calibration_set_id: a UUID or 'default'. Prefer the id of the
     architecture's calibration set, so the set and its quality metrics are the ones the QPU runs with."""
     cal_set = server_client.get_calibration_set(calibration_set_id)
@@ -108,13 +108,13 @@ def attach_star_calibration(backend):
     raw calibration of the architecture's calibration set and attach it as backend.vlq_calibration (the attribute
     the layout choice reads, as on VLQ) and the machine's name as backend.star_name. Returns the calibration, or None
     for any other backend (Emerald, Garnet) or when the download fails (a warning is printed; the caller then
-    keeps the Target-based snapshot). Needs iqm-client's private station-control client (IQMClient._iqm_server_client)."""
+    keeps the Target-based snapshot). Needs iqm-client's private calibration storage (IQMClient._storage, iqm-client >= 36)."""
     try:
         client = backend.client
         dqa    = client.get_dynamic_quantum_architecture()
         if not is_star_architecture(dqa):
             return None
-        cal = calibration_from_station_control(client._iqm_server_client, dqa, str(dqa.calibration_set_id),
+        cal = calibration_from_station_control(client._storage, dqa, str(dqa.calibration_set_id),
                                                source=f"IQM Resonance {backend.name} calibration set {dqa.calibration_set_id}")
     except Exception as e:
         print(f"  ⚠️  [Calibration] could not download {getattr(backend, 'name', backend)}'s raw calibration "

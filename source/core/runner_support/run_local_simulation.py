@@ -44,8 +44,7 @@ def run_local_simulation(*, run_folder, bench, lnn, backend_label, do_spam=True,
     t0 = time.perf_counter()
     noisy = noisy_setup is not None
     if noisy:
-        check_scheduling_simulation(run_folder, scheduling_simulation)   # before anything is built: the run's transpiled circuits are reused
-    if noisy:
+        check_scheduling_simulation(run_folder, scheduling_simulation)   # before anything is built: a resumed run reuses its transpiled circuits, so it must keep its scheduling_simulation=
         snapshot_path, snapshot_backend, sampler = noisy_setup()
         sampler_factory = lambda: sampler   # one sampler for every use
 

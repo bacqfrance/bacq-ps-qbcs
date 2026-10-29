@@ -56,7 +56,7 @@ print(f"  Status:          QPU: {status.get('QPU_status')}, control: {status.get
 real_backend = VLQ.lexis_backend(log_file=f"datafiles/{RUN_FOLDER}/{VLQ.LEXIS_LOG_NAME}")   # py4lexis' log, in the run folder
 cal          = VLQ.attach_calibration(real_backend)   # the calibration it runs with → the run's qubits
 print(f"  Backend:         {real_backend.backend_name}")
-print(f"  Qubits:          {real_backend.num_qubits} + resonator {VLQ.RESONATOR}")
+print(f"  Qubits:          {real_backend.num_qubits} + resonator {VLQ.resonator_name(cal)}")
 print(f"  Calibration set: {cal['calibration_set_id']}")
 
 # ── Config print, health checks, build, submit and log: shared by every async submit script ──

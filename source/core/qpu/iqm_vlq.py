@@ -10,7 +10,8 @@ VLQ-specific the pipeline needs, kept out of qbcs.py:
   vlq_collect_timing()     QPU / queue time of a finished job (source/core/records/job_timing.py terms)
 
 Qubit selection, the scoring and the effective all-to-all snapshot are shared with IQM Resonance's Sirius and live in
-source/core/qpu/iqm_star.py (re-exported here: select_vlq_qubits(), choose_vlq_layout(), snapshot_from_calibration(), …).
+source/core/qpu/iqm_star.py (select_vlq_qubits() is an alias of iqm_star.select_star_qubits(); choose_vlq_layout() and snapshot_from_calibration()
+are wrappers that pass the "VLQ" label).
 
 Imports qaas / py4lexis only inside lexis_backend() and lexis_session(), so the module loads in every venv
 (the local simulation uses the calibration functions from local_sim.venv or iqm_vlq.venv).
@@ -25,11 +26,11 @@ from pathlib import Path
 
 from source.core.common import PROJECT_ROOT, exit_with_error, rel_path, scrub_paths
 from source.core.qpu.iqm_star import (PRX_PER_CLIFFORD, _fields, _qubit_logs, gate_roles, offline_backend,   # noqa: F401 — re-exported
-                                      physical_index, prx_fidelity, qubit_metrics, qubit_names, representative_roles)
+                                      physical_index, prx_fidelity, qubit_metrics, qubit_names, representative_roles,
+                                      resonator_name, RESONATOR)
 from source.core.qpu.iqm_star import choose_star_layout
 from source.core.qpu.iqm_star import select_star_qubits as select_vlq_qubits          # noqa: F401
 from source.core.qpu.iqm_star import snapshot_from_calibration as _star_snapshot
-from source.core.qpu.iqm_star import usable_star_qubits as usable_vlq_qubits          # noqa: F401
 from source.core.qpu.tokens import token_path
 from source.core.records.job_timing import now_utc_iso
 
@@ -38,7 +39,6 @@ LEXIS_LOG_NAME    = "iqm_vlq_authentication_lexis_logs.log"   # py4lexis' own lo
 PROJECT_INFO_FILE = token_path("iqm_vlq_project_info")   # PROJECT = … / RESOURCE = … lines (tokens/README.md)
 CALIBRATION_API   = "https://extranet.it4i.cz/api/v1/calibration-sets/star24"
 STATUS_URL        = "https://quantum.heappe.it4i.cz/vlq-status.json"
-RESONATOR         = "COMPR1"
 BACKEND_NAME      = "iqm_vlq"               # kept for reference; nothing uses it
 WALLTIME_LIMIT_S  = 7200                    # HEAppE walltime of one job: the most IT4I accepts (6 h was refused)
 CONNECTION_LOG_NAME = "iqm_vlq_connection.log"   # every network call to IT4I / HEAppE, in the run folder

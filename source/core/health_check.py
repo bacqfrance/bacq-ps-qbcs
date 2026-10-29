@@ -694,13 +694,13 @@ def _collect_health_check_one(exp_results_folder_path, record_path, service, fak
                 f"status={job.status()} — {job.error_message()}"
             )
 
-        result     = job.result()                        # qiskit Result; also refreshes job._iqm_job.data
+        result     = job.result()                        # qiskit Result
         counts_raw = result.get_counts()
         counts_raw = counts_raw[0] if isinstance(counts_raw, list) else counts_raw
         counts     = {k[::-1]: v for k, v in counts_raw.items()}
 
         # ── Execution window, queue and billed time from the server (timeline + raw job) ──
-        timing       = iqm_resonance_collect_timing(service, job, job_id)
+        timing       = iqm_resonance_collect_timing(service, job_id)
         scheduled_at = timing.get("execution_start") or "N/A"
         finished_at  = timing.get("execution_end") or "N/A"
         if scheduled_at == "N/A" or finished_at == "N/A":      # discover the real step names on first run

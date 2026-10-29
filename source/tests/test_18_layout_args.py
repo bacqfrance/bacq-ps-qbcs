@@ -50,6 +50,7 @@ from qiskit.circuit.library import CZGate, Measure, RGate, RXXGate
 from qiskit.transpiler import InstructionProperties, Target
 
 from source.core.runner_support import benchmark_args as BA
+from source.core.qpu import iqm_star
 from source.core.qpu import iqm_vlq as V
 from source.core.records.run_names import health_check_run_name, qpu_run_name, qpu_run_prefix
 from source.core.qpu.calibration_input import (detect_format, load_calibration, newest_provider_file, source_name,
@@ -59,7 +60,7 @@ from source.core.qpu.layout_selection import (all_placements, check_forced_layou
 
 PROJECT = Path(__file__).resolve().parents[2]
 AQT_FILE  = "calibration_input_files/PIAST-Q/piastq_characterisation_2026-09-29.json"
-EQE1_FILE = "calibration_input_files/Euro-Q-Exa/calibration_data_Euro-Q-Exa_20260827_active_qubits.json"
+EQE1_FILE = "calibration_input_files/Euro-Q-Exa/calibration_data_Euro-Q-Exa_20261020_active_qubits.json"
 
 
 def _exits(argv, **kw):
@@ -592,7 +593,7 @@ VLQ_ROLES = {"n_prx": [96, 153, 210], "n_move": [76, 38, 0], "n_cz": [0, 38, 76]
 
 
 def test_vlq_layouts_always_include_the_resonator_and_skip_uncalibrated_qubits():
-    usable, excluded = V.usable_vlq_qubits(VLQ_CAL)
+    usable, excluded = iqm_star.usable_star_qubits(VLQ_CAL)
     assert excluded and all(V.physical_index(q) not in usable for q in excluded)   # QB12 has no MOVE data
     lowest = V.choose_vlq_layout("lowest", VLQ_ROLES, VLQ_CAL)
     assert lowest["physical_qubits"] == usable[:3] and lowest["method"] == "lowest"

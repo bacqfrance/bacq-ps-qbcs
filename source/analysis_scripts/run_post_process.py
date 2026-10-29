@@ -12,7 +12,7 @@ Run the full BACQ analysis pipeline for a chosen set of runs (real QPU or local 
      run; and a run table CSV (N_acc, N_max, E_min, best scheme at N_max and at N_acc, QPU time, effective cost) next to the plots
 
 Stages 2-5 reuse the existing scripts, driven per-run via the QPU_RUN_FOLDER /
-QPU_N_SAMPLES env vars; each run's summary json is also copied to its analysis/plots+summaries/<run folder>/. Each run's own settings (shots, samples,
+QPU_N_SAMPLES env vars (plus QPU_NSAMPLES_LIST for the n-samples comparison); each run's summary json is also copied to its analysis/plots+summaries/<run folder>/. Each run's own settings (shots, samples,
 depths, topology, SPAM) come from its run folder — source/core/records/run_info.py — not from
 constants here, so e.g. mini, full and custom runs are analyzed alike.
 

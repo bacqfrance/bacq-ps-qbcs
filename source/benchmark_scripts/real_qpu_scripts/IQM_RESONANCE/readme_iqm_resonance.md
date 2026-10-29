@@ -10,11 +10,12 @@ Separate virtual environment: **iqm_resonance.venv** (created at `venvs/iqm_reso
 
 | Package | Version (this project's `iqm_resonance.venv`) | Provides |
 |---|---|---|
-| `iqm-client` | 35.0.2 | `iqm.qiskit_iqm.IQMProvider` |
+| `iqm-client` | 36.0.0 | `iqm.qiskit_iqm.IQMProvider` |
 
-Installing it pulls `iqm-pulse`, `iqm-station-control-client`, and
-`iqm-data-definitions` as dependencies (plus an OpenTelemetry stack used for
-its own tracing). **This is a different SDK from IQM EQE1's `mqss-qiskit`**,
+Installing it pulls `iqm-pulse`, `iqm-pulla`, `iqm-station-control-client`,
+`iqm-exa-common` and `iqm-data-definitions` as dependencies (plus an
+OpenTelemetry stack used for its own tracing). Don't install its `[qiskit]`
+extra: it pins `qiskit<2.2`. **This is a different SDK from IQM EQE1's `mqss-qiskit`**,
 even though both target IQM hardware — don't assume the two IQM environments
 are interchangeable. Like EQE1, this does not force a Qiskit downgrade:
 `iqm_resonance.venv` runs `qiskit==2.5.2`. Every other shared package

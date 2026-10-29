@@ -2812,7 +2812,7 @@ class bacq_ps_qbcs:
             cache.clear()
             cache[job_id] = {"all_results": all_results,
                              # execution window, queue and billed time of the whole job (timeline + raw job)
-                             "timing":      iqm_resonance_collect_timing(backend, job, job_id)}
+                             "timing":      iqm_resonance_collect_timing(backend, job_id)}
         all_results = cache[job_id]["all_results"]
         n_in_job    = record.get("n_circuits_in_job", circ_start_idx + n_circuits)   # old records: one chunk per job
         assert len(all_results) == n_in_job, \

@@ -264,7 +264,7 @@ pytest source/tests/
 Runs `test_00`/`test_01`/`test_07`/`test_08`/`test_10`/`test_11`/`test_12`/`test_13`/`test_14`/`test_15`/`test_16`/`test_17`/`test_18`/`test_19`/`test_20`/`test_21`/`test_22`/`test_23`/`test_24`/`test_25`/`test_26`/`test_27`/`test_28`/`test_29`/`test_30` (§9) —
 fundamental checks that confirm the circuits are built correctly, a full
 local-sim pipeline + post-processing integration check, and unit tests of the
-executed-circuit check and the timing bookkeeping — in 5 to 10 minutes (387 tests; longer on slower machines).
+executed-circuit check and the timing bookkeeping — in 5 to 10 minutes (391 tests; longer on slower machines).
 **Two venvs are needed**: `local_sim.venv` runs the suite (the run stops at once with instructions if `venvs/local_sim.venv` is missing; `test_10` also starts a child process in it), and `test_12` runs itself in `aqt.venv` — it fails with an error telling you to create `venvs/aqt.venv` (`source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/readme_aqt.md` §1, `requirements_aqt.txt`, which includes `pytest`) or to activate `aqt.venv` and run `python3 -m pip install pytest` (`py -m pip install pytest` on Windows) if only `pytest` is missing there.
 All tests passing (no failures, no errors) means the base venv, myQLM↔Qiskit
 translation, local Aer simulation, and `source/analysis_scripts/run_post_process.py` all work

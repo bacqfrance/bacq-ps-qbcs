@@ -15,13 +15,13 @@ Separate virtual environment: **iqm_vlq.venv** (created at `venvs/iqm_vlq.venv` 
 
 | Package | Version (this project's `iqm_vlq.venv`) | Provides |
 |---|---|---|
-| `qaas` | 0.5.3 | IT4I's QaaS client: LEXIS authentication and submission to VLQ (`source/core/qpu/iqm_vlq.py`) |
+| `qaas` | 0.5.4 | IT4I's QaaS client: LEXIS authentication and submission to VLQ (`source/core/qpu/iqm_vlq.py`) |
 | `py4lexis` | 7.1.1 | LEXIS login (MyAccessID) used by `lexis_backend()`; its refresh token is saved to `tokens/iqm_vlq_token` |
 | `qiskit-qasm3-import` | 0.6.0 | OpenQASM 3 import, not imported by this project's code; listed so a rebuild gets the same version |
 | `dill` | 0.4.1 | object serialisation, not imported by this project's code; listed so a rebuild gets the same version |
 
 `qaas` pins `qiskit<2.2` (the venv runs `qiskit==2.1.2`) and its own `iqm-client`, so it
-cannot share a venv with IQM Resonance (`iqm-client` 35, Qiskit 2.5) or AQT (Qiskit 1.4).
+cannot share a venv with IQM Resonance (`iqm-client` 36, Qiskit 2.5) or AQT (Qiskit 1.4).
 **Do not `pip install qiskit-iqm`** — it conflicts with `qaas`.
 `requirements_iqm_vlq.txt` is the source of truth; see "Creating the environment" below.
 
@@ -158,7 +158,7 @@ qbcs_real_submit_iqm_vlq.py            qbcs_real_collect_iqm_vlq.py
 The backend's Qiskit target carries no error data, so the qubits are chosen from IT4I's public
 calibration API (`https://extranet.it4i.cz/api/v1/calibration-sets/star24/<id>`, with `/metrics`
 and `/dynamic-quantum-architecture`; no authentication), for the calibration set the backend
-reports (`select_vlq_qubits()`, the scorer IQM Resonance's Sirius shares, in `source/core/qpu/iqm_star.py`; `star_roles` is the method label written into `physical_qubits.json`):
+reports (`select_star_qubits()`, the scorer IQM Resonance's Sirius shares, in `source/core/qpu/iqm_star.py`, which `iqm_vlq.py` imports as `select_vlq_qubits()`; `star_roles` is the method label written into `physical_qubits.json`):
 
 1. **Roles.** Every two-qubit gate is MOVE, CZ with the resonator, MOVE back, and the transpiler
    decides which of the two qubits is moved (on VLQ the lower virtual index, so for the benchmark's

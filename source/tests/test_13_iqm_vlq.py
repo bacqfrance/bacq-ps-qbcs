@@ -15,6 +15,9 @@ Unit tests (no simulator run, no QPU, no network) for IT4I's VLQ (IQM Star 24) s
     it is excluded; on Sirius's calibration (source/tests/iqm_vlq_check_data/iqm_sirius_calibration_fixture.json) the CZ
     implementation is read per locus (tgss on QB2 / QB10), the median of F_move(a)·F_cz(b) over the 240 pairs is 96.83 % and
     agrees with the directly measured MOVE·CZ·MOVE; iqm_star.calibration_from_station_control gives the vlq_calibration.json shape;
+  - iqm_star.attach_star_calibration on a fake Resonance backend with only the iqm-client 36 attributes (client._storage);
+  - layout_selection.drop_identity_final_layout drops an identity final layout keyed on the input qubits (iqm-client 34,
+    VLQ) or on the circuit's own qubits (iqm-client 36, Sirius) and keeps a real permutation;
   - layout_selection.count_2q_ops ignores MOVEs;
   - iqm_vlq.vlq_collect_timing on a real job (source/tests/iqm_vlq_check_data/iqm_vlq_job_timing_fixture.json: the mini
     benchmark's IQM timeline and qaas runtimes, 2026-09-29) — reproduces what collection recorded:
@@ -168,6 +171,46 @@ def test_calibration_from_station_control_has_the_shape_of_a_vlq_calibration():
     assert cal["calibration_set"]["end_timestamp"] == "2026-10-26T05:48:41Z"
     assert cal["calibration_set"]["observations"][0]["value"] == [1.0, 2.0]
     assert S.is_star_architecture(dqa) and not S.is_star_architecture({"gates": {"cz": {}}})
+
+
+def test_attach_star_calibration_reads_the_iqm_client_36_storage():
+    """A fake IQMBackend with only the attributes iqm-client 36 has: client._storage, not the removed _iqm_server_client."""
+    obs = lambda f, v: SimpleNamespace(dut_field=f, value=v, unit=None, invalid=False)
+    ts  = datetime(2026, 10, 26, 5, 48, 41, tzinfo=__import__("datetime").timezone.utc)
+    storage = SimpleNamespace(
+        get_calibration_set=lambda i: SimpleNamespace(observation_set_id="cal-id", end_timestamp=ts, observations=[obs("c", 0.5)]),
+        get_calibration_set_quality_metric_set=lambda i: SimpleNamespace(observation_set_id="met-id", end_timestamp=ts,
+                                                                         observations=[obs("metrics.x", 0.9)]))
+    dqa = SimpleNamespace(calibration_set_id="cal-id", gates={"move": {}},
+                          model_dump=lambda mode=None: {"calibration_set_id": "cal-id", "qubits": ["QB1"], "gates": {"move": {}}})
+    backend = SimpleNamespace(name="sirius", client=SimpleNamespace(get_dynamic_quantum_architecture=lambda: dqa, _storage=storage))
+    cal = S.attach_star_calibration(backend)
+    assert cal is backend.vlq_calibration and cal["calibration_set_id"] == "cal-id" and backend.star_name == "Sirius"
+    assert cal["metrics"]["observations"][0]["dut_field"] == "metrics.x"
+    dqa_other = SimpleNamespace(calibration_set_id="x", gates={"cz": {}})   # Emerald / Garnet: no MOVE gate, nothing attached
+    other = SimpleNamespace(name="emerald", client=SimpleNamespace(get_dynamic_quantum_architecture=lambda: dqa_other))
+    assert S.attach_star_calibration(other) is None and not hasattr(other, "vlq_calibration")
+
+
+def test_drop_identity_final_layout_for_both_layout_keyings():
+    """iqm-client 34 (VLQ) keys the final layout on the input qubits; iqm-client 36 (Sirius) on the circuit's own qubits."""
+    from qiskit.circuit import QuantumRegister
+    from qiskit.transpiler import Layout, TranspileLayout
+    from source.core.qpu.layout_selection import drop_identity_final_layout
+
+    def circuit(final):
+        qin, anc = QuantumRegister(2, "q"), QuantumRegister(2, "ancilla")
+        qc   = QuantumCircuit(4)
+        init = Layout({qin[0]: 0, qin[1]: 1, anc[0]: 2, anc[1]: 3})
+        qc._layout = TranspileLayout(init, {}, final_layout=final(qc, init), _input_qubit_count=2, _output_qubit_list=qc.qubits)
+        return qc
+
+    by_input   = lambda perm: lambda qc, init: Layout({v: perm[init[v]] for v in init.get_virtual_bits()})
+    by_circuit = lambda perm: lambda qc, init: Layout({qc.qubits[i]: perm[i] for i in range(4)})
+    same, swapped = {0: 0, 1: 1, 2: 2, 3: 3}, {0: 1, 1: 0, 2: 2, 3: 3}
+    for keyed in (by_input, by_circuit):
+        assert drop_identity_final_layout([circuit(keyed(same))])[0].layout.final_layout is None
+        assert drop_identity_final_layout([circuit(keyed(swapped))])[0].layout.final_layout is not None
 
 
 def test_snapshot_folds_the_resonator_into_an_all_to_all_cz():

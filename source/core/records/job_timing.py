@@ -327,19 +327,20 @@ def iqm_raw_job(backend, job_id, suffix=""):
     """Raw GET jobs/{id}[/suffix] on IQM Resonance (the SDK drops billing and payload).
     Returns the decoded JSON; raises on failure."""
     import requests
-    client = backend.client._iqm_server_client
-    r = client._send_request(requests.get, f"jobs/{job_id}{suffix}")
+    client = backend.client._executor.client   # iqm-client >= 36: the IQMServerClient behind the job executor
+    r = client.send_request(requests.get, f"jobs/{job_id}{suffix}")
     r.raise_for_status()
     return r.json()
 
 
-def iqm_resonance_collect_timing(backend, job, job_id):
+def iqm_resonance_collect_timing(backend, job_id):
     """Timing of a finished IQM Resonance job: the full server timeline plus the billed
     metrics from the raw job endpoint. Never raises; missing values are None."""
     out = {"qpu_s": None, "qpu_s_source": "unavailable", "queue_s": None, "queue_s_source": "unavailable"}
     timeline = {}
     try:
-        data = job._iqm_job.data
+        from uuid import UUID
+        data = backend.client.get_job(UUID(job_id)).job_data   # iqm-client >= 36 (public); the job's own tracker is private
         out["timeline"] = [{"source": t.source, "status": t.status, "timestamp": iso_utc(parse_utc(t.timestamp))}
                            for t in data.timeline]
         for t in out["timeline"]:

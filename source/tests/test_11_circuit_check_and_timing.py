@@ -25,6 +25,8 @@ Unit tests (no simulator, no QPU, no network) for
     remote_hw_runtime, IQM Resonance execution_seconds or the execution interval, IBM
     circuits_execution_seconds, none for AQT), summed over the run's jobs by
     qpu_queue_breakdown and None ("N/A") when any job lacks it; qpu_workload's chunks per job;
+  - IQM Resonance timing on a fake backend with only the iqm-client 36 attributes: the raw job through
+    client._executor.client.send_request, the timeline and calibration set id through client.get_job();
   - the queue total is the longest wait except on AQT; the AQT transpile rate comes from the runs that measured it;
   - layout selection (source/core/qpu/layout_selection.py): the native single-qubit gates are counted on
     the circuit transpiled onto one SWAP-free probe placement (the same on every placement).
@@ -41,6 +43,7 @@ import csv
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from qiskit import QuantumCircuit, transpile
@@ -524,6 +527,51 @@ def test_resonance_and_ibm_execution_time():
                               "IQM_Resonance") == (4.0, "execution_interval")
     assert JT.qpu_execution_s({"circuits_execution_seconds": 7.5}, "IBM_Cloud") == (7.5, "ibm_circuits_execution")
     assert JT.qpu_execution_s({"qpu_s": 3.0}, "PCSS") == (None, "unavailable")
+
+
+def _stub_requests(monkeypatch):
+    """iqm_raw_job imports requests (only the IQM venvs have it): pass it a stand-in with a named get()."""
+    def get(*a, **k):
+        raise AssertionError("the fake send_request never calls the HTTP method")
+    monkeypatch.setitem(sys.modules, "requests", SimpleNamespace(get=get))
+
+
+def _resonance_backend(job_json, timeline, calibration_set_id, calls):
+    """An IQMBackend with only the iqm-client 36 attributes the timing code uses (a renamed or private one it
+    still reached for would raise AttributeError): client._executor.client.send_request and client.get_job."""
+    response = SimpleNamespace(raise_for_status=lambda: None, json=lambda: job_json)
+    def send_request(method, path):
+        calls.append((method.__name__, path))
+        return response
+    server = SimpleNamespace(send_request=send_request)
+    data   = SimpleNamespace(timeline=timeline, compilation=SimpleNamespace(calibration_set_id=calibration_set_id))
+    client = SimpleNamespace(_executor=SimpleNamespace(client=server), get_job=lambda job_id: SimpleNamespace(job_data=data))
+    return SimpleNamespace(client=client)
+
+
+def test_iqm_raw_job_uses_the_public_send_request(monkeypatch):
+    _stub_requests(monkeypatch)
+    calls = []
+    backend = _resonance_backend({"metrics": {"billed_seconds": 3.0}}, [], None, calls)
+    assert JT.iqm_raw_job(backend, "job-1")["metrics"]["billed_seconds"] == 3.0
+    JT.iqm_raw_job(backend, "job-1", "/payload")
+    assert calls == [("get", "jobs/job-1"), ("get", "jobs/job-1/payload")]
+
+
+def test_iqm_resonance_timing_from_the_job_data_and_the_raw_job(monkeypatch):
+    _stub_requests(monkeypatch)
+    t0= datetime(2026, 10, 2, 8, 52, 29, tzinfo=timezone.utc)
+    step = lambda status, s: SimpleNamespace(source="iqm_server", status=status, timestamp=t0.replace(second=29 + s))
+    timeline = [step("created", 0), step("compilation_started", 1), step("execution_started", 3), step("execution_ended", 11),
+                step("completed", 12)]
+    raw = {"metrics": {"billed_seconds": 10.0}, "compilation": {"execution_runtime_estimate_seconds": 10.65}}
+    cal = "ea129c08-ca6f-4a00-9042-ca3ac216e13b"
+    out = JT.iqm_resonance_collect_timing(_resonance_backend(raw, timeline, cal, []), "01a0fbd0-a13b-7082-a797-3492fb88ecdc")
+    assert "timeline_error" not in out and "raw_job_error" not in out
+    assert out["qpu_s"] == 10.0 and out["qpu_s_source"] == "billed"
+    assert out["queue_s"] == 1.0 and out["calibration_set_id"] == cal and len(out["timeline"]) == 5
+    assert out["execution_start"] == "2026-10-02T08:52:32.000000Z" and out["execution_end"] == "2026-10-02T08:52:40.000000Z"
+    assert out["execution_runtime_estimate_seconds"] == 10.65
 
 
 def test_utc_helpers_are_shared():

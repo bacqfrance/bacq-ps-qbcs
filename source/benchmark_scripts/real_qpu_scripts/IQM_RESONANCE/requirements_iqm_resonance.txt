@@ -13,9 +13,10 @@ qiskit==2.5.2          # same as local_sim.venv's
 qiskit-aer==0.17.2
 
 # IQM Resonance (cloud)
-iqm-client==35.0.2     # provides iqm.qiskit_iqm.IQMProvider — a different SDK from EQE1's mqss-qiskit
-                       # requires iqm-pulse>=14.0.2,<15 and iqm-station-control-client>=13.0.2,<14 (only the optional
-                       # "pin" extras pin iqm-data-definitions==3.0)
+iqm-client==36.0.0     # provides iqm.qiskit_iqm.IQMProvider — a different SDK from EQE1's mqss-qiskit
+                       # IQM OS 4.7 release; do NOT install the [qiskit] extra (it pins qiskit<2.2). Pulls in
+                       # iqm-pulse 15, iqm-pulla 15, iqm-station-control-client 14, iqm-exa-common 29,
+                       # iqm-data-definitions 3.1.0 (the versions of IQM's constraints-iqm-qccsw-4.7.0.txt)
 
 # Scientific Python
 numpy==2.5.2

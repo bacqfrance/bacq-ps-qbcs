@@ -25,7 +25,7 @@ Edit only `definitions_dummy_noisy_emulators.json`, beside this guide. A new pro
    the run folders (`USER_MANUAL §5.4`: `…_sim-dummy_<NAME>_…`), so it must contain a `-` and no `_` (the part before the first `-` is the provider; run names are split on `_`).
    `NAME` may equal a real QPU's name; the data type `sim-dummy` tells the runs apart.
 2. **The noise**: `architecture` (the real QPU's architecture as its manufacturer spells it, e.g. `Heron r2`; required, shown as
-   `Architecture` in the summary), `Fidelity` (the two-qubit gate fidelity in %, from a data sheet or a vendor page; write the figure used and the
+   `QPU_Architecture` in the summary), `Fidelity` (the two-qubit gate fidelity in %, from a data sheet or a vendor page; write the figure used and the
    version or date in `source_fidelity`), `r_ct` (crosstalk ratio; 0.0 for trapped ions), `noise_type` (`"Pauli"`) and `lnn`
    (`"True"` for a nearest-neighbour topology, `"False"` for all-to-all; the strings, not booleans).
 3. **`pricing`**: choose a model and fill all of its constants:

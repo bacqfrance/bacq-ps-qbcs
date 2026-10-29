@@ -434,13 +434,19 @@ def drop_identity_final_layout(circuits):
     it), in place. IQM's star (VLQ) transpilation attaches such a layout, keyed so that QPY
     stores it as a real permutation of the circuit's 25 qubits (24 + the resonator, which the
     input mapping lacks): reloaded, final_physical_qubits() then gives wrong qubits. Without it
-    the circuit means the same and round-trips through QPY. Returns the circuits."""
+    the circuit means the same and round-trips through QPY. Returns the circuits.
+
+    iqm-client 36 on Sirius keys the final layout on the circuit's own qubits (one register of 17, none of them in
+    the initial layout) instead of the input qubits: it is the identity when every physical qubit p maps to the
+    circuit qubit at index p."""
     for c in circuits:
         lay = getattr(c, "layout", None)
         if lay is None or lay.final_layout is None:
             continue
         init = lay.initial_layout
-        if all(init[v] == p for p, v in lay.final_layout.get_physical_bits().items()):
+        placed = init.get_virtual_bits()
+        if all(init[v] == p if v in placed else c.find_bit(v).index == p
+               for p, v in lay.final_layout.get_physical_bits().items()):
             lay.final_layout = None
     return circuits
 
