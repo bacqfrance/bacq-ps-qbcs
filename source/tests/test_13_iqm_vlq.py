@@ -79,9 +79,11 @@ def test_selection_scores_every_ordered_choice_by_role():
     n = len(usable)                               # all ordered triples of qubits with complete metrics
     assert rec["n_candidates"] == n * (n - 1) * (n - 2)
     assert set(rec["excluded_qubits"]) == set(no_move) and not set(rec["qubit_names"]) & set(no_move)
-    assert rec["physical_qubits"] == [int(q[2:]) - 1 for q in rec["qubit_names"]]
-    assert rec["decoherence_included"] and rec["t_circuit_s"] > 0 and rec["idle_log"] <= 0   # the fixture has T1, T2 and durations
-    assert rec["log_success"] == pytest.approx(sum(rec["chosen_grades"].values()) + rec["idle_log"])
+    idx = S.qubit_index_map(CAL)                  # the backend's numbering (VLQ: QBn -> n - 1)
+    assert rec["physical_qubits"] == [idx[q] for q in rec["qubit_names"]]
+    assert rec["top_candidate_names"][0] == rec["qubit_names"] and len(rec["top_candidate_names"]) == len(rec["top_candidates"])
+    assert not rec["decoherence_included"] and rec["t_circuit_s"] is None   # the prescreen alone (no rep): no idle term
+    assert rec["log_success"] == pytest.approx(sum(rec["chosen_grades"].values()))
     assert rec["log_success"] == max(s for _, s in rec["top_candidates"])
 
     # an independent recomputation of one grade: readout + prx + MOVE pairs + CZs
@@ -94,25 +96,80 @@ def test_selection_scores_every_ordered_choice_by_role():
     assert rec["calibration_set_id"] == CAL["calibration_set_id"]
 
 
-def test_idle_decay_decides_between_equal_fidelities():
-    """With every fidelity equal, only T1/T2 and the gate durations separate the qubits: the long-lived ones win, and a
-    calibration with no T2 gives up the term for every choice (the old, fidelity-only score)."""
+def _fake_star_circuit(layout, n_qubits=25):
+    """What transpile gives on a star machine for a 3-qubit chain: r on each qubit, CX(v0, v1) and CX(v1, v2) as
+    MOVE(a, COMPR1), CZ(b, COMPR1), MOVE(a, COMPR1), then measure. The resonator is the last qubit (index 24)."""
+    from qiskit.circuit import Gate
+    res, move = n_qubits - 1, Gate("move", 2, [])
+    qc = QuantumCircuit(n_qubits, 3)
+    for p in layout:
+        qc.r(0.1, 0.2, p)
+    a, b, c = layout
+    qc.append(move, [a, res]); qc.cz(b, res); qc.append(move, [a, res])
+    qc.append(move, [b, res]); qc.cz(c, res); qc.append(move, [b, res])
+    for i, p in enumerate(layout):
+        qc.measure(p, i)
+    return qc
+
+
+def test_star_walker_serializes_the_moves_on_the_resonator():
+    from source.core.qpu.layout_selection import circuit_timing, score_transpiled
+    view = S.star_view(CAL)
+    assert view["resonator"] == 24
+    metrics, idx = S.qubit_metrics(CAL), S.qubit_index_map(CAL)
+    layout = [idx[q] for q in [q for q, m in metrics.items() if not S.missing_fields(m)][:3]]
+    tc     = _fake_star_circuit(layout)
+    timing = circuit_timing(tc, view)
+    dur    = view["dur"]
+    a, b, c = layout
+    # the six resonator gates cannot overlap: MOVE a, CZ b, MOVE a, MOVE b, CZ c, MOVE b
+    serial = 2 * dur["move", (a, 24)] + dur["cz", (b, 24)] + 2 * dur["move", (b, 24)] + dur["cz", (c, 24)]
+    assert timing["T"] >= serial + dur["measure", (a,)] - 1e-15
+    assert timing["T"] == pytest.approx(dur["r", (a,)] + serial + dur["measure", (c,)]) or timing["T"] > serial
+    assert timing["busy"][24] == pytest.approx(serial)
+    rec = score_transpiled(tc, view)
+    assert rec["counts"]["move"] == 4 and rec["idle_log"] <= 0 and rec["t_circuit_s"] == pytest.approx(timing["T"])
+    # a MOVE pair takes F_move: two MOVEs of the moved qubit carry its whole log
+    one = QuantumCircuit(25, 1)
+    from qiskit.circuit import Gate
+    one.append(Gate("move", 2, []), [a, 24]); one.append(Gate("move", 2, []), [a, 24])
+    assert score_transpiled(one, view)["gate_log"] == pytest.approx(math.log(metrics[[q for q in idx if idx[q] == a][0]]["move"]))
+
+
+def test_exact_rescore_picks_the_choice_with_the_least_idle_decay(monkeypatch):
+    """With every fidelity equal, only T1/T2 separate the qubits on the transpiled circuit: the long-lived ones win, and a
+    qubit without T2 is excluded (an incomplete calibration)."""
     metrics = V.qubit_metrics(CAL)
-    usable  = [q for q, m in metrics.items() if V._qubit_logs(m) is not None]
+    usable  = [q for q, m in metrics.items() if not S.missing_fields(m)]
     assert len(usable) >= 4
     flat    = metrics[usable[0]]                                           # one qubit's fidelities and durations for all
     m_flat  = {q: dict(flat, t1=50e-6, t2=20e-6) for q in usable}
     m_flat[usable[3]].update(t1=500e-6, t2=400e-6)                         # one qubit that outlives the rest
-    orig    = S.qubit_metrics
-    try:
-        S.qubit_metrics = lambda cal: {q: dict(m) for q, m in m_flat.items()}
-        rec = V.select_vlq_qubits(ROLES, CAL)
-        assert rec["decoherence_included"] and usable[3] in rec["qubit_names"]
-        m_flat[usable[3]]["t2"] = None
-        rec = V.select_vlq_qubits(ROLES, CAL)
-        assert not rec["decoherence_included"] and rec["t_circuit_s"] is None and rec["idle_log"] is None
-    finally:
-        S.qubit_metrics = orig
+    monkeypatch.setattr(S, "qubit_metrics", lambda cal: {q: dict(m) for q, m in m_flat.items()})
+    monkeypatch.setattr(S, "transpile_like_submission", lambda rep, star, layout: _fake_star_circuit(layout))
+    rec = V.select_vlq_qubits(ROLES, CAL, rep=object(), backend=object())
+    assert rec["method"] == "transpiled" and rec["decoherence_included"] and usable[3] in rec["qubit_names"]
+    assert rec["idle_log"] <= 0 and rec["t_circuit_s"] > 0
+    assert rec["log_success"] == max(s for _, s in rec["top_candidates"])
+    assert len(rec["top_candidate_gate_counts"]) == len(rec["top_candidates"]) == len(rec["top_candidate_prescreen"])
+    assert rec["top_candidate_gate_counts"][0]["move"] == 4
+    assert rec["prescreen_log_success"] == pytest.approx(sum(rec["chosen_grades"].values()))
+    m_flat[usable[3]]["t2"] = None
+    rec = V.select_vlq_qubits(ROLES, CAL, rep=object(), backend=object())
+    assert usable[3] in rec["excluded_qubits"] and usable[3] not in rec["qubit_names"]
+    assert "t2" in rec["incomplete"][usable[3]]
+
+
+def test_choose_vlq_layout_forwards_the_representative_circuit_and_backend(monkeypatch):
+    """qbcs.py calls choose_vlq_layout(..., rep=, backend=) for the `optimized` mode: it must reach the exact rescore, and a
+    qubit without the MOVE interleaved-RB fidelity (move_irb) is excluded as incomplete."""
+    monkeypatch.setattr(S, "transpile_like_submission", lambda rep, star, layout: _fake_star_circuit(layout))
+    rec = V.choose_vlq_layout("optimized", ROLES, CAL, rep=object(), backend=object(), label="Sirius")
+    assert rec["layout_mode"] == "optimized" and rec["method"] == "transpiled"
+    cal = json.loads(json.dumps(CAL))
+    cal["metrics"]["observations"] = [o for o in cal["metrics"]["observations"]
+                                      if not o["dut_field"].startswith("metrics.irb.move.crf_crf.QB1__")]
+    assert "move_irb" in S.missing_fields(S.qubit_metrics(cal)["QB1"])
 
 
 def test_move_fidelity_is_the_move_pair_of_the_moved_qubit():
@@ -223,7 +280,12 @@ def test_snapshot_folds_the_resonator_into_an_all_to_all_cz():
     assert cz[(0, 1)]["error"] == pytest.approx(1 - best)
     r = {e["qargs"][0]: e["error"] for e in snap["operations"]["r"]}
     assert r[0] == pytest.approx((1 - metrics[a]["f1q"]) / V.PRX_PER_CLIFFORD)   # per native prx, not per Clifford
-    assert snap["num_qubits"] == 24 and len(snap["operations"]["measure"]) == 24
+    incomplete = [q for q, m in metrics.items() if S.missing_fields(m)]            # QB12 has no MOVE-pair measurement
+    idx = S.qubit_index_map(CAL)
+    assert snap["num_qubits"] == 24 and len(snap["operations"]["measure"]) == 24 - len(incomplete)   # its indices are kept
+    assert snap["excluded_qubits"] == sorted(idx[q] for q in incomplete) and incomplete
+    assert all(idx[q] not in {e["qargs"][0] for e in snap["operations"]["r"]} for q in incomplete)
+    assert all(idx[q] not in sum((e["qargs"] for e in snap["operations"]["cz"]), []) for q in incomplete)
     backend, noise_model, _ = noisy_sampler_from_snapshot(snap)
     assert {"cz", "measure", "r"} <= set(noise_model.noise_instructions)
     assert backend.target.num_qubits == 24

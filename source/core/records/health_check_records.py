@@ -224,8 +224,17 @@ def append_submit_log(run_folder_path, *, backend, chunks, n_chunks, nshots, lay
     run_lines = [f"Layout:           {layout}"] if layout is not None else []
     if run_qubits is not None:
         from source.core.qpu.qpu_snapshot import SNAPSHOT_FILENAME, snapshot_log_lines
-        run_lines += [f"Run qubits:       {run_qubits}",
-                      *snapshot_log_lines(snapshot_path or run_path / SNAPSHOT_FILENAME, run_qubits)]
+        try:
+            record = json.loads((run_path / "transpiled_circuits" / "physical_qubits.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            record = {}
+        # EQE1: the calibration file numbers its qubits differently from the live backend; both are logged, and the
+        # calibration summary reads the file's numbering
+        cal_qubits = record.get("calibration_qubits")
+        run_lines += [f"Run qubits:       {run_qubits}" + (" (live backend numbering)" if cal_qubits else ""),
+                      *([f"Calibration qubits: {cal_qubits} (calibration file numbering)"] if cal_qubits else []),
+                      *([f"Qubit names:      {record['qubit_names']}"] if record.get("qubit_names") else []),
+                      *snapshot_log_lines(snapshot_path or run_path / SNAPSHOT_FILENAME, cal_qubits or run_qubits)]
     lines = [f"Submitted at:     {now_utc_iso()}",
              f"Backend:          {backend}",
              f"Run folder:       {run_relative_path(run_path)}",   # relative, forward slashes

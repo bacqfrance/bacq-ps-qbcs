@@ -17,8 +17,8 @@ from source.core.circuits.circuit_drawings import export_circuit_drawings
 from source.core.common import exit_with_error, PROJECT_ROOT, rel_path, scrub_paths, section
 from source.core.qpu import iqm_vlq as VLQ
 from source.core.qpu.aqt import _aqt_run, AQTTaskTimeout
-from source.core.qpu.layout_selection import check_forced_layout, drop_identity_final_layout
-from source.core.qpu.qpu_snapshot import scheduling_method
+from source.core.qpu.layout_selection import check_forced_layout, transpile_like_submission
+from source.core.qpu.qpu_snapshot import schedule_for_simulation
 from source.core.qpu.providers import ACCOMPANYING_HEALTH_CHECK_NSHOTS, job_state_of_status
 from source.core.qpu.remote_jobs import _is_transient_network_error, _remote_job_state, _warn_circuit_check, HealthCheckSubmitError, print_job_line, SUBMIT_RETRY_BACKOFF_S
 from source.core.records import circuit_check as CC
@@ -401,7 +401,6 @@ def _health_check_isa(run_path, circuit, target, qubit_set, reps, scheduling_sim
 
     transpiled_circuits/health_check_transpiled.json lists every saved variant (normally one:
     a run stays on one backend and one set of qubits)."""
-    from qiskit import transpile
     from qiskit.qpy import dump, load
 
     tdir      = Path(run_path) / "transpiled_circuits"
@@ -417,14 +416,13 @@ def _health_check_isa(run_path, circuit, target, qubit_set, reps, scheduling_sim
             return isa, v["file"], None
 
     t0  = time.perf_counter()
-    isa = transpile(circuit, target, optimization_level=1, initial_layout=qubit_set,
-                    scheduling_method=scheduling_method(target, scheduling_simulation))
+    isa = schedule_for_simulation(transpile_like_submission(circuit, target, qubit_set), target, scheduling_simulation)
     transpile_s = time.perf_counter() - t0
     n     = len(meta["variants"])
     fname = "health_check_transpiled.qpy" if n == 0 else f"health_check_transpiled_{n}.qpy"
     tdir.mkdir(parents=True, exist_ok=True)
     with open(tdir / fname, "wb") as f:
-        dump(drop_identity_final_layout([isa]), f)   # VLQ layouts: see layout_selection
+        dump([isa], f)
     meta["variants"].append({**key, **({} if scheduling_simulation else {"scheduled": False}), "file": fname, "transpile_s": transpile_s,
                              "transpiled_at": now_utc_iso(precise=True)})
     meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
@@ -582,7 +580,7 @@ def collect_health_check(exp_results_folder_path, service=None,
     :param exp_results_folder_path: str/Path — run folder
     :param service:                 QiskitRuntimeService — IBM real QPU, MQSSQiskitAdapter — IQM cross-session retrieval
     :param fake_registry:           dict — for fake/Aer backends (same session)               
-    :param service_name:            str - "IBM_Cloud" / "MQSS_LRZ" / "PCSS" / "IQM_Resonance" / "QAAS_IT4I"
+    :param service_name:            str - "IBM_Cloud" / "MQSS_LRZ" / "PCSS" / "IQM_Resonance" / "QAAS_IT4I" / "local"
     :param backend_name:            str — the script's BACKEND_NAME, for the progress lines (default: the record's)
     :param accompanying:            bool — collect health checks in health_checks/ (see submit_health_check).
                                     With number=None every finished, uncollected check is collected (files

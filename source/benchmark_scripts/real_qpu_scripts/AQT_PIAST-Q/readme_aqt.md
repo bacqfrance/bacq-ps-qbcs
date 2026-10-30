@@ -90,7 +90,7 @@ The circuits must be cached for the same depth list first: run `source/benchmark
 file. Therefore:
 
 - **Without `layout=` and `calibration_file=`, the run uses a random layout** (a notice is printed): any valid
-  3-qubit layout, drawn once with a fresh seed that is recorded in `physical_qubits.json`. PIAST-Q is all-to-all and has 20 qubits (ions 0…19; the live backend reports the count), so every ordered triple of ions is a valid layout. Whatever the layout, the chosen qubits also go into `run_info.json` as `physical_qubits`.
+  3-qubit layout, drawn once with a fresh seed that is recorded in `physical_qubits.json`. PIAST-Q is all-to-all and has 20 qubits (ions 0…19; the live backend reports the count), so every ordered triple of ions is a valid layout. PCSS returns no executed circuits to check the ion numbering against, so a calibration file that lists a different number of ions than the live backend ends the script with a one-line message (exit code 2). Whatever the layout, the chosen qubits also go into `run_info.json` as `physical_qubits`.
 - `layout=optimized calibration_file=PATH` scores the placements with a calibration file. `calibration_file=` is
   mandatory with `optimized` here (an error without it). The file may be the provider's own,
   AQT/PCSS's `piastq_characterisation_<date>.json`, or an already converted snapshot; a provider file is converted automatically and saved in the run folder
@@ -214,7 +214,7 @@ python3 source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/qbcs_real_simulate
 python3 source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/qbcs_real_simulate_aqt.py backend=PIAST-Q mini layout=optimized calibration_file=calibration_input_files/PIAST-Q/piastq_characterisation_2026-09-29.json scheduling_simulation=false
 ```
 
-`scheduling_simulation=true|false` is optional, default `true`: `true` transpiles the circuits scheduled, so idle qubits relax through T1/T2 as on the QPU (full benchmark about 4 h); `false` does not schedule them, so idle relaxation is **not** taken into account (only the relaxation during gates), like the noiseless and coherent-noise simulations (about 1 h). The choice is recorded in `run_info.json` and `submit.log`, the health checks follow it, and an unfinished run folder cannot be resumed with the other value (main USER_MANUAL §4.2).
+`scheduling_simulation=true|false` is optional, default `true`: `true` transpiles the circuits like the submission and then schedules them ALAP (delays only), so idle qubits relax through T1/T2 as on the QPU (full benchmark about 4 h); `false` does not schedule them, so idle relaxation is **not** taken into account (only the relaxation during gates), like the noiseless and coherent-noise simulations (about 1 h). The choice is recorded in `run_info.json` and `submit.log`, the health checks follow it, and an unfinished run folder cannot be resumed with the other value (main USER_MANUAL §4.2).
 
 What the noise model contains:
 
@@ -222,7 +222,7 @@ What the noise model contains:
   device-mean two-qubit fidelity, so that value is used for all pairs.
 - Readout error from the SPAM fidelity lower bound, and device-wide T1/T2.
 - Gate durations and readout time from the file, so T1/T2 relaxation during gates is included, and with `scheduling_simulation=true` also for a qubit waiting for the others (the
-  circuits are transpiled scheduled, with delays); T1/T2 are one device-wide value.
+  circuits are transpiled like the submission, then scheduled ALAP as a separate pass: delays only); T1/T2 are one device-wide value.
 - Crosstalk figures are kept in the file but not modelled.
 
 A newer provider file is used simply by passing it as `calibration_file=` (or copying it into `calibration_input_files/PIAST-Q/`,

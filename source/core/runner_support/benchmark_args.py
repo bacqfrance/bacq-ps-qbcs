@@ -305,7 +305,7 @@ def parse_benchmark_args(argv, extra_keys=(), required=True, layout_args=True):
 
 def parse_scheduling_arg(argv):
     """The optional scheduling_simulation=true|false argument of the simulate scripts that use a QPU's noise (FakeFez,
-    qbcs_real_simulate_*.py), as a bool: whether the circuits are transpiled scheduled (scheduling_method="alap"), so that
+    qbcs_real_simulate_*.py), as a bool: whether the circuits are transpiled like the submission and then scheduled ALAP as a separate pass (delays only), so that
     idle qubits relax through T1/T2 (true), or not (false: idle-qubit relaxation is left out; much faster). Missing: True. Any
     other value, or a duplicate: the usage is printed and the script exits with code 2. Those scripts pass "scheduling_simulation"
     in parse_benchmark_args(extra_keys=...)."""

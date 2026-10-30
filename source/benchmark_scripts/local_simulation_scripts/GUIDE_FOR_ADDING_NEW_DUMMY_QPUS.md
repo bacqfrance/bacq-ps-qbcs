@@ -18,8 +18,8 @@ the modelled cost is an estimate, labelled `[estimated]` in the collective plots
 
 ## 2. Procedure A: a new dummy on the existing models
 
-Edit only `definitions_dummy_noisy_emulators.json`, beside this guide. A new provider prefix also needs an entry in the
-`QPU_PROVIDER` table of `source/analysis_scripts/bacq_ps_qbcs_summary_json.py`.
+Edit only `definitions_dummy_noisy_emulators.json`, beside this guide. A new provider prefix should also get an entry in the
+`QPU_PROVIDER` table of `source/analysis_scripts/bacq_ps_qbcs_summary_json.py` (else the summary shows the raw prefix).
 
 1. **The key `NAME`**: `<provider>-<backend>`, lower case (`ionq-forte`, `rigetti-cepheus-108q`). It becomes the device field of
    the run folders (`USER_MANUAL §5.4`: `…_sim-dummy_<NAME>_…`), so it must contain a `-` and no `_` (the part before the first `-` is the provider; run names are split on `_`).

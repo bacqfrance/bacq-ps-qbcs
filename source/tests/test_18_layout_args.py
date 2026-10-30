@@ -30,7 +30,12 @@ layouts in source/core/qpu/iqm_vlq.py):
     the saved snapshot (resolve_run_layout), falling back to the live backend when none could be saved;
   - the scheduling_simulation= argument of the simulate scripts (usage text; the snapshot simulation schedules circuits so idle
     qubits decay) and the layout score's T1/T2 idle-decay term (the exact relaxation fidelity, avoids a short-lived qubit,
-    left out without durations or coherence times).
+    left out without durations or coherence times);
+  - the two qubit numberings: EQE1's file-to-live map (placeholders left out, checked against the live coupling graph, refused when
+    the graphs differ, an order-preserving matching as the fallback), the placements restricted to what the file and the live
+    backend both have, the record holding physical_qubits (live) and calibration_qubits / calibration_to_live / calibration_numbering,
+    a rerun converting recorded calibration_qubits / qubit_names to today's indices, AQT's ion-count guard, and the star
+    machines' qubit_index_map (Sirius's 16 numbered qubits) compared with the live backend's.
 """
 
 import sys, os
@@ -40,13 +45,14 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))   # datafiles/ paths are relative to the project root
 
 import json
+import math
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
-from qiskit.circuit.library import CZGate, Measure, RGate, RXXGate
+from qiskit.circuit.library import CZGate, Measure, RGate, RXXGate, SXGate
 from qiskit.transpiler import InstructionProperties, Target
 
 from source.core.runner_support import benchmark_args as BA
@@ -55,7 +61,8 @@ from source.core.qpu import iqm_vlq as V
 from source.core.records.run_names import health_check_run_name, qpu_run_name, qpu_run_prefix
 from source.core.qpu.calibration_input import (detect_format, load_calibration, newest_provider_file, source_name,
                                       use_calibration_file)
-from source.core.qpu.layout_selection import (all_placements, check_forced_layout, choose_layout, placement_filter,
+from source.core.qpu.layout_selection import (all_placements, calibration_to_live, check_forced_layout, choose_layout,
+                                     eqe1_live_mapping, live_placement_filter, live_qubits_of_record, placement_filter,
                                      select_physical_qubits)
 
 PROJECT = Path(__file__).resolve().parents[2]
@@ -257,42 +264,51 @@ def test_optimized_layout_avoids_the_short_lived_qubit():
     """Equal gate and readout errors everywhere: only T1/T2 differ, so the chain 3-qubit circuit avoids qubit 0."""
     qc = _chain3()
     long_lived, short = (200e-6, 150e-6), (20e-6, 8e-6)
-    rec = select_physical_qubits(qc, _timed_chain_target([short, long_lived, long_lived, long_lived]))
-    assert rec["decoherence_included"] and rec["t_circuit_s"] > 0
+    t   = _timed_chain_target([short, long_lived, long_lived, long_lived])
+    rec = select_physical_qubits(qc, t, transpile_backend=t)
+    assert rec["method"] == "transpiled" and rec["decoherence_included"] and rec["t_circuit_s"] > 0 and rec["idle_log"] <= 0
+    assert len(rec["top_candidate_gate_counts"]) == len(rec["top_candidates"]) and rec["top_candidate_prescreen"]
+    assert select_physical_qubits(qc, t)["decoherence_included"] is False       # the prescreen alone has no idle term
     assert 0 not in rec["physical_qubits"] and sorted(rec["physical_qubits"]) == [1, 2, 3]
-    flat = select_physical_qubits(qc, _timed_chain_target([long_lived] * 4))   # nothing to separate: the lowest placement
+    flat_t = _timed_chain_target([long_lived] * 4)
+    flat = select_physical_qubits(qc, flat_t, transpile_backend=flat_t)   # nothing to separate: the lowest placement
     assert flat["physical_qubits"] == [0, 1, 2]
 
 
 def test_decoherence_term_is_left_out_without_durations_or_coherence_times():
     qc = _chain3()
     no_t = _chain_target(4, [(0, 1), (1, 2), (2, 3)])                          # no qubit_properties, no durations
-    rec = select_physical_qubits(qc, no_t)
-    assert rec["method"] == "scored" and not rec["decoherence_included"] and rec["t_circuit_s"] is None
+    rec = select_physical_qubits(qc, no_t, transpile_backend=no_t)
+    assert rec["method"] in ("scored", "transpiled") and not rec["decoherence_included"] and rec["t_circuit_s"] is None
     timed_target = _timed_chain_target([(20e-6, 8e-6), (200e-6, 150e-6), (200e-6, 150e-6), (200e-6, 150e-6)])
-    assert not select_physical_qubits(qc, _chain_target(4, [(0, 1), (1, 2), (2, 3)]))["decoherence_included"]
     # a Target with T1/T2 but no durations
     bare = _timed_chain_target([(20e-6, 8e-6)] + [(200e-6, 150e-6)] * 3, d_1q=None, d_2q=None)
-    assert not select_physical_qubits(qc, bare)["decoherence_included"]
-    assert select_physical_qubits(qc, timed_target)["decoherence_included"]
+    assert not select_physical_qubits(qc, bare, transpile_backend=bare)["decoherence_included"]
+    assert select_physical_qubits(qc, timed_target, transpile_backend=timed_target)["decoherence_included"]
 
 
 def test_snapshot_simulation_schedules_circuits_so_idle_qubits_decay():
-    """A calibration-snapshot backend whose gates all have durations is transpiled scheduled (delays on waiting qubits)
-    and Aer relaxes those delays with T1/T2; a snapshot gate without a duration, or a real QPU, stays unscheduled."""
+    """A calibration-snapshot backend whose gates all have durations gets idle delays from a separate ALAP pass after the
+    transpile (schedule_for_simulation()): delays only, gates and layout unchanged, QPY-readable; a snapshot gate without a
+    duration, scheduling_simulation=false, or a real QPU stays unscheduled."""
     from qiskit import transpile
+    from source.core.qpu.layout_selection import final_physical_qubits, transpile_like_submission
     from source.core.qpu.qpu_snapshot import (EQE1_TYPICAL_DURATIONS, backend_from_snapshot, noisy_sampler_from_snapshot,
-                                              scheduling_method, snapshot_from_iqm_eqe1_json)
+                                              schedule_for_simulation, snapshot_from_iqm_eqe1_json)
     data = json.loads((PROJECT / EQE1_FILE).read_text(encoding="utf-8"))
     snap = snapshot_from_iqm_eqe1_json(data, EQE1_FILE)
     assert {e["duration"] for e in snap["operations"]["cz"]} == {EQE1_TYPICAL_DURATIONS["cz"]}   # the file lists none
     backend, _, sampler = noisy_sampler_from_snapshot(snap, seed=1)
-    assert backend.schedule_idle and scheduling_method(backend) == "alap" and "delay" in backend.target.operation_names
+    assert backend.schedule_idle and "delay" in backend.target.operation_names
     qc = _chain3()
     qc.id(0)                                       # circuits arrive in the default "dt" unit; the scheduler needs integer delays
     qc.measure_all()
-    isa = transpile(qc, backend, optimization_level=1, initial_layout=[0, 1, 2], scheduling_method=scheduling_method(backend))
+    plain = transpile_like_submission(qc, backend, [0, 1, 2])
+    assert plain.count_ops().get("delay", 0) == 0                                # a submission is never scheduled
+    isa = schedule_for_simulation(plain, backend)
     assert isa.count_ops().get("delay", 0) > 0
+    assert {k: v for k, v in isa.count_ops().items() if k != "delay"} == plain.count_ops()   # delays only: the gates are the transpile's
+    assert final_physical_qubits(isa) == final_physical_qubits(plain) is not None            # the layout survives the pass
     assert backend.target.dt == 1e-9 and all(isinstance(i.operation.params[0], int) for i in isa.data if i.operation.name == "delay")
     from qiskit.qpy import dump, load
     import io
@@ -300,6 +316,7 @@ def test_snapshot_simulation_schedules_circuits_so_idle_qubits_decay():
     dump(isa, buf)                                 # the run saves the scheduled circuits as QPY (qiskit 2.1 could not read floats)
     buf.seek(0)
     assert load(buf)[0].count_ops() == isa.count_ops()
+    assert [c.count_ops() for c in schedule_for_simulation([plain, plain], backend)] == [isa.count_ops()] * 2   # a list stays a list
     # one X, then a wait of several T1: the qubit has relaxed to 0 before the measurement
     idle = QuantumCircuit(1, 1)
     idle.x(0)
@@ -309,20 +326,148 @@ def test_snapshot_simulation_schedules_circuits_so_idle_qubits_decay():
     assert counts.get("0", 0) > 0.9 * 500
     no_duration = json.loads(json.dumps(snap))
     no_duration["operations"]["cz"][0]["duration"] = None
-    assert scheduling_method(backend_from_snapshot(no_duration)) is None
+    assert not backend_from_snapshot(no_duration).schedule_idle
     no_data = json.loads(json.dumps(snap))                                  # IQM Resonance: a coupler and ops without any data
     no_data["operations"]["cz"][0].update(duration=None, error=None)
     no_data["operations"]["reset"] = [{"qargs": [q], "error": None, "duration": None} for q in (0, 1, 2)]
-    assert scheduling_method(backend_from_snapshot(no_data)) == "alap"
+    assert backend_from_snapshot(no_data).schedule_idle
     ibm_like = json.loads(json.dumps(snap))                                  # IBM lists a delay without a duration: no gate
     ibm_like["operations"]["delay"] = [{"qargs": [q], "error": None, "duration": None} for q in (0, 1, 2)]
-    assert scheduling_method(backend_from_snapshot(ibm_like)) == "alap"
-    assert scheduling_method(SimpleNamespace(name="ibm_fez")) is None
-    # scheduling_simulation=false: no scheduling method, so no delay in the transpiled circuits
-    assert scheduling_method(backend, schedule=False) is None and scheduling_method(backend, schedule=True) == "alap"
-    unscheduled = transpile(qc, backend, optimization_level=1, initial_layout=[0, 1, 2],
-                            scheduling_method=scheduling_method(backend, schedule=False))
-    assert unscheduled.count_ops().get("delay", 0) == 0
+    assert backend_from_snapshot(ibm_like).schedule_idle
+    assert schedule_for_simulation(plain, SimpleNamespace(name="ibm_fez")) is plain      # a real QPU: unscheduled
+    assert schedule_for_simulation(plain, backend, schedule=False) is plain              # scheduling_simulation=false
+    assert schedule_for_simulation(plain, backend_from_snapshot(no_duration)) is plain
+
+
+def test_provider_stage_plugins_follow_the_snapshots_provider(monkeypatch):
+    """AQT snapshots get the "aqt" scheduling and translation plugins, IQM Resonance ones "iqm_default_scheduling", only
+    where the entry point is installed (else the preset stage and a warning); IBM, EQE1 and the star machines none."""
+    from source.core.qpu import qpu_snapshot as QS
+    iqm   = {"backend": "garnet", "operations": {"r": [], "cz": [], "measure": []}}
+    aqt   = {"backend": "aqt_piast-q", "operations": {"r": [], "rxx": [], "measure": []}}
+    other = [{"backend": "iqm_eqe1", "operations": {"r": [], "cz": [], "measure": []}},
+             {"backend": "ibm_fez", "operations": {"sx": [], "cz": [], "measure": []}},
+             {"backend": "Sirius", "operations": {"r": [], "cz": [], "measure": []}, "effective_model": "folded"}]
+    installed = {"qiskit.transpiler.scheduling": {"aqt", "iqm_default_scheduling"}, "qiskit.transpiler.translation": {"aqt"}}
+    monkeypatch.setattr(QS, "_entry_point_names", lambda group: installed.get(group, set()))
+    assert QS.provider_stage_plugins(aqt) == {"scheduling": "aqt", "translation": "aqt"}
+    assert QS.provider_stage_plugins(iqm) == {"scheduling": "iqm_default_scheduling"}
+    assert all(QS.provider_stage_plugins(o) == {} for o in other)
+    snap_backend = QS.backend_from_snapshot({**aqt, "num_qubits": 3, "dt": None, "downloaded_at": "x", "qubit_properties": None,
+                                             "operations": {"r": [{"qargs": [q], "error": 0.001, "duration": 1e-6} for q in range(3)],
+                                                            "measure": [{"qargs": [q], "error": 0.01, "duration": 1e-6} for q in range(3)],
+                                                            "rxx": [{"qargs": [a, b], "error": 0.01, "duration": 1e-6}
+                                                                    for a in range(3) for b in range(3) if a != b]}})
+    assert snap_backend.get_scheduling_stage_plugin() == "aqt" and snap_backend.get_translation_stage_plugin() == "aqt"
+    installed.clear()                                                 # no provider package: the preset stages, with a warning
+    assert QS.provider_stage_plugins(aqt) == {} and QS.provider_stage_plugins(iqm) == {}
+
+
+def test_walker_timing_equals_qiskits_alap_on_a_backend_with_durations():
+    """circuit_timing() is the ALAP schedule of qiskit's own pass: same circuit time, and per qubit the same wait between its
+    first gate and the end of the circuit."""
+    from qiskit import transpile
+    from qiskit.providers.fake_provider import GenericBackendV2
+    from source.core.qpu.layout_selection import circuit_timing, target_view
+    from source.core.qpu.qpu_snapshot import schedule_for_simulation
+    from source.core.records.circuit_check import physical_index_map
+    backend = GenericBackendV2(5, basis_gates=["cz", "sx", "rz", "x"], coupling_map=[[0, 1], [1, 2], [2, 3], [3, 4]], seed=3)
+    qc = QuantumCircuit(3)
+    qc.h(0); qc.cx(0, 1); qc.cx(1, 2); qc.rx(0.3, 0); qc.measure_all()
+    tc   = transpile(qc, backend, optimization_level=1, initial_layout=[1, 2, 3])
+    view = target_view(backend.target)
+    got  = circuit_timing(tc, view)
+    sched = schedule_for_simulation(tc, SimpleNamespace(schedule_idle=True, target=backend.target))
+    phys, dt = physical_index_map(sched), backend.target.dt
+    wait, first, total = {}, {}, {}
+    for inst in sched.data:                         # the delays qiskit padded after each qubit's first gate
+        q = phys[inst.qubits[0]]
+        if inst.operation.name == "delay":
+            if q in first:
+                wait[q] = wait.get(q, 0.0) + inst.operation.params[0] * dt
+        elif inst.operation.name != "barrier":
+            first[q] = True
+    for q in first:
+        total[q] = got["active"][q] - got["busy"][q]
+    tol = 4 * dt
+    for q in first:
+        assert total[q] == pytest.approx(wait.get(q, 0.0), abs=tol)
+    assert got["T"] == pytest.approx(sched.estimate_duration(backend.target, unit="s"), abs=tol)
+
+
+def test_score_transpiled_sums_every_gates_own_error():
+    from source.core.qpu.layout_selection import score_transpiled, target_view
+    t = _timed_chain_target([(100e-6, 80e-6)] * 4)
+    qc = QuantumCircuit(2, 2)
+    qc.r(0.1, 0.2, 0); qc.cz(0, 1); qc.measure([0, 1], [0, 1])
+    rec = score_transpiled(qc, target_view(t))
+    assert rec["gate_log"] == pytest.approx(math.log(1 - 1e-3) + math.log(1 - 1e-2) + 2 * math.log(1 - 1e-2))
+    assert rec["t_circuit_s"] is None and rec["idle_log"] is None          # the Target lists no measure duration: no idle term
+    qc2 = QuantumCircuit(2); qc2.cz(0, 1); qc2.cz(0, 1)
+    assert score_transpiled(qc2, target_view(t))["t_circuit_s"] == pytest.approx(100e-9)
+    gap = QuantumCircuit(4); gap.cz(0, 3)
+    assert score_transpiled(gap, target_view(t)) is None                 # no such coupler: no error to score with
+
+
+def test_transpile_like_submission_is_the_submissions_call(monkeypatch):
+    """The helper makes transpile(optimization_level=1, initial_layout=layout) and nothing else (no scheduling_method)."""
+    import qiskit
+    seen = []
+    real = qiskit.transpile
+    monkeypatch.setattr(qiskit, "transpile", lambda *a, **k: (seen.append((a, k)), real(*a, **k))[1])
+    from source.core.qpu.layout_selection import transpile_like_submission
+    t = _timed_chain_target([(100e-6, 80e-6)] * 4)
+    qc = _chain3()
+    out = transpile_like_submission(qc, t, [0, 1, 2])
+    assert isinstance(out, QuantumCircuit) and {k: v for k, v in seen[0][1].items() if k != "target"} == {"optimization_level": 1, "initial_layout": [0, 1, 2]}
+    assert isinstance(transpile_like_submission([qc, qc], t, [0, 1, 2]), list)
+    import inspect
+    from source.core import health_check, qbcs
+    assert "scheduling_method=" not in inspect.getsource(qbcs) and "scheduling_method=" not in inspect.getsource(health_check)
+
+
+def test_incomplete_qubits_and_couplers_are_unusable_per_provider():
+    """A qubit or coupler missing a field its QPU reports, or with an error of 1 or more (IBM's dead qubits), is left out of
+    every layout mode; a field nobody reports (EQE1/AQT durations) is no gap."""
+    from qiskit.providers.backend import QubitProperties
+    from source.core.qpu.layout_selection import REQUIRED_FIELDS, unusable_in_target
+    assert set(REQUIRED_FIELDS) == {"ibm", "iqm", "eqe1", "aqt", "star"}
+
+    def target(sx_err=None, t1=None, cz_dur=50e-9, cz_err=None, with_dur=True):
+        sx_err, cz_err = sx_err or {}, cz_err or {}
+        props = [QubitProperties(t1=(t1 or {}).get(q, 100e-6), t2=80e-6) for q in range(4)]
+        t = Target(num_qubits=4, qubit_properties=props)
+        t.add_instruction(SXGate(), {(q,): InstructionProperties(error=sx_err.get(q, 1e-3), duration=24e-9 if with_dur else None)
+                                     for q in range(4)})
+        t.add_instruction(Measure(), {(q,): InstructionProperties(error=1e-2, duration=1e-6 if with_dur else None) for q in range(4)})
+        t.add_instruction(CZGate(), {e: InstructionProperties(error=cz_err.get(tuple(sorted(e)), 1e-2), duration=cz_dur if with_dur else None)
+                                     for a, b in [(0, 1), (1, 2), (2, 3)] for e in ((a, b), (b, a))})
+        return t
+
+    assert unusable_in_target(target()) == ({}, {})
+    bad_q, bad_c = unusable_in_target(target(sx_err={2: 1.0}))              # IBM: a dead qubit, error 1.0
+    assert set(bad_q) == {2} and not bad_c
+    bad_q, _ = unusable_in_target(target(t1={1: None}))                     # no T1
+    assert set(bad_q) == {1} and "t1" in bad_q[1]
+    _, bad_c = unusable_in_target(target(cz_err={(1, 2): 1.0}))             # a coupler with error 1
+    assert set(bad_c) == {(1, 2)}
+    t = target()
+    t["cz"][(2, 3)] = InstructionProperties(error=1e-2, duration=None)      # a coupler without a duration
+    assert set(unusable_in_target(t)[1]) == {(2, 3)}
+    assert unusable_in_target(target(with_dur=False), "eqe1") == ({}, {})   # nobody reports durations: no gap
+    # the layout modes skip them: a chain of 3 on 0-1-2-3 with qubit 2 dead has no placement left
+    qc = _chain3()
+    dead = target(sx_err={2: 1.0})
+    assert select_physical_qubits(qc, dead)["method"] == "no_scored_placement"
+    assert dead_not_used(dead)
+
+
+def dead_not_used(t):
+    from source.core.qpu.layout_selection import all_placements, check_forced_layout
+    assert all_placements(_chain3(), t) == []
+    with pytest.raises(ValueError, match="not usable"):
+        check_forced_layout(_chain3(), t, [1, 2, 3])
+    return True
 
 
 @pytest.mark.parametrize("qubits, why", [
@@ -594,7 +739,8 @@ VLQ_ROLES = {"n_prx": [96, 153, 210], "n_move": [76, 38, 0], "n_cz": [0, 38, 76]
 
 def test_vlq_layouts_always_include_the_resonator_and_skip_uncalibrated_qubits():
     usable, excluded = iqm_star.usable_star_qubits(VLQ_CAL)
-    assert excluded and all(V.physical_index(q) not in usable for q in excluded)   # QB12 has no MOVE data
+    idx = iqm_star.qubit_index_map(VLQ_CAL)
+    assert excluded and all(idx[q] not in usable for q in excluded)   # QB12 has no MOVE data
     lowest = V.choose_vlq_layout("lowest", VLQ_ROLES, VLQ_CAL)
     assert lowest["physical_qubits"] == usable[:3] and lowest["method"] == "lowest"
     rnd = V.choose_vlq_layout("random", VLQ_ROLES, VLQ_CAL, seed=11)
@@ -602,7 +748,7 @@ def test_vlq_layouts_always_include_the_resonator_and_skip_uncalibrated_qubits()
     assert V.choose_vlq_layout("random", VLQ_ROLES, VLQ_CAL, seed=11)["physical_qubits"] == rnd["physical_qubits"]
     forced = V.choose_vlq_layout("list", VLQ_ROLES, VLQ_CAL, qubits=[usable[5], usable[0], usable[9]])
     assert forced["physical_qubits"] == [usable[5], usable[0], usable[9]] and forced["method"] == "user"
-    bad = V.physical_index(excluded[0])
+    bad = idx[excluded[0]]
     with pytest.raises(ValueError, match="not valid on VLQ"):
         V.choose_vlq_layout("list", VLQ_ROLES, VLQ_CAL, qubits=[usable[0], usable[1], bad])
     with pytest.raises(ValueError):
@@ -709,3 +855,131 @@ def test_unusable_layout_ends_the_script_with_one_line(capsys):
     assert e.value.code == 2
     err = capsys.readouterr().err
     assert err.startswith("❌ Layout:") and "Traceback" not in err
+
+
+# ── two numberings: the calibration's and the live backend's ──────────────────
+
+def _live_eqe1_target(snap, drop=(), extra=()):
+    """The live EQE1 Target a calibration file implies: the file's qubits without its coupler-less placeholders, renumbered
+    0..N-1 in order, with the file's couplers (drop: file couplers the live QPU lacks, extra: live-only couplers)."""
+    kept = [q for q in range(snap["num_qubits"]) if q not in snap["placeholder_qubits"]]
+    rank = {q: r for r, q in enumerate(kept)}
+    edges = [(rank[a], rank[b]) for a, b in snap["file_couplers"] if [a, b] not in [list(d) for d in drop]] + list(extra)
+    return _chain_target(len(kept), edges)
+
+
+def _eqe1_snapshot():
+    from source.core.qpu.qpu_snapshot import snapshot_from_iqm_eqe1_json
+    return snapshot_from_iqm_eqe1_json(json.loads((PROJECT / EQE1_FILE).read_text(encoding="utf-8")), EQE1_FILE)
+
+
+def test_eqe1_file_numbers_are_translated_to_the_live_backends():
+    snap = _eqe1_snapshot()
+    assert snap["num_qubits"] == 54 and snap["placeholder_qubits"] == [16, 33]       # no couplers in the file
+    live = _live_eqe1_target(snap)
+    assert live.num_qubits == 52
+    mapping = eqe1_live_mapping(snap, live)
+    assert len(mapping) == 52 and 16 not in mapping and 33 not in mapping
+    assert mapping[15] == 15 and mapping[17] == 16 and mapping[34] == 32 and mapping[53] == 51   # the rank among the others
+    assert list(mapping.values()) == list(range(52))
+
+
+def test_eqe1_mapping_is_refused_when_the_coupling_graphs_differ():
+    snap = _eqe1_snapshot()
+    broken = _live_eqe1_target(snap, drop=[snap["file_couplers"][0]], extra=[(0, 51)])   # one coupler elsewhere
+    with pytest.raises(ValueError, match="coupler graph"):
+        eqe1_live_mapping(snap, broken)
+
+
+def test_eqe1_mapping_falls_back_to_a_graph_matching_that_keeps_the_order():
+    # the file lists qubit 1 without a coupler but the snapshot does not call it a placeholder; the live chain has 4 qubits
+    snap = dict(num_qubits=5, placeholder_qubits=[], file_couplers=[[0, 2], [2, 3], [3, 4]], operations={"cz": []})
+    assert eqe1_live_mapping(snap, _chain_target(4, [(0, 1), (1, 2), (2, 3)])) == {0: 0, 2: 1, 3: 2, 4: 3}
+
+
+def test_only_what_the_file_and_the_live_backend_both_have_is_placed():
+    qc = _chain3()
+    file_t = _chain_target(5, [(0, 1), (1, 3), (3, 4)], dead=(2,))              # the file has the coupler (3, 4) ...
+    live_t = _chain_target(4, [(0, 1), (1, 2)])                                 # ... the live QPU does not
+    to_live = {0: 0, 1: 1, 3: 2, 4: 3}
+    ok = live_placement_filter(qc, live_t, to_live)
+    assert ok((0, 1, 3)) and not ok((1, 3, 4)) and not ok((0, 1, 2))            # (3,4): file only; 2: no live counterpart
+    assert choose_layout("lowest", qc, file_t, placement_ok=ok)["physical_qubits"] == [0, 1, 3]
+    assert all(set(p) <= {0, 1, 3} for p in all_placements(qc, file_t, placement_ok=ok))
+
+
+def _eqe1_layout_backend(placeholders, couplers):
+    snapshot = dict(backend="iqm_eqe1", num_qubits=5, placeholder_qubits=placeholders, file_couplers=couplers,
+                    operations={"cz": []})
+    return SimpleNamespace(name="iqm_eqe1_snapshot", snapshot=snapshot,
+                           target=_chain_target(5, [tuple(c) for c in couplers], dead=tuple(placeholders)))
+
+
+def test_the_record_holds_both_numberings_and_a_rerun_keeps_the_hardware_qubits(monkeypatch, tmp_path):
+    from source.core import qbcs as Q
+    from source.core.qpu import layout_selection as LS
+    monkeypatch.setattr(Q, "get_run_subfolder", lambda cfg, sub, *a: str(tmp_path / sub))
+    monkeypatch.setattr(LS, "transpiled_1q_counts", lambda *a, **k: {})
+    me = SimpleNamespace(CONFIG={}, _load_raw_chunk_qiskit=lambda nc: [_chain3()])
+    live = SimpleNamespace(name="fake-eqe1", target=_chain_target(4, [(0, 1), (1, 2), (2, 3)]))
+    cal  = _eqe1_layout_backend([2], [[0, 1], [1, 3], [3, 4]])
+    layout = SimpleNamespace(mode="lowest", qubits=None)
+    assert Q.bacq_ps_qbcs.resolve_physical_qubits(me, live, layout=layout, layout_backend=cal) == [0, 1, 2]
+    path = tmp_path / "transpiled_circuits" / "physical_qubits.json"
+    rec = json.loads(path.read_text(encoding="utf-8"))
+    assert rec["physical_qubits"] == [0, 1, 2] and rec["calibration_qubits"] == [0, 1, 3]       # executed / file numbering
+    assert rec["calibration_numbering"] == "file" and rec["calibration_to_live"] == {"0": 0, "1": 1, "3": 2, "4": 3}
+    assert Q.bacq_ps_qbcs.resolve_physical_qubits(me, live, layout=layout, layout_backend=cal) == [0, 1, 2]   # a rerun
+    # a forced layout is in the file's numbering
+    monkeypatch.setattr(Q, "get_run_subfolder", lambda cfg, sub, *a: str(tmp_path / "forced" / sub))
+    forced = SimpleNamespace(mode="list", qubits=[0, 1, 3])
+    assert Q.bacq_ps_qbcs.resolve_physical_qubits(me, live, layout=forced, layout_backend=cal) == [0, 1, 2]
+    monkeypatch.setattr(Q, "get_run_subfolder", lambda cfg, sub, *a: str(tmp_path / sub))
+    # another day the file lists qubit 0 as a placeholder: the recorded hardware qubit has no live counterpart
+    live2 = SimpleNamespace(name="fake-eqe1", target=_chain_target(3, [(0, 1), (1, 2)]))
+    cal2  = _eqe1_layout_backend([0, 2], [[1, 3], [3, 4]])
+    with pytest.raises(ValueError, match="no counterpart"):
+        Q.bacq_ps_qbcs.resolve_physical_qubits(me, live2, layout=layout, layout_backend=cal2)
+    assert json.loads(path.read_text(encoding="utf-8")) == rec                                   # nothing rewritten
+
+
+def test_a_recorded_layout_is_converted_to_todays_live_indices():
+    rec = dict(physical_qubits=[0, 1, 2], calibration_qubits=[0, 1, 3])
+    assert live_qubits_of_record(rec, object(), {0: 5, 1: 6, 3: 7}) == ([5, 6, 7], None)
+    old, note = live_qubits_of_record(dict(physical_qubits=[0, 1, 2]), object(), {0: 5})
+    assert old == [0, 1, 2] and "⚠️" in note                                    # made before the file numbering was recorded
+    names = SimpleNamespace(qubit_name_to_index={"QB4": 3, "QB5": 4, "QB8": 5}.__getitem__)
+    assert live_qubits_of_record(dict(physical_qubits=[3, 4, 7], qubit_names=["QB4", "QB5", "QB8"]), names) == ([3, 4, 5], None)
+    with pytest.raises(ValueError, match="no longer"):
+        live_qubits_of_record(dict(physical_qubits=[3], qubit_names=["QB9"]), names)
+
+
+def test_aqt_guard_needs_the_same_ion_count():
+    cal = SimpleNamespace(snapshot=dict(backend="aqt_marten", num_qubits=20), target=_aqt_like_target())
+    assert calibration_to_live(cal, SimpleNamespace(target=_aqt_like_target())) is None
+    with pytest.raises(ValueError, match="20 ions"):
+        calibration_to_live(cal, SimpleNamespace(target=Target(num_qubits=12)))
+
+
+SIRIUS_CAL = json.loads((PROJECT / "source/tests/iqm_vlq_check_data/iqm_sirius_calibration_fixture.json").read_text(encoding="utf-8"))
+
+
+def test_star_indices_follow_the_backends_numbering():
+    idx = iqm_star.qubit_index_map(SIRIUS_CAL)
+    assert len(idx) == 16 and idx["QB5"] == 4 and idx["QB8"] == 5 and idx["QB23"] == 15      # not QBn -> n - 1
+    assert iqm_star.index_qubit_map(SIRIUS_CAL)[5] == "QB8"
+    assert iqm_star.usable_star_qubits(SIRIUS_CAL)[0] == list(range(16))
+    snap = iqm_star.snapshot_from_calibration(SIRIUS_CAL, "Sirius")
+    assert snap["num_qubits"] == 16 and {e["qargs"][0] for e in snap["operations"]["r"]} == set(range(16))
+    vlq = iqm_star.qubit_index_map(VLQ_CAL)
+    assert vlq["QB1"] == 0 and vlq["QB24"] == 23
+
+
+def test_the_live_star_backend_must_number_qubits_as_the_calibration_does():
+    idx = iqm_star.qubit_index_map(SIRIUS_CAL)
+    live = SimpleNamespace(qubit_name_to_index=idx.__getitem__, architecture=SimpleNamespace(qubits=list(idx)))
+    iqm_star.check_live_numbering(SIRIUS_CAL, live)
+    shifted = SimpleNamespace(qubit_name_to_index=lambda q: idx[q] + 1, architecture=live.architecture)
+    with pytest.raises(ValueError, match="numbering differs"):
+        iqm_star.check_live_numbering(SIRIUS_CAL, shifted)
+    iqm_star.check_live_numbering(SIRIUS_CAL, SimpleNamespace())                  # a snapshot backend names nothing: not checked

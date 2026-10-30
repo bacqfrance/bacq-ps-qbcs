@@ -16,6 +16,7 @@ from source.core.records.health_check_records import format_chunk_range, load_he
 from source.core.common import exit_with_error, print_done_block, print_run_status_banner
 from source.core.records.job_records import chunk_record_files
 from source.core.records.chunk_scope import collected_chunks
+from source.core.records.run_names import subset_suffix
 from source.core.runner_support.benchmark_args import DT
 
 
@@ -107,7 +108,7 @@ def collect_and_analyze(path, service, service_name, bench, lnn, do_spam=True, b
     complete = len(st["collected"]) == bench.sample_size
     print_done_block("Collection and analysis complete." if complete else "The collected chunks are analyzed (partial run).",
                      [("Results",                  f"{path}/processed_results/run_data.json" if complete else
-                                                   f"{path}/processed_results/ (files with +nsamples-{len(st['collected'])})"),
+                                                   f"{path}/processed_results/ (files with {subset_suffix(len(st['collected']))})"),
                       ("Results (SPAM corrected)", f"{path}/processed_results/run_data_spam.json" if do_spam and complete else None)])
     return print_run_status(path, bench.sample_size)
 

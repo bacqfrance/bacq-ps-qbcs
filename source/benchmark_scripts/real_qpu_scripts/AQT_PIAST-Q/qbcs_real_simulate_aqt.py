@@ -27,7 +27,7 @@ layout=optimized scores the placements with the calibration file. The run folder
 
 Run from the project root in venvs/aqt.venv.
 
-scheduling_simulation=true|false is optional (default true): true transpiles the circuits scheduled, so idle qubits relax through T1/T2 as on the QPU
+scheduling_simulation=true|false is optional (default true): true transpiles the circuits like the submission and then schedules them ALAP (delays only), so idle qubits relax through T1/T2 as on the QPU
 (slower: about 4 times the time of false on the full benchmark); false leaves idle-qubit relaxation out. It is recorded in run_info.json, and a run
 folder started with the other value is refused.
 

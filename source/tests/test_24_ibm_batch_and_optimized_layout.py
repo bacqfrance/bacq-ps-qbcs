@@ -185,7 +185,7 @@ def test_refusal_not_raised_with_vlq_calibration(monkeypatch, tmp_path):
     monkeypatch.setattr(LS, "transpiled_1q_counts", lambda *a, **k: {})
     seen = {}
     monkeypatch.setattr(Q.VLQ, "representative_roles", lambda rep, cal, be: "roles")
-    def fake_choose(mode, roles, cal, forced):
+    def fake_choose(mode, roles, cal, forced, **kw):
         seen["called"] = (mode, roles)
         return dict(physical_qubits=None, method="no_swap_free_placement", layout_mode=mode, log_success=None)
     monkeypatch.setattr(Q.VLQ, "choose_vlq_layout", fake_choose)

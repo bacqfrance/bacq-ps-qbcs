@@ -25,7 +25,7 @@ def simulate_run(*, run_folder, bench, layout, lnn, snapshot_path, cal_source, d
     seed: Aer sampling seed (None: fresh randomness per chunk); customize_backend(snapshot_backend):
     an optional hook run before the qubits are chosen (VLQ attaches its raw calibration there);
     scheduling_simulation: the scripts' optional scheduling_simulation=true|false (parse_scheduling_arg()): True transpiles
-    the circuits (chunks, SPAM, health checks) scheduled so idle qubits relax, False leaves that out; recorded in run_info.json,
+    the circuits (chunks, SPAM, health checks) like the submission and schedules them ALAP (delays only) so idle qubits relax, False leaves that out; recorded in run_info.json,
     and a run folder recorded with the other value is refused (check_scheduling_simulation())."""
     from source.core.qpu.calibration_input import layout_summary, resolve_layout_or_exit
     from source.core.records.health_check_records import (load_health_checks, format_chunk_range, install_submit_crash_log,

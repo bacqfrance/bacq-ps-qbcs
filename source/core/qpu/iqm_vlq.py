@@ -26,7 +26,7 @@ from pathlib import Path
 
 from source.core.common import PROJECT_ROOT, exit_with_error, rel_path, scrub_paths
 from source.core.qpu.iqm_star import (PRX_PER_CLIFFORD, _fields, _qubit_logs, gate_roles, offline_backend,   # noqa: F401 — re-exported
-                                      physical_index, prx_fidelity, qubit_metrics, qubit_names, representative_roles,
+                                      prx_fidelity, qubit_metrics, qubit_names, representative_roles,
                                       resonator_name, RESONATOR)
 from source.core.qpu.iqm_star import choose_star_layout
 from source.core.qpu.iqm_star import select_star_qubits as select_vlq_qubits          # noqa: F401
@@ -263,9 +263,22 @@ def attach_calibration(backend, calibration_set_id=None):
     """Download the calibration the backend runs with (its architecture's calibration set,
     else the current default) and attach it as backend.vlq_calibration, which
     bacq_ps_qbcs.resolve_physical_qubits() uses to pick the run's qubits. Returns it."""
-    cal_id = calibration_set_id or backend_calibration_set_id(backend) or "default"
-    backend.vlq_calibration = fetch_calibration(cal_id)
-    return backend.vlq_calibration
+    live_id = backend_calibration_set_id(backend)
+    cal_id  = calibration_set_id or live_id or "default"
+    cal     = fetch_calibration(cal_id)
+    if live_id and str(cal.get("calibration_set_id")) != live_id:
+        # IT4I's public API served another set than the one the backend runs with: grade on the backend's own, or stop
+        print(f"  ⚠️  [Calibration] IT4I's calibration set {cal.get('calibration_set_id')} is not the backend's {live_id} "
+              f"— downloading the backend's set.")
+        try:
+            cal = fetch_calibration(live_id)
+        except Exception as e:
+            exit_with_error(f"cannot fetch the backend's calibration set {live_id} ({type(e).__name__}: {e}); "
+                            f"the layout would be graded on another calibration than the QPU runs with")
+        if str(cal.get("calibration_set_id")) != live_id:
+            exit_with_error(f"IT4I's API returned calibration set {cal.get('calibration_set_id')}, not the backend's {live_id}")
+    backend.vlq_calibration = cal
+    return cal
 
 
 def is_vlq_backend(backend):
@@ -310,9 +323,9 @@ def fetch_calibration(calibration_set_id="default"):
     return cal
 
 
-def choose_vlq_layout(mode, roles, cal, qubits=None, seed=None, label="VLQ"):
+def choose_vlq_layout(mode, roles, cal, qubits=None, seed=None, label="VLQ", rep=None, backend=None):
     """iqm_star.choose_star_layout(), naming `label` (the machine; Sirius passes its own) in its messages."""
-    return choose_star_layout(mode, roles, cal, qubits, seed, label=label)
+    return choose_star_layout(mode, roles, cal, qubits, seed, label=label, rep=rep, backend=backend)
 
 
 def snapshot_from_calibration(cal):

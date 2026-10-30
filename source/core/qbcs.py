@@ -26,8 +26,8 @@ from source.core.records.job_timing import (
 from source.core.records import circuit_check as CC
 from source.core.qpu import iqm_vlq as VLQ
 from source.core.qpu.providers import job_state_of_status
-from source.core.qpu.layout_selection import drop_identity_final_layout
-from source.core.qpu.qpu_snapshot import scheduling_method
+from source.core.qpu.layout_selection import transpile_like_submission
+from source.core.qpu.qpu_snapshot import schedule_for_simulation
 from source.core.qpu.aqt import _aqt_run, aqt_circuit_qpu_us
 from source.core.qpu.remote_jobs import _failed_job_timing, _remote_job_state, _submit_error_kind, _warn_circuit_check, ChunkSubmitError, SUBMIT_RETRY_BACKOFF_S, print_job_line
 import warnings
@@ -848,7 +848,7 @@ class bacq_ps_qbcs:
                 f"source/core/records/run_names.py) for a local-simulator submission — run_post_process.py and "
                 f"the post-processing scripts tell local runs from real ones by it."
             )
-        self.CONFIG["service"] = service   # kept in CONFIG only; nothing in the pipeline or analysis reads it back
+        self.CONFIG["service"] = service   # saved in the records' CONFIG; nothing in the pipeline or analysis reads it back
         # Set run folder
         if "folder_path" not in self.CONFIG or self.CONFIG["folder_path"] is None:
             self.CONFIG["folder_path"] = os.path.join(PROJECT_ROOT, "datafiles", run_folder)
@@ -2329,7 +2329,8 @@ class bacq_ps_qbcs:
                                    called before submit() (same meaning as submit's)
         :returns:                  list[int] | None — the initial_layout to use
         """
-        from source.core.qpu.layout_selection import choose_layout, check_forced_layout, placement_filter
+        from source.core.qpu.layout_selection import (calibration_to_live, choose_layout, check_forced_layout,
+                                                      live_placement_filter, live_qubits_of_record, placement_filter)
 
         if run_folder is not None:
             self.record_run_info(run_folder)
@@ -2339,20 +2340,43 @@ class bacq_ps_qbcs:
         tdir        = Path(get_run_subfolder(self.CONFIG, "transpiled_circuits"))
         record_path = tdir / "physical_qubits.json"
 
+        vlq_cal = getattr(backend, "vlq_calibration", None)   # set by the VLQ and Sirius scripts (source/core/qpu/iqm_vlq.py, iqm_star.py)
+        # A layout graded on a calibration file (layout_backend) and run on a live backend whose numbering differs (EQE1: the
+        # file numbers coupler-less placeholder qubits the live backend omits): {calibration qubit: live qubit}, else None.
+        # Grading, forced layouts and the record's top candidates stay in the calibration's numbering; only what is
+        # transpiled, health-checked and executed (physical_qubits) is live.
+        to_live = calibration_to_live(layout_backend, backend) if layout_backend is not None else None
+        if vlq_cal is not None:   # an IQM star machine: the raw calibration must be numbered as the live backend numbers its qubits
+            from source.core.qpu.iqm_star import check_live_numbering
+            check_live_numbering(vlq_cal, backend)
+
         if record_path.exists():
             record = json.loads(record_path.read_text(encoding="utf-8"))
-            if forced is not None and mode == "list" and list(forced) != record["physical_qubits"]:
+            recorded_forced = record.get("calibration_qubits") or record["physical_qubits"]   # what layout= is compared with
+            if forced is not None and mode == "list" and list(forced) != recorded_forced:
                 raise ValueError(
                     f"physical_qubits={list(forced)} differs from this run's recorded "
-                    f"{record['physical_qubits']} ({rel_path(record_path)}) — a run must stay on one set of qubits."
+                    f"{recorded_forced} ({rel_path(record_path)}) — a run must stay on one set of qubits."
                 )
             if (layout is not None or physical_qubits is not None) and record.get("layout_mode") not in (None, mode):
                 raise ValueError(
                     f"layout={mode} but this run's recorded layout is {record['layout_mode']} "
                     f"{record['physical_qubits']} ({rel_path(record_path)}) — a run must stay on one set of qubits."
                 )
+            # The hardware qubits are what a rerun keeps, not their indices: today's live numbering of the recorded ones.
+            live_now, note = live_qubits_of_record(record, backend, to_live, vlq_cal)
+            if note:
+                print(note)
+            if live_now != record["physical_qubits"]:
+                print(f"  [Layout] The live indices of the run's qubits changed: {record['physical_qubits']} → {live_now}.")
+                record["previous_physical_qubits"] = record["physical_qubits"]
+                record["physical_qubits"]          = live_now
+                if to_live is not None:
+                    record["calibration_to_live"] = {str(k): v for k, v in to_live.items()}
+                record_path.write_text(json.dumps(record, indent=4), encoding="utf-8")
             self._physical_qubits = record["physical_qubits"]
-            print(f"  [Layout] Using recorded physical qubits {self._physical_qubits} ({record['method']}).")
+            print(f"  [Layout] Using recorded physical qubits {self._physical_qubits} ({record['method']})"
+                  + (f", calibration-file qubits {record['calibration_qubits']}" if record.get("calibration_qubits") else "") + ".")
             _record_qubits_in_run_info(self)
             return self._physical_qubits
 
@@ -2366,7 +2390,6 @@ class bacq_ps_qbcs:
 
         score_backend = layout_backend or backend
         target  = getattr(score_backend, "target", None)
-        vlq_cal = getattr(backend, "vlq_calibration", None)   # set by the VLQ and Sirius scripts (source/core/qpu/iqm_vlq.py, iqm_star.py)
         if target is None and mode == "list":   # a forced list on a backend that describes no Target: nothing to check it against
             record = dict(physical_qubits=list(forced), method="user", layout_mode=mode,
                           log_success=None, top_candidates=[], n_candidates=None, gates=None)
@@ -2380,27 +2403,40 @@ class bacq_ps_qbcs:
             rep = max(raw, key=lambda c: sum(1 for i in c.data if len(i.qubits) == 2))
             # Layouts chosen on a calibration file's Target (not the QPU's own) only consider what the QPU has too:
             # the file may be older and describe qubits / couplers the live backend no longer lists.
-            live_ok = (placement_filter(rep, backend.target)
-                       if layout_backend is not None and getattr(backend, "target", None) is not None else None)
+            live_ok = None
+            if layout_backend is not None and getattr(backend, "target", None) is not None:
+                live_ok = (live_placement_filter(rep, backend.target, to_live) if to_live is not None
+                           else placement_filter(rep, backend.target))
             if vlq_cal is not None:   # IQM star: each virtual qubit's prx/MOVE/CZ roles, graded from VLQ's public calibration
                 roles  = VLQ.representative_roles(rep, vlq_cal, backend if VLQ.is_vlq_backend(backend) else None)   # else: offline target
-                record = VLQ.choose_vlq_layout(mode, roles, vlq_cal, forced,
+                star   = backend if hasattr(backend, "qubit_name_to_index") else None   # the live backend, else iqm-client's offline one
+                record = VLQ.choose_vlq_layout(mode, roles, vlq_cal, forced, rep=rep, backend=star,
                                                **({"label": backend.star_name} if getattr(backend, "star_name", None) else {}))   # Sirius: its name in the messages
             elif mode == "optimized":
-                # Native single-qubit gate counts from one transpilation onto any SWAP-free
-                # placement (they don't depend on which), then every placement scored with them.
+                # Native single-qubit gate counts from one transpilation onto any SWAP-free placement (they don't depend
+                # on which) for the prescreen of every placement; the best are transpiled like the submission and scored exactly.
                 from source.core.qpu.layout_selection import probe_placement, select_physical_qubits, transpiled_1q_counts
                 probe  = probe_placement(rep, target)
                 record = select_physical_qubits(
-                    rep, target, None if probe is None else transpiled_1q_counts(rep, score_backend, probe), live_ok)
+                    rep, target, None if probe is None else transpiled_1q_counts(rep, score_backend, probe), live_ok,
+                    transpile_backend=score_backend)
                 record["layout_mode"] = mode
             else:
                 record = choose_layout(mode, rep, target, forced, placement_ok=live_ok)
+            if (mode == "optimized" and record["physical_qubits"] is None and record.get("method") == "no_scored_placement"
+                    and record.get("incomplete")):
+                # Placements exist but none is complete in the calibration: name what is missing.
+                inc  = record.get("incomplete") or {}
+                what = "; ".join(f"{kind[:-1]} {k}: {', '.join(f)}" for kind in ("qubits", "couplers")
+                                 for k, f in list(inc.get(kind, {}).items())[:6])
+                raise ValueError(f"layout=optimized: no placement of the circuits has complete calibration data on "
+                                 f"{getattr(score_backend, 'name', score_backend)} (a qubit or coupler missing a field its QPU "
+                                 f"reports, or with an error of 1 or more, is unusable){f': {what}' if what else ''}. "
+                                 f"Pin the qubits explicitly with layout=a,b,c, or use another calibration.")
             if (mode == "optimized" and layout_backend is None and vlq_cal is None
                     and record["physical_qubits"] is None and record.get("method") == "no_swap_free_placement"):
                 # Unpinned, the run would only fail later in _check_transpiled (routing needs SWAPs): refuse it here.
-                # Only when the circuits truly have no SWAP-free placement; "no_scored_placement" (placements exist
-                # but none has usable calibration data) keeps its earlier behaviour: unpinned, qiskit lays it out.
+                # Only when the circuits truly have no SWAP-free placement.
                 raise ValueError(f"layout=optimized: the QPU ({getattr(backend, 'name', backend)}) has no placement of "
                                  f"the circuits without SWAPs (among its usable qubits and couplers). "
                                  f"Pin the qubits explicitly with layout=a,b,c (three distinct qubits).")
@@ -2410,12 +2446,25 @@ class bacq_ps_qbcs:
                                  f"and the QPU ({getattr(backend, 'name', backend)}) support (method {record['method']})")
             if layout_backend is not None and record["physical_qubits"] is not None and getattr(backend, "target", None) is not None:
                 try:
-                    check_forced_layout(rep, backend.target, record["physical_qubits"])
+                    check_forced_layout(rep, backend.target, record["physical_qubits"] if to_live is None else
+                                        [to_live.get(q, -1) for q in record["physical_qubits"]])
                 except ValueError as e:
                     raise ValueError(f"the layout chosen with the calibration {'file' if calibration_source else 'snapshot'} "
                                      f"cannot be run on the QPU itself ({getattr(backend, 'name', backend)}) — is it out "
                                      f"of date? {e}") from None
 
+        if to_live is not None and record["physical_qubits"] is not None:
+            # chosen in the calibration file's numbering; physical_qubits is what is executed (live), both recorded
+            record["calibration_qubits"]  = list(record["physical_qubits"])
+            record["physical_qubits"]     = [to_live[q] for q in record["calibration_qubits"]]
+            record["calibration_to_live"] = {str(k): v for k, v in to_live.items()}
+            record["calibration_numbering"] = "file"
+        names = getattr(backend, "index_to_qubit_name", None)   # IQM backends name their qubits (Garnet, Emerald, Sirius, VLQ)
+        if names is not None and record["physical_qubits"] is not None and not record.get("qubit_names"):
+            try:
+                record["qubit_names"] = [names(q) for q in record["physical_qubits"]]
+            except (ValueError, KeyError):
+                pass   # a backend that does not name them
         record["backend"]        = getattr(backend, "name", str(backend))
         record["selected_at"]    = now_utc_iso(precise=True)
         if calibration_source is not None:
@@ -2473,7 +2522,6 @@ class bacq_ps_qbcs:
         :param backend:         backend object
         :returns:       list of ISA QuantumCircuits
         """
-        from qiskit import transpile
         from qiskit.qpy import dump, load
 
         qpy_isa_path = Path(get_run_subfolder(self.CONFIG, "transpiled_circuits")) / f"chunk_{nc}_transpiled.qpy"
@@ -2490,16 +2538,15 @@ class bacq_ps_qbcs:
         # ── Transpile (timed: chunk{nc}_transpile_start/_end, and _last_transpile) ──
         self._log_timestamp(f"chunk{nc}_transpile_start")
         t0 = time.perf_counter()
-        isa_circuits = transpile(qk_circuits, backend, optimization_level=1,
-                                 initial_layout=getattr(self, "_physical_qubits", None),
-                                 scheduling_method=scheduling_method(backend, self.scheduling_simulation is not False))
+        isa_circuits = transpile_like_submission(qk_circuits, backend, getattr(self, "_physical_qubits", None))
         if not isinstance(isa_circuits, list):
             isa_circuits = [isa_circuits]
+        isa_circuits = schedule_for_simulation(isa_circuits, backend, self.scheduling_simulation is not False)   # simulations only
         self._check_transpiled(f"Chunk {nc}", qk_circuits, isa_circuits)
 
         # ── Save ISA QPY ──────────────────────────────────────────────────────
         with open(qpy_isa_path, "wb") as f:
-            dump(drop_identity_final_layout(isa_circuits), f)   # VLQ layouts: see layout_selection
+            dump(isa_circuits, f)
         self._last_transpile = {"transpile_s": time.perf_counter() - t0, "transpile_reused": False}
         self._log_timestamp(f"chunk{nc}_transpile_end")
         print(f"  [Chunk {nc}] Transpiled {len(isa_circuits)} circuits → {rel_path(qpy_isa_path)}")
@@ -2519,12 +2566,11 @@ class bacq_ps_qbcs:
         job after the chunk is transpiled — so they need their own ISA copy.
         Idempotent — loads if already transpiled.
         Saves to run_folder/transpiled_circuits/spam_transpiled.qpy.
-        Scheduled like the chunks (scheduling_method(), self.scheduling_simulation).
+        Scheduled like the chunks (schedule_for_simulation(), self.scheduling_simulation).
 
         :param backend: backend object
         :returns:       list of ISA SPAM circuits
         """
-        from qiskit import transpile
         from qiskit.qpy import dump, load
 
         spam_qpy_isa_path = Path(get_run_subfolder(self.CONFIG, "transpiled_circuits")) / "spam_transpiled.qpy"
@@ -2547,16 +2593,15 @@ class bacq_ps_qbcs:
         # ── Transpile (timed: spam_transpile_start/_end) ──────────────────────
         self._log_timestamp("spam_transpile_start")
         t0 = time.perf_counter()
-        isa_spam = transpile(self._qk_spam_circuits, backend, optimization_level=1,
-                             initial_layout=getattr(self, "_physical_qubits", None),
-                             scheduling_method=scheduling_method(backend, self.scheduling_simulation is not False))
+        isa_spam = transpile_like_submission(self._qk_spam_circuits, backend, getattr(self, "_physical_qubits", None))
         if not isinstance(isa_spam, list):
             isa_spam = [isa_spam]
+        isa_spam = schedule_for_simulation(isa_spam, backend, self.scheduling_simulation is not False)   # simulations only
         self._check_transpiled("SPAM", self._qk_spam_circuits, isa_spam, check_2q=False)
 
         # ── Save ──────────────────────────────────────────────────────────────
         with open(spam_qpy_isa_path, "wb") as f:
-            dump(drop_identity_final_layout(isa_spam), f)   # VLQ layouts: see layout_selection
+            dump(isa_spam, f)
         transpile_s = time.perf_counter() - t0
         self._log_timestamp("spam_transpile_end")
         spam_qpy_isa_path.with_suffix(".json").write_text(json.dumps(

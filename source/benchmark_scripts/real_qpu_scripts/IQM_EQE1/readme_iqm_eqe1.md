@@ -72,10 +72,20 @@ file. Therefore:
 - `layout=optimized calibration_file=PATH` scores the placements with a calibration file. `calibration_file=` is
   mandatory with `optimized` here (an error without it). The file may be the provider's own,
   the operators' `calibration_data_Euro-Q-Exa_<date>_active_qubits.json`, or an already converted snapshot; a provider file is converted automatically and saved in the run folder
-  as `calibration_snapshot.json` (its `measured_at` is the file's own date). The layout score also includes the T1/T2 decay of qubits idling while others work, with the assumed gate durations of the noise model below. The latest provider file is in `calibration_input_files/Euro-Q-Exa/`. A relative PATH is relative to the project root.
+  as `calibration_snapshot.json` (its `measured_at` is the file's own date). The layout score is computed on the circuit transpiled for the QPU and also includes the T1/T2 decay of qubits idling while others work, with the assumed gate durations of the noise model below. The latest provider file is in `calibration_input_files/Euro-Q-Exa/`. A relative PATH is relative to the project root.
 - `layout=lowest` is the lexicographically lowest valid layout, and `layout=15,14,21` forces exactly those qubits.
   A layout the QPU cannot run ends the script with a one-line message (exit code 2) before anything is submitted;
   so does `layout=optimized` when the QPU has no placement of the circuits without SWAPs, like `random` and `lowest`.
+- **Two qubit numberings.** The calibration file numbers its qubits 0…53 and includes placeholder qubits that have no couplers
+  (which ones changes over time). The live backend leaves them out and numbers the other qubits
+  0…N-1 in order, so a file qubit `q` is live qubit `q` minus the number of placeholders below it. The run derives this map
+  from the file (the qubits without a coupler) and checks it against the live coupling graph: the file's couplers under the
+  map must be exactly the live couplers; if they are not, an order-preserving matching of the two coupling graphs is tried,
+  and if that fails too the script ends with a one-line message (exit code 2). `layout=15,14,21` and the grades of
+  `layout=optimized` are in the **calibration file's numbering**; the circuits are transpiled, health-checked and executed on the
+  corresponding **live** qubits, which are the run's `physical_qubits`. The run uses only what both the file and the live backend
+  have: a qubit or coupler on one side only is never placed. The simulate script has no live backend and works in the file's
+  numbering throughout.
 
 The run folder ends in `_layout-optimized`, `_layout-random`, `_layout-lowest` or `_layout-15-14-21`; the collect and status scripts take `layout=` too (optional). After the layout comes the UTC date the run started and its number that day (`_2026-10-11_#1`). Rerunning the submit script continues the latest run of its settings while it is unfinished (some chunk not yet submitted), whatever its date, else starts a new folder dated today with the next run number; `--force-new-run` starts a new folder even while the latest is unfinished. Without `layout=` and `date=`, the collect and status scripts take every run of that benchmark with something left to collect in turn, all layouts and dates (each is reported, and a failure in one does not stop the others); `layout=` picks one run (its latest, or the one of `date=`), also a finished one; `date=YYYY-MM-DD` alone takes each layout's latest run of that day, and `date=YYYY-MM-DD_#N` each layout's run with that number (layouts without one are skipped).
 The **simulate script requires `layout=`** (it stops with an explanation otherwise): the live backend provides no calibration,
@@ -99,7 +109,9 @@ qbcs_real_submit_iqm_eqe1.py                qbcs_real_collect_iqm_eqe1.py
   (`qbcs.resolve_physical_qubits(run_folder=…)`) — so `source/analysis_scripts/run_post_process.py` reports it as
   a degraded QPU with the benchmark not run, and plots its health checks only. Both health
   checks are written into the run's own `health_checks/health_check_<N>.json`
-  (auto-numbered, single counter).
+  (auto-numbered, single counter). Rerunning a run on another day keeps its hardware qubits: the recorded
+  `calibration_qubits` are converted to the live indices of that day (see **Qubit layout** above), and a qubit that no
+  longer exists ends the script with a one-line message (exit code 2).
   **A network blip during the PRE/POST health check is retried** — see the main
   USER_MANUAL §7 for the retry behaviour and the three exit codes (`10` degraded, `11` submitted but not
   collected, `12` not even submitted) `require_functional_health_check`/`submit_post_health_check`
@@ -151,12 +163,12 @@ python3 source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/qbcs_real_simulate_iq
 python3 source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/qbcs_real_simulate_iqm_eqe1.py backend=EQE1 mini layout=optimized calibration_file=calibration_input_files/Euro-Q-Exa/calibration_data_Euro-Q-Exa_20261020_active_qubits.json scheduling_simulation=false
 ```
 
-`scheduling_simulation=true|false` is optional, default `true`: `true` transpiles the circuits scheduled, so idle qubits relax through T1/T2 as on the QPU (full benchmark about 4 h); `false` does not schedule them, so idle relaxation is **not** taken into account (only the relaxation during gates), like the noiseless and coherent-noise simulations (about 1 h). The choice is recorded in `run_info.json` and `submit.log`, the health checks follow it, and an unfinished run folder cannot be resumed with the other value (main USER_MANUAL §4.2).
+`scheduling_simulation=true|false` is optional, default `true`: `true` transpiles the circuits like the submission and then schedules them ALAP (delays only), so idle qubits relax through T1/T2 as on the QPU (full benchmark about 4 h); `false` does not schedule them, so idle relaxation is **not** taken into account (only the relaxation during gates), like the noiseless and coherent-noise simulations (about 1 h). The choice is recorded in `run_info.json` and `submit.log`, the health checks follow it, and an unfinished run folder cannot be resumed with the other value (main USER_MANUAL §4.2).
 
 What the noise model contains, and what it doesn't:
 
 - Gate errors on `r` and `cz`, and readout errors, with T1/T2 relaxation during gates and, with `scheduling_simulation=true`, while a qubit waits for the others
-  (the circuits are transpiled scheduled, with delays). **The gate durations are assumed:** the source file has none, so IQM
+  (the circuits are transpiled like the submission, then scheduled ALAP as a separate pass: delays only). **The gate durations are assumed:** the source file has none, so IQM
   Emerald's are used (24 ns `r`, 50 ns `cz`, 360 ns `measure`). The T2 stored is the Ramsey value.
 - The **topology of the calibration file**, not the live backend's. Dead couplers and
   qubits change over time, so qubit numbering and couplings may differ from today's
@@ -207,6 +219,12 @@ by the collect script; the submit script skips checks and submission if all chun
 `submit.log` (appended, never overwritten) holds one entry per submission, the same in every QPU folder
 (`append_submit_log()`): the time, backend, run folder, chunks and shots, the layout, the run qubits with the
 calibration summary of `calibration_snapshot.json`, and the run's health-check numbers, plus EQE1's pending-job count at submission.
+It prints both qubit numberings (the live `Run qubits` and the `Calibration qubits` of the file).
+
+**`transpiled_circuits/physical_qubits.json`** records the layout. `physical_qubits` are the live qubits the circuits ran on (the
+list that `run_info.json`, the health checks and the circuit check use). A layout chosen with a calibration file adds
+`calibration_qubits` (the same qubits in the file's numbering), `calibration_to_live` (the whole file-to-live map) and
+`calibration_numbering` (`"file"`); `log_success`, `top_candidates` and the grades are in the file's numbering.
 
 **Post-processing.** `python3 source/analysis_scripts/run_post_process.py mini --include-real-data` (or `full`) merges, analyzes, summarizes and plots
 this QPU's runs together with the other QPUs' — see main USER_MANUAL §10 for the script, its `RUN_THESE` / `REAL_QPUS` lists,

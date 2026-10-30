@@ -158,7 +158,7 @@ qbcs_real_submit_iqm_vlq.py            qbcs_real_collect_iqm_vlq.py
 The backend's Qiskit target carries no error data, so the qubits are chosen from IT4I's public
 calibration API (`https://extranet.it4i.cz/api/v1/calibration-sets/star24/<id>`, with `/metrics`
 and `/dynamic-quantum-architecture`; no authentication), for the calibration set the backend
-reports (`select_star_qubits()`, the scorer IQM Resonance's Sirius shares, in `source/core/qpu/iqm_star.py`, which `iqm_vlq.py` imports as `select_vlq_qubits()`; `star_roles` is the method label written into `physical_qubits.json`):
+reports (`select_star_qubits()`, the scorer IQM Resonance's Sirius shares, in `source/core/qpu/iqm_star.py`, which `iqm_vlq.py` imports as `select_vlq_qubits()`; `transpiled` is the method label written into `physical_qubits.json`, `star_roles` when only the prescreen could run):
 
 1. **Roles.** Every two-qubit gate is MOVE, CZ with the resonator, MOVE back, and the transpiler
    decides which of the two qubits is moved (on VLQ the lower virtual index, so for the benchmark's
@@ -176,17 +176,21 @@ reports (`select_star_qubits()`, the scorer IQM Resonance's Sirius shares, in `s
    between, `irb.circuit.move_ncz_move` with `n_interleaved_gates=0`) and the
    interleaved-RB CZ fidelity. Two qubits a (moved) and b then have the CZ fidelity F_move(a) · F_cz(b), which agrees
    within about 1 percentage point with IQM's direct measurement of MOVE(a) · CZ(b) · MOVE(a) (`n_interleaved_gates=1`,
-   one partner per qubit). A qubit missing any of these metrics (e.g. a qubit for which the
-   calibration had no MOVE-pair measurement) is excluded: a calibration gap signals a problem with the qubit.
+   one partner per qubit). A qubit missing any of these metrics, its T1 or T2, a gate duration, the MOVE-pair measurement with one CZ or the interleaved-RB fidelity of the MOVE gate (`irb.move`, required for completeness only) is excluded: a calibration gap signals a problem with the qubit.
    A run's snapshot stays as it was saved: re-analysing a run does not rebuild it.
-3. **Idle decay.** The fidelities hold the decay during a gate, not a qubit waiting for the others. The resonator
-   serializes the CZs and MOVEs, so the circuit lasts T = Σ_v (2·n_move(v)·t_move + n_cz(v)·t_cz) + max_v n_prx(v)·t_prx,
-   and each qubit idles for T minus its own gate time (durations from the calibration set). A choice's score gets
-   Σ_v log F(t_idle; T1, T2) with F = (1 + 2·exp(−t/T2) + exp(−t/T1))/4 (T2 capped at 2·T1). If a usable qubit has no
-   T1, T2 or duration, the term is left out for every choice.
-4. **Choice.** Every ordered choice of three distinct usable qubits is scored (23·22·21 = 10,626) and the best
-   sum is recorded in `<run>/transpiled_circuits/physical_qubits.json`, with the roles, each chosen
-   qubit's grade and metrics and the calibration set id; the qubits also go into `run_info.json` as `physical_qubits`.
+3. **Exact score and idle decay.** The grades are only the prescreen. The best 50 choices are transpiled onto the machine as
+   the submission transpiles (the MOVEs included) and scored on the transpiled circuit: every instruction's own error (a MOVE pair
+   takes F_move) plus the idle decay of the qubits that wait. The circuit is timed ALAP with the durations of the calibration set
+   (nothing is scheduled in the submission); the resonator is shared, so MOVEs and CZs run one after another, and a qubit idles for
+   the end of the circuit minus the start of its first gate minus its own gate time. The score gets Σ_q log F(t_idle; T1, T2)
+   with F = (1 + 2·exp(−t/T2) + exp(−t/T1))/4 (T2 capped at 2·T1).
+4. **Choice.** Every ordered choice of three distinct usable qubits is prescreened (23·22·21 = 10,626), the best 50 are scored exactly, and the best
+   is recorded in `<run>/transpiled_circuits/physical_qubits.json`, with the roles, each chosen
+   qubit's grade and metrics and the calibration set id; the qubits also go into `run_info.json` as `physical_qubits`. The record
+   also holds the qubits' names (`qubit_names`, and `top_candidate_names` for the top choices). Indices are the backend's own
+   (`qubit_name_to_index()`); on a real run the calibration is the set the backend runs with (the set id is compared with the
+   backend's, and the backend's set is downloaded if IT4I's API serves another), and a rerun on another day converts the
+   recorded names to that day's indices (a qubit that no longer exists ends the script with a one-line message, exit code 2).
 
 Transpilation (`qiskit.transpile` with that `initial_layout`) inserts the MOVEs; the check that
 transpilation kept every two-qubit gate counts CZs and ignores MOVEs.
@@ -199,7 +203,7 @@ the current calibration set (public API, no login) once into
 (`calibration_snapshot.json`: the resonator folded into a CZ with error 1 − F_cz · F_move, F_move the MOVE pair above and duration
 2 · MOVE + CZ, the prx error from the per-gate fidelity above, readout and T1/T2 as measured) and picks the qubits exactly as the submit script does (transpiling onto an offline target built
 from the downloaded architecture, with iqm-client).
-A rerun of an unfinished run reuses the files and prints a warning that it uses pre-saved calibration data (a finished run is followed by a new dated folder, which downloads fresh calibration); remove the run folder to start over. `scheduling_simulation=true|false` is optional, default `true`: `true` transpiles the circuits scheduled, so idle qubits relax through T1/T2 as on the QPU (full benchmark about 4 h); `false` does not schedule them, so idle relaxation is **not** taken into account (only the relaxation during gates), like the noiseless and coherent-noise simulations (about 1 h). The choice is recorded in `run_info.json` and `submit.log`, the health checks follow it, and an unfinished run folder cannot be resumed with the other value (main USER_MANUAL §4.2). It runs in
+A rerun of an unfinished run reuses the files and prints a warning that it uses pre-saved calibration data (a finished run is followed by a new dated folder, which downloads fresh calibration); remove the run folder to start over. `scheduling_simulation=true|false` is optional, default `true`: `true` transpiles the circuits like the submission and then schedules them ALAP (delays only), so idle qubits relax through T1/T2 as on the QPU (full benchmark about 4 h); `false` does not schedule them, so idle relaxation is **not** taken into account (only the relaxation during gates), like the noiseless and coherent-noise simulations (about 1 h). The choice is recorded in `run_info.json` and `submit.log`, the health checks follow it, and an unfinished run folder cannot be resumed with the other value (main USER_MANUAL §4.2). It runs in
 `iqm_vlq.venv` (iqm-client builds the offline target); it needs no login. Post-process with
 `run_post_process.py --include-simulations-real` (`source/analysis_scripts/`; every `sim-qpu-noise_…` run of this QPU, whatever its layout, is
 already covered by `SIMULATED_QPUS` in `RUN_THESE`); its

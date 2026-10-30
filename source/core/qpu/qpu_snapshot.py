@@ -163,6 +163,12 @@ def snapshot_from_iqm_eqe1_json(data, source_file):
                                 {"t1": data["T1"][q] * 1e-6, "t2": data["T2"][q] * 1e-6, "frequency": None}
                                 for q in range(n)]
     snap["excluded_qubits"] = excluded
+    # What maps the file's numbering onto the live backend's (layout_selection.eqe1_live_mapping()): the file numbers
+    # coupler-less placeholder qubits too, the live backend leaves them out. Every coupler of the file counts, also one
+    # with a NaN fidelity or on an excluded qubit: it exists on the hardware.
+    couplers = sorted(sorted(int(x) for x in key.split(",")) for key in data["two_q_fidelity"])
+    snap["placeholder_qubits"] = [q for q in range(n) if not any(q in c for c in couplers)]
+    snap["file_couplers"]      = couplers
     snap["notes"] = [
         "no gate durations in the source file: typical ones assumed (EQE1_TYPICAL_DURATIONS, from IQM Emerald)",
         "T2: Ramsey (not echo)",
@@ -338,11 +344,14 @@ def backend_from_snapshot(snapshot):
         # writes delays that QPY cannot read back (2.1). Every duration of the snapshots here is a whole number of ns.
         target.dt = SCHEDULING_DT
 
+    stage_plugins = provider_stage_plugins(snapshot)
+
     class SnapshotBackend(BackendV2):
         def __init__(self):
             super().__init__(name=f"{snapshot['backend']}_snapshot",
                              description=f"calibration snapshot of {snapshot['backend']} "
                                          f"downloaded {snapshot['downloaded_at']}")
+            self.snapshot = snapshot   # the calibration this backend was built from (its provider and numbering)
 
         @property
         def target(self):
@@ -354,9 +363,17 @@ def backend_from_snapshot(snapshot):
 
         @property
         def schedule_idle(self):
-            """True if every gate of the Target that has calibration data also has a duration, so the circuits can be scheduled (scheduling_method()):
-            the Aer noise model then relaxes waiting qubits too."""
+            """True if every gate of the Target that has calibration data also has a duration, so the circuits can be scheduled
+            (schedule_for_simulation()): the Aer noise model then relaxes waiting qubits too."""
             return schedulable
+
+        if "scheduling" in stage_plugins:   # BackendV2 has no such method by default: qiskit asks only the backends that define one
+            def get_scheduling_stage_plugin(self):
+                return stage_plugins["scheduling"]
+
+        if "translation" in stage_plugins:
+            def get_translation_stage_plugin(self):
+                return stage_plugins["translation"]
 
         @classmethod
         def _default_options(cls):
@@ -369,12 +386,57 @@ def backend_from_snapshot(snapshot):
     return SnapshotBackend()
 
 
-def scheduling_method(backend, schedule=True):
-    """transpile(scheduling_method=…) for `backend`: "alap" for a calibration-snapshot backend whose gates all have
-    durations (the Aer simulation then decays idle qubits as the QPU does), else None — a real QPU runs its own
-    schedule, and its submitted circuits stay unscheduled. `schedule` is the user's scheduling_simulation= choice
-    of a QPU-noise simulation: False gives None too (idle-qubit relaxation left out)."""
-    return "alap" if schedule and getattr(backend, "schedule_idle", False) else None
+def _entry_point_names(group):
+    from importlib.metadata import entry_points
+    try:
+        return {e.name for e in entry_points(group=group)}
+    except Exception:
+        return set()
+
+
+def provider_stage_plugins(snapshot):
+    """{"scheduling": …, "translation": …}: the transpiler stage plugins the provider's own backend runs and that the offline
+    backend of `snapshot` runs too, so its circuits are transpiled like the live ones. AQT: its scheduling and translation
+    plugins ("aqt", qiskit-aqt-provider). IQM Resonance (Garnet, Emerald): iqm-client's "iqm_default_scheduling" (single-qubit
+    gate optimization; its MOVE routing acts only on an IQM-built Target, which a snapshot's is not). Each only where its entry
+    point is installed, else the preset stage is kept and a warning printed. {} for any other snapshot (IBM, EQE1, the star
+    machines: their live backends use the preset stages, or are rebuilt from the architecture)."""
+    name = str(snapshot.get("backend", ""))
+    ops  = snapshot.get("operations") or {}
+    if name.startswith("aqt"):
+        want, label = {"scheduling": "aqt", "translation": "aqt"}, "qiskit-aqt-provider"
+    elif name != "iqm_eqe1" and {"r", "cz", "measure"} <= set(ops) and not snapshot.get("effective_model"):
+        want, label = {"scheduling": "iqm_default_scheduling"}, "iqm-client"
+    else:
+        return {}
+    have = {stage: plugin for stage, plugin in want.items()
+            if plugin in _entry_point_names(f"qiskit.transpiler.{stage}")}
+    if have != want:
+        print(f"  ⚠️  [Snapshot] {label} is not installed here: the offline backend of {name} is transpiled with qiskit's "
+              f"preset {'/'.join(sorted(set(want) - set(have)))} stage, so its gate counts may differ from the live backend's.")
+    return have
+
+
+def schedule_for_simulation(circuits, backend, schedule=True):
+    """The transpiled `circuits` (one circuit or a list) with idle delays added, for a QPU-noise simulation: a separate
+    TimeUnitConversion + ALAPScheduleAnalysis + PadDelay pass over the already transpiled circuit. Only delays are added; the
+    gates stay the ones the transpile produced (transpile(scheduling_method="alap") would replace the provider's stage plugin).
+    Done only for a calibration-snapshot backend whose gates all have durations (`backend.schedule_idle`) and when `schedule`
+    (the user's scheduling_simulation= choice) is not False; otherwise the circuits come back unchanged. A real QPU runs its
+    own schedule: its submitted circuits stay unscheduled. Each circuit keeps its layout."""
+    if not schedule or not getattr(backend, "schedule_idle", False):
+        return circuits
+    from qiskit.transpiler import PassManager
+    from qiskit.transpiler.passes import ALAPScheduleAnalysis, PadDelay, TimeUnitConversion
+    target = backend.target
+    pm     = PassManager([TimeUnitConversion(target=target), ALAPScheduleAnalysis(target=target), PadDelay(target=target)])
+    single = not isinstance(circuits, list)
+    out    = []
+    for c in ([circuits] if single else circuits):
+        scheduled         = pm.run(c)
+        scheduled._layout = c._layout   # PassManager.run drops the layout, which final_physical_qubits() and the circuit check read
+        out.append(scheduled)
+    return out[0] if single else out
 
 
 def noisy_sampler_from_snapshot(snapshot, seed=None):
@@ -383,7 +445,7 @@ def noisy_sampler_from_snapshot(snapshot, seed=None):
     The noise model is qiskit-aer's standard device model built from the Target:
     depolarizing gate errors, thermal relaxation from T1/T2 over each gate's
     duration, and readout errors from `measure`. Idle qubits relax only in circuits scheduled with
-    scheduling_method() (their delays)."""
+    schedule_for_simulation() (their delays)."""
     from qiskit_aer.noise import NoiseModel
     from qiskit_aer.primitives import SamplerV2 as AerSamplerV2
 

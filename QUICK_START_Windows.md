@@ -210,7 +210,7 @@ py source\benchmark_scripts\local_simulation_scripts\benchmark_fake_fez_lnn.py m
 deactivate
 ```
 
-Script #3 takes the optional `scheduling_simulation=true|false`, default `true` (the other two take no such argument): `true` transpiles the circuits scheduled, so idle qubits relax through T1/T2 as on the QPU (full benchmark ≈ 4 h once the circuits exist); `false` skips the scheduling, so idle relaxation is **not** taken into account (only the relaxation during gates), like the noiseless and coherent-noise simulations, and runs in ≈ 1 h. The choice is recorded in `run_info.json`, and a run folder cannot be resumed with the other value (USER_MANUAL §4.2).
+Script #3 takes the optional `scheduling_simulation=true|false`, default `true` (the other two take no such argument): `true` transpiles the circuits like the submission and then schedules them ALAP (delays only), so idle qubits relax through T1/T2 as on the QPU (full benchmark ≈ 4 h once the circuits exist); `false` skips the scheduling, so idle relaxation is **not** taken into account (only the relaxation during gates), like the noiseless and coherent-noise simulations, and runs in ≈ 1 h. The choice is recorded in `run_info.json`, and a run folder cannot be resumed with the other value (USER_MANUAL §4.2).
 
 Each script prints its build, execution, analysis and total wall times. Results land in
 `datafiles/mini_sim-noiseless_local-aer_lnn-False_service-local_spam-True_layout-none_<YYYY-MM-DD>_#1/` (the UTC date of the run and its number that day), the same with
@@ -302,6 +302,8 @@ random layout** (a notice is printed). To optimize their layout instead, pass a 
 layout=optimized calibration_file=calibration_input_files/Euro-Q-Exa/calibration_data_Euro-Q-Exa_20261020_active_qubits.json    # EQE1
 layout=optimized calibration_file=calibration_input_files/PIAST-Q/piastq_characterisation_2026-09-29.json                        # PIAST-Q
 ```
+
+For IQM EQE1, `layout=15,14,21` and the optimized layout use the calibration file's qubit numbers; the run translates them to the live backend's numbers (the file includes placeholder qubits that the live backend leaves out), and `physical_qubits.json` records both (`readme_iqm_eqe1.md` §3).
 
 `layout=optimized` for these two without `calibration_file=` is an error. Their **simulate** scripts (§6.2) require `layout=` to be
 named — they take the same calibration file as noise data and have to be told which real-submission behaviour to mimic

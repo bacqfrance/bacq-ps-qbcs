@@ -31,7 +31,7 @@ class RunInfo:
     circuits_qiskit_v13_qpy: bool = False   # chunks from chunks_qiskit_v13_qpy/ (all_to_all builds) — see qbcs.build()
     instance:      str = None   # IBM only: the name of the IBM instance that received the run's jobs (never the CRN) and its plan; left out of the manifest when None
     instance_plan: str = None
-    scheduling_simulation: bool = None   # QPU-noise simulations only: whether the circuits were transpiled scheduled (idle qubits relax); a run folder must not mix the two (check_scheduling_simulation()); left out of the manifest when None (real runs, noiseless simulations); a noisy simulation without it counts as True
+    scheduling_simulation: bool = None   # QPU-noise simulations only: whether the circuits were scheduled ALAP after the transpile (idle qubits relax); a run folder must not mix the two (check_scheduling_simulation()); left out of the manifest when None (real runs, noiseless simulations); a noisy simulation without it counts as True
     physical_qubits: list = None   # the qubits every circuit is transpiled onto, as in transpiled_circuits/physical_qubits.json (resolve_physical_qubits()); left out of the manifest when None (not chosen yet, noiseless simulations, legacy per-circuit layouts)
     source:       str = field(default="manifest", compare=False)   # written into every manifest; compare=False only removes it from dataclass equality, write_run_info()'s rewrite check compares the whole dict, so a manifest holding another source is rewritten; load_run_info() drops it
 

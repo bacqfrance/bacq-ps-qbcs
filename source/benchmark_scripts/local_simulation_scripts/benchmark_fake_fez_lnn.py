@@ -7,7 +7,7 @@ qiskit-ibm-runtime. No network calls, no token. run_local_simulation() prints th
 Same path as source/benchmark_scripts/real_qpu_scripts/IBM/qbcs_real_simulate_ibm.py: FakeFez's target
 is saved to datafiles/<RUN_FOLDER>/calibration_snapshot.json, an Aer noise
 model is built from it, physical qubits are picked from it, and every chunk is
-transpiled onto them, scheduled if scheduling_simulation=true (idle qubits decay, as in the IBM simulation) or not if false (faster).
+transpiled onto them, then scheduled ALAP (delays only) if scheduling_simulation=true (idle qubits decay, as in the IBM simulation) or not if false (faster).
 
 Run in venvs/ibm.venv (qiskit-ibm-runtime; no myQLM). The LNN circuits of the same
 benchmark size must already be cached — run benchmark_noiseless_lnn.py with the same
@@ -18,7 +18,7 @@ Usage (see source/core/runner_support/benchmark_args.py; the benchmark is requir
   python3 benchmark_fake_fez_lnn.py full scheduling_simulation=false   full benchmark: 480 samples, Nt = 1…19, 10 shots
   python3 benchmark_fake_fez_lnn.py mini nshots_per_circuit=N
   python3 benchmark_fake_fez_lnn.py nshots_per_circuit=N n_samples=M n_depths=K   (or nt_list=1,5,9)
-Any of them takes the optional scheduling_simulation=true | false (default true): true transpiles the circuits scheduled, so idle qubits relax through T1/T2 as on
+Any of them takes the optional scheduling_simulation=true | false (default true): true transpiles the circuits like the submission and then schedules them ALAP (delays only), so idle qubits relax through T1/T2 as on
 the QPU (slower: about 4 times the time of false on the full benchmark); false leaves idle-qubit relaxation out. It is recorded in run_info.json,
 and a run folder started with the other value is refused.
 Any of them takes layout=optimized (default) | random | lowest | 15,14,21 (calibration_file= is refused: FakeFez's calibration is built in).

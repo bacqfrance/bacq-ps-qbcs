@@ -1,7 +1,7 @@
 #!/bin/bash
 # Run health_check_real_aqt.py on a worker node, in venvs/aqt.venv: one health check on
 # PIAST-Q, submitted and collected in one go, into
-# datafiles/health-check+reps-1+nshots-100_real-data_aqt-piast-q_lnn-none_service-pcss_spam-none_layout-none_<YYYY-MM-DD>_#<N>/ (a new dated folder per run).
+# datafiles/health-check+reps-1+nshots-100_real-data_aqt-piast-q_lnn-none_service-pcss_spam-none_layout-none_<YYYY-MM-DD>_#<N>/ (a new dated folder per run, unless the latest is unfinished).
 # Submit from the project root:  sbatch source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/PCSS_Quantum_UI/run_health_check_aqt.sbatch backend=PIAST-Q   (backend= is required; without it the job
 # prints health_check_real_aqt.py's usage into its log and ends with exit code 2)
 # The Slurm log goes to the submission directory (the project root): health_check_aqt_<jobid>.out
