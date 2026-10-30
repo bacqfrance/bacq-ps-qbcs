@@ -300,7 +300,7 @@ script runs a PRE health check, aborts if the QPU is degraded, submits, and subm
 `...` = `source/benchmark_scripts/real_qpu_scripts`.
 
 \* The PIAST-Q run was done through Slurm on the PCSS Quantum UI cluster (see below). Without Slurm, run the loop script directly: `python3 .../AQT_PIAST-Q/qbcs_real_submit_aqt_loop.py backend=PIAST-Q mini`.
-It then stays up for the whole run and takes **1.5–2.5 times longer** per circuit than on the PCSS cluster (probably less efficient network communication), so Slurm is the recommended way.
+It then stays up for the whole run, so the computer must stay online and awake throughout (weeks for the full benchmark). The cluster may be slightly faster per circuit (lower network latency), but the main reason Slurm is the recommended way is that your computer need not stay online.
 
 **Qubit layout.** Every submit and simulate command also takes `layout=` — `optimized` (the default for IBM, IQM Resonance and
 IQM VLQ), `random`, `lowest`, or the qubits themselves, e.g. `layout=15,14,21` (USER_MANUAL §5.4) — and the run folder name ends
@@ -330,7 +330,7 @@ named — they take the same calibration file as noise data and have to be told 
 
 The AQT script is synchronous: it sits in one process, waiting on PIAST-Q after every execution, so it must stay
 up for the whole run (~41 min of QPU time estimated for the mini benchmark, 5 h wallclock measured on the PCSS cluster). It can be started
-directly on a local computer (see \* above), but that is 1.5–2.5 times slower per circuit. On the PCSS cluster, run it through Slurm; details are in
+directly on a local computer (see \* above), but then the computer must stay online for the whole run (weeks for the full benchmark; per circuit it is at most slightly slower than on the cluster, from higher network latency). The recommended way is to run it through Slurm on the PCSS cluster, so no computer has to stay online; details are in
 `source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/readme_aqt.md` §4.3.
 
 1. Connect to PCSS through OpenVPN, then to the login node `quantum-ui` over SSH (PCSS provides the
