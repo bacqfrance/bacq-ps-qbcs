@@ -6,8 +6,9 @@ awae_best_ems_spam_no_spam_comparison figure.
 
 Driven by source/analysis_scripts/run_post_process.py --nsamples-comparison via env vars:
   QPU_RUN_FOLDER      the run, as for the other post-processing scripts
-  QPU_N_SAMPLES       the reference analysis ("" = the full run): its best EMS
-                      (at N_max and at N_acc) and its N_acc are the ones plotted
+  QPU_N_SAMPLES       the reference analysis ("" = the full run; the largest one available): its best EMS
+                      (at N_max and at N_acc) and its N_acc are the ones plotted for every sample count
+                      (the smaller analyses are not asked for a best EMS of their own)
   QPU_NSAMPLES_LIST   comma-separated sample counts to compare, e.g. 8,48,120,240,480;
                       each needs its run_data[_spam][+nsamples-N].json already analyzed
 """
@@ -77,12 +78,6 @@ def load_awae(n, ems_full):
     return nt_list, awae, cumul
 
 
-def best_ems_of(n):
-    """The best EMS at N_max chosen by the analysis on n samples (None if its summary is missing)."""
-    path = processed / run_summary_name(n if n < INFO.sample_size else None)
-    return json.loads(path.read_text(encoding="utf-8"))["best_ems_Nmax"] if path.exists() else None
-
-
 # ── Reference: best EMS (N_max, N_acc) and N_acc of the run's own analysis ─────
 with open(processed / run_summary_name(N_SAMPLES), encoding="utf-8") as f:
     summary = json.load(f)
@@ -115,7 +110,6 @@ markers   = {"N_max": "o", "N_acc": "s"}
 fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=(14, 5), sharey=True)
 nt_ticks = []
 for n in NSAMPLES_LIST:
-    own_best = best_ems_of(n)
     for tag, ems in schemes:
         try:
             nt_list, awae, cumul = load_awae(n, ems)
@@ -124,8 +118,6 @@ for n in NSAMPLES_LIST:
             continue
         nt_ticks = nt_list
         label = f"n_samples={n}" + (" (reference)" if n == REF_N else "") + (f", {tag} best" if len(schemes) > 1 else "")
-        if tag == "N_max" and own_best is not None and own_best != best_ems:
-            label += f" [own best: {own_best}]"
         for ax, y in ((ax_a, awae), (ax_b, cumul)):
             ax.plot(nt_list, y, color=colors[n], marker=markers[tag], ls=linestyle[tag],
                     lw=2.2 if n == REF_N else 1.5, ms=5, label=label)

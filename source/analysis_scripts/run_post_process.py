@@ -53,9 +53,9 @@ runs' existing analysis results); without either flag both are done. The collect
 analysis/plots+summaries/<benchmark>_collective_<data types>/, e.g. mini_collective_real-data+sim-noiseless
 (source/core/records/run_names.py); with nshots_per_circuit=N alone the benchmark part is any+nshots-N.
 Add --nsamples-comparison (full benchmark only) to also analyze each run on 8, 48, 120, 240 and
-480 samples (NSAMPLES_COMPARISON; JSONs only, no per-N plots; only the RC samples vary, the SPAM
-correction always uses every collected chunk's calibration) and plot the full run's best EMS for
-each in analysis/plots+summaries/<run folder>/awae_best_ems_nsamples_comparison.png. It is per-run only:
+480 samples (NSAMPLES_COMPARISON; JSONs only (run_data and summary), no per-N plots; only the RC samples vary, the SPAM
+correction always uses every collected chunk's calibration) and plot the best EMS of the largest analysis (all 480 samples,
+or the most collected) for each sample count, in analysis/plots+summaries/<run folder>/awae_best_ems_nsamples_comparison.png. It is per-run only:
 the collective plots are made as usual (from the full runs), and with --collective-only the flag is ignored.
 
 """
@@ -659,8 +659,8 @@ def analyze_run(run_folder, n_samples_override=None):
 
 def nsamples_comparison(run_folder, n_ref):
     """--nsamples-comparison for one already analyzed run: analyze it on each of NSAMPLES_COMPARISON
-    samples below the reference (n_ref, None = the full run) — JSONs only — then plot its best EMS
-    for every sample count, the reference included. Sample counts above the reference are skipped."""
+    samples below the reference (n_ref, None = the full run) — JSONs only (run_data and summary), no plots — then plot
+    the reference's best EMS for every sample count, the reference included. Sample counts above the reference are skipped."""
     backend_name = run_folder   # for the messages
     run_path = PROJECT_ROOT / "datafiles" / run_folder
     info     = load_run_info(run_folder)

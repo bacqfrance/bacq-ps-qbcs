@@ -1352,7 +1352,7 @@ names too. In the collective plots and the run table, a run analyzed on fewer ch
 
 `--nsamples-comparison` (full benchmark only, e.g. `python3 source/analysis_scripts/run_post_process.py full --include-real-data --nsamples-comparison`)
 additionally analyzes each run on its first 8, 48, 120, 240 and 480 samples (`NSAMPLES_COMPARISON`; `run_data*+nsamples-<N>.json`
-and `summary+nsamples-<N>.json` only, no per-N plots; only the RC samples vary, the SPAM correction uses the calibration of every collected chunk) and draws `analysis/plots+summaries/<run folder>/awae_best_ems_nsamples_comparison.png`
+and `summary+nsamples-<N>.json` (copied to the run's plots+summaries folder) only, no per-N plots; only the RC samples vary, the SPAM correction uses the calibration of every collected chunk) and draws `analysis/plots+summaries/<run folder>/awae_best_ems_nsamples_comparison.png`
 (`source/analysis_scripts/plot_awae_nsamples_comparison.py`). It shows the AWAE of the run's best EMS at N_max (and at N_acc, if that one differs)
 for each sample count, with the run's own N_acc. Both come from the run's reference analysis: all its collected chunks, a curve that is always drawn.
 Sample counts above that are left out. This plot is per run only: the collective plots are made as usual, from the full runs, and with `--collective-only` the flag is ignored.
