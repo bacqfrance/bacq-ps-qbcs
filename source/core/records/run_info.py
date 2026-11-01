@@ -33,6 +33,7 @@ class RunInfo:
     instance_plan: str = None
     scheduling_simulation: bool = None   # QPU-noise simulations only: whether the circuits were scheduled ALAP after the transpile (idle qubits relax); a run folder must not mix the two (check_scheduling_simulation()); left out of the manifest when None (real runs, noiseless simulations); a noisy simulation without it counts as True
     physical_qubits: list = None   # the qubits every circuit is transpiled onto, as in transpiled_circuits/physical_qubits.json (resolve_physical_qubits()); left out of the manifest when None (not chosen yet, noiseless simulations, legacy per-circuit layouts)
+    extra_health_checks: str = None   # "per-chunk" | "per-job" | "false": health-check circuits inside the submitted jobs (resolve_extra_health_checks()); left out of the manifest when None (a run made before the option, or not submitted yet); a missing key means "false"
     source:       str = field(default="manifest", compare=False)   # written into every manifest; compare=False only removes it from dataclass equality, write_run_info()'s rewrite check compares the whole dict, so a manifest holding another source is rewritten; load_run_info() drops it
 
     @property
@@ -42,35 +43,34 @@ class RunInfo:
 
 def _manifest_dict(info):
     d = asdict(info)
-    for key in ("instance", "instance_plan", "scheduling_simulation", "physical_qubits"):
+    for key in ("instance", "instance_plan", "scheduling_simulation", "physical_qubits", "extra_health_checks"):
         if d[key] is None:
             del d[key]
     return d
 
 
+def _recorded(run_folder, root):
+    """The parsed root/<run_folder>/run_info.json, {} without a manifest or when it cannot be read."""
+    try:
+        return json.loads((Path(root) / run_folder / MANIFEST_NAME).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
 def recorded_instance(run_folder, root="datafiles"):
     """(instance name, plan) recorded in root/<run_folder>/run_info.json, (None, None) without a manifest or a record."""
-    try:
-        d = json.loads((Path(root) / run_folder / MANIFEST_NAME).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None, None
+    d = _recorded(run_folder, root)
     return d.get("instance"), d.get("instance_plan")
 
 
 def recorded_physical_qubits(run_folder, root="datafiles"):
     """physical_qubits recorded in root/<run_folder>/run_info.json: None without a manifest or a record."""
-    try:
-        return json.loads((Path(root) / run_folder / MANIFEST_NAME).read_text(encoding="utf-8")).get("physical_qubits")
-    except (OSError, json.JSONDecodeError):
-        return None
+    return _recorded(run_folder, root).get("physical_qubits")
 
 
 def recorded_scheduling_simulation(run_folder, root="datafiles"):
     """scheduling_simulation recorded in root/<run_folder>/run_info.json: None without a manifest or a record."""
-    try:
-        return json.loads((Path(root) / run_folder / MANIFEST_NAME).read_text(encoding="utf-8")).get("scheduling_simulation")
-    except (OSError, json.JSONDecodeError):
-        return None
+    return _recorded(run_folder, root).get("scheduling_simulation")
 
 
 def check_scheduling_simulation(run_folder, scheduling_simulation, root="datafiles"):
@@ -88,8 +88,36 @@ def check_scheduling_simulation(run_folder, scheduling_simulation, root="datafil
                         f"scheduling_simulation={str(recorded).lower()}, or delete the run folder to start over")
 
 
+def recorded_extra_health_checks(run_folder, root="datafiles"):
+    """extra_health_checks recorded in root/<run_folder>/run_info.json ("per-chunk", "per-job" or "false"): None without a
+    manifest or a record."""
+    return _recorded(run_folder, root).get("extra_health_checks")
+
+
+def resolve_extra_health_checks(run_folder, stated, root="datafiles"):
+    """The run's extra_health_checks mode ("per-chunk", "per-job" or "false") from the stated option (None: not stated)
+    and root/<run_folder>:
+      value recorded in run_info.json       the recorded one; another stated value exits with code 2
+      no record, but job records exist      "false" (a run made before the option, or already started without it);
+                                            another stated value exits with code 2
+      no record, no job records (new run)   the stated value, "false" when not stated
+    Call it before the health check that precedes the submission, so a conflict stops before anything is billed.
+    (record_run_info() writes the manifest after build(), before the first submission: the job-record test tells a
+    new run from an old one.)"""
+    recorded = recorded_extra_health_checks(run_folder, root)
+    if recorded is None:
+        started = any((Path(root) / run_folder / "job_records").glob("job_record_chunk_*.json"))
+        if not started:
+            return stated or "false"
+        recorded = "false"
+    if stated is not None and stated != recorded:
+        exit_with_error(f"run folder {run_folder} uses extra_health_checks={recorded}, not {stated}: a run keeps the value it "
+                        f"started with, so omit extra_health_checks= or use {recorded}, or start a new run with --force-new-run")
+    return recorded
+
+
 def write_run_info(config, run_folder_path, lnn, circuits_qiskit_v13_qpy=False, instance=None, instance_plan=None,
-                   scheduling_simulation=None, physical_qubits=None):
+                   scheduling_simulation=None, physical_qubits=None, extra_health_checks=None):
     """Called by bacq_ps_qbcs.submit() on every call (and by record_run_info() and qbcs._record_qubits_in_run_info()), once the run folder is known. Writes the manifest
     if missing, leaves it untouched if it already holds the same info, and rewrites it in place if it
     differs. The write itself is atomic (temp file + os.replace()), so a crash mid-write can't leave a
@@ -100,13 +128,16 @@ def write_run_info(config, run_folder_path, lnn, circuits_qiskit_v13_qpy=False, 
     without them (the per-chunk submit()) never drops it.
     scheduling_simulation (QPU-noise simulations): the run's choice, True or False; None (real runs, noiseless simulations)
     records nothing.
-    physical_qubits: the run's qubits (resolve_physical_qubits()); None keeps what the manifest already records."""
+    physical_qubits: the run's qubits (resolve_physical_qubits()); None keeps what the manifest already records.
+    extra_health_checks: "per-chunk", "per-job" or "false" (resolve_extra_health_checks()); None keeps what the manifest already records."""
     run_folder_path = Path(run_folder_path)
     run_folder_path.mkdir(parents=True, exist_ok=True)
     if instance is None:
         instance, instance_plan = recorded_instance(run_folder_path.name, run_folder_path.parent)
     if physical_qubits is None:
         physical_qubits = recorded_physical_qubits(run_folder_path.name, run_folder_path.parent)
+    if extra_health_checks is None:
+        extra_health_checks = recorded_extra_health_checks(run_folder_path.name, run_folder_path.parent)
     info = RunInfo(
         run_folder  = run_folder_path.name,
         nshots      = int(config["shots"]),
@@ -121,6 +152,7 @@ def write_run_info(config, run_folder_path, lnn, circuits_qiskit_v13_qpy=False, 
         instance_plan = instance_plan,
         scheduling_simulation = scheduling_simulation,
         physical_qubits = [int(q) for q in physical_qubits] if physical_qubits is not None else None,
+        extra_health_checks = extra_health_checks,
     )
     manifest = run_folder_path / MANIFEST_NAME
     if manifest.exists():

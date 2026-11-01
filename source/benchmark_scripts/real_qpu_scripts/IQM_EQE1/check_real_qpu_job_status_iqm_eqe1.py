@@ -40,7 +40,9 @@ LAYOUT       = parse_layout_args(ARGV, collect=True)   # layout=... / date=... p
 LNN          = BACKEND_CFG["lnn"]   # the backend's topology, from backends.json
 DO_SPAM      = True
 RUN_FOLDERS  = [] if BENCH is None else find_collect_run_folders(qpu_run_prefix("IQM_EQE1", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM), LAYOUT, parse_date_arg(ARGV))
-HC_FOLDER    = latest_run_folder(health_check_run_name("IQM_EQE1", BACKEND_NAME, STANDALONE_HEALTH_CHECK_REPS, STANDALONE_HEALTH_CHECK_NSHOTS)) or health_check_run_name("IQM_EQE1", BACKEND_NAME, STANDALONE_HEALTH_CHECK_REPS, STANDALONE_HEALTH_CHECK_NSHOTS)   # the standalone health check's folder
+HC_NAME      = health_check_run_name("IQM_EQE1", BACKEND_NAME, STANDALONE_HEALTH_CHECK_REPS, STANDALONE_HEALTH_CHECK_NSHOTS)
+HC_LATEST    = latest_run_folder(HC_NAME)   # None: no standalone health check on disk
+HC_FOLDER    = HC_LATEST or HC_NAME   # the standalone health check's folder
 
 # ── Connect to EQE1 via MQSS ──────────────────────────────────────────────────
 print(f"\n[{BACKEND_NAME} — connection]")

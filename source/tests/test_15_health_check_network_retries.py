@@ -25,7 +25,7 @@ source/core/qpu/remote_jobs.py (_is_transient_network_error):
     "PCSS")) is untouched by all of the above: a failure propagates as
     the raw exception (not HealthCheckSubmitError) with no record written,
     except that an AQTTaskTimeout in an accompanying check writes a failed
-    record.
+    record (that case is covered by aqt_venv_test_12_shot_split.py, not this file).
   - health_check_verdict() is one rule for every QPU (P(011) above the threshold),
     print_health_verdict() prints the same lines for all, and a synchronous (AQT/local) standalone
     record carries P011 and the verdict.
@@ -149,7 +149,7 @@ def test_synchronous_services_are_not_wrapped_standalone_path_is_not_wrapped(run
     assert not (_run_path(run_folder) / "job_records" / "health_check.json").exists()
 
 
-def test_the_verdict_is_the_same_rule_for_every_qpu(monkeypatch, capsys):
+def test_the_verdict_is_the_same_rule_for_every_qpu(capsys):
     # functional: P(011) above the threshold (health_check_verdict)
     from source.core.records import health_check_records as HR
     assert HR.health_check_verdict({"011": 51, "010": 49}) == "functional"

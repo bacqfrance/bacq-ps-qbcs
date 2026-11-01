@@ -4,7 +4,7 @@
 # calibration_input_files/PIAST-Q/), no QPU time. Needs the circuit cache for the chosen size
 # (for full: run_noiseless_all_to_all.sbatch first).
 # Submit from the project root:
-#   sbatch source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/PCSS_Quantum_UI/run_simulate_aqt.sbatch backend=PIAST-Q mini layout=random    mini benchmark; backend=, the benchmark and layout= are required; scheduling_simulation=true|false is optional (default true)
+#   sbatch source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/PCSS_Quantum_UI/run_simulate_aqt.sbatch backend=PIAST-Q mini layout=random    mini benchmark; backend=, the benchmark and layout= are required; scheduling_simulation=true|false and extra_health_checks=per-chunk|per-job|false are optional (defaults true and the run's recorded value, else false)
 #   sbatch source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/PCSS_Quantum_UI/run_simulate_aqt.sbatch backend=PIAST-Q full layout=optimized calibration_file=calibration_input_files/PIAST-Q/<file>.json scheduling_simulation=false
 #   (layout= says which real-submission behaviour to mimic: PIAST-Q reports no calibration, so a submission without a file is random;
 #    scheduling_simulation=true (default) makes idle qubits relax, which takes about 4 times as long on the full benchmark as false, which leaves that out)

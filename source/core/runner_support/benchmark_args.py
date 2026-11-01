@@ -20,6 +20,9 @@ The submit and simulate scripts also take the qubit layout (parse_layout_args):
 The simulate scripts that use a QPU's noise (FakeFez, qbcs_real_simulate_*.py) also take the optional
 scheduling_simulation=true|false (parse_scheduling_arg(), default true): whether the circuits are scheduled, so that idle qubits relax.
 
+The submit scripts and the simulate scripts also take the optional extra_health_checks=per-chunk|per-job|false
+(parse_extra_health_checks_arg(), not stated: the run's recorded value, else false): health-check circuits inside the submitted jobs.
+
 The collect and job-status scripts take layout= too (parse_layout_args(collect=True)), to find the run
 folder, which ends in _layout-<mode>_<YYYY-MM-DD>_#<N> (or _layout-15-14-21_<date>_#<N>): the latest one, or that
 of date=YYYY-MM-DD (the day's latest run) or date=YYYY-MM-DD_#N (parse_date_arg()). Without layout= and date=
@@ -89,6 +92,13 @@ SCHEDULING_USAGE = """scheduling_simulation=true | false   (optional, default tr
                          true (default): the circuits are scheduled, so idle qubits relax through T1/T2 as on the QPU (slower: about 4 times the
                          time of false on the full benchmark); false: no scheduling, so idle-qubit relaxation is left out (faster)"""
 
+EXTRA_HEALTH_CHECK_MODES = ("per-chunk", "per-job", "false")
+
+EXTRA_HEALTH_CHECKS_USAGE = """extra_health_checks=per-chunk | per-job | false   (optional; default: the run's recorded value, else false)
+                         per-chunk: a health-check circuit before and after every chunk's circuits inside the submitted jobs;
+                         per-job: one before and one after each submitted job's circuits. No extra job is created. A run keeps
+                         the value it started with: another value for an existing run is an error"""
+
 HELP_USAGE = "  --help                 print this message and exit"
 
 USAGE = f"""usage: <script>.py BENCHMARK
@@ -106,7 +116,8 @@ INSTANCE_USAGE = """instance=NAME          the IBM Quantum Platform instance (de
                          so a run's recorded instance is always used: a different instance=NAME for an existing run is an error."""
 
 
-def make_usage(script_file, description, backend=True, benchmark=True, health_check_flag=False, layout=None, instance=False):
+def make_usage(script_file, description, backend=True, benchmark=True, health_check_flag=False, layout=None, instance=False,
+               extra_health_checks=None):
     """The uniform usage text of a script in source/benchmark_scripts/: the command line, the description, then
     the sections that apply — BACKEND (names from the folder's backends.json), BENCHMARK, for the
     job-status scripts (health_check_flag) HEALTH CHECK, and LAYOUT. `layout` selects its form:
@@ -119,14 +130,18 @@ def make_usage(script_file, description, backend=True, benchmark=True, health_ch
       The three simulate forms also show the optional [scheduling_simulation=true|false] (parse_scheduling_arg()).
       "collect"       layout= and date= are optional: they name the run folder; without them every run of the
                        benchmark with something left to collect is handled
-    `instance` adds the optional instance=NAME of the IBM scripts."""
+    `instance` adds the optional instance=NAME of the IBM scripts. `extra_health_checks` (default: the two submit forms and the
+    three simulate forms) shows the optional [extra_health_checks=per-chunk|per-job|false] (parse_extra_health_checks_arg())."""
     script = Path(script_file).resolve()
     path = script.relative_to(Path(__file__).resolve().parents[3]).as_posix()
     bench = "BENCHMARK" if not health_check_flag else "(BENCHMARK | health_check)"
     lay_syn = {"submit_live": "[LAYOUT]", "submit_no_live": "[LAYOUT]", "simulate": "[LAYOUT]", "simulate_builtin": "[LAYOUT]", "simulate_required": "LAYOUT", "collect": "[layout=...]"}.get(layout, "")
     scheduling = layout in ("simulate", "simulate_builtin", "simulate_required")   # the QPU-noise simulations
+    if extra_health_checks is None:
+        extra_health_checks = layout in ("submit_live", "submit_no_live", "simulate", "simulate_builtin", "simulate_required")
     synopsis = " ".join(filter(None, ["backend=NAME" if backend else "", "[instance=NAME]" if instance else "", bench if benchmark else "", lay_syn,
-                                      "[scheduling_simulation=true|false]" if scheduling else ""]))
+                                      "[scheduling_simulation=true|false]" if scheduling else "",
+                                      "[extra_health_checks=per-chunk|per-job|false]" if extra_health_checks else ""]))
     blocks = [f"usage: {LAUNCHER} {path} {synopsis}",
               textwrap.fill(description, width=110, initial_indent="  ", subsequent_indent="  ")]
     if backend:
@@ -172,6 +187,8 @@ def make_usage(script_file, description, backend=True, benchmark=True, health_ch
         blocks.append(text)
         if scheduling:
             blocks.append(f"  SCHEDULING — whether idle qubits relax in the simulation (optional, default true):\n  {SCHEDULING_USAGE}")
+    if extra_health_checks:
+        blocks.append(f"  EXTRA HEALTH CHECKS — health-check circuits inside the submitted jobs (optional):\n  {EXTRA_HEALTH_CHECKS_USAGE}")
     if layout in ("submit_live", "submit_no_live"):
         blocks.append("  RUN FOLDER — by default the latest unfinished run of these settings is continued:\n"
                       "  --force-new-run        start a new run folder even if the latest run of these settings is unfinished")
@@ -317,6 +334,21 @@ def parse_scheduling_arg(argv):
     if values[0] not in ("true", "false"):
         _fail(f"scheduling_simulation must be true or false, got {values[0]!r}")
     return values[0] == "true"
+
+
+def parse_extra_health_checks_arg(argv):
+    """The optional extra_health_checks=per-chunk|per-job|false argument of the submit scripts and the simulate scripts, as the
+    string; None when it is not stated (the run's recorded value then applies, else false: run_info.resolve_extra_health_checks()).
+    Any other value, or a duplicate: the usage is printed and the script exits with code 2. Those scripts pass
+    "extra_health_checks" in parse_benchmark_args(extra_keys=...)."""
+    values = [a.split("=", 1)[1] for a in argv if a.startswith("extra_health_checks=")]
+    if len(values) > 1:
+        _fail("extra_health_checks given twice")
+    if not values:
+        return None
+    if values[0] not in EXTRA_HEALTH_CHECK_MODES:
+        _fail(f"extra_health_checks must be one of {', '.join(EXTRA_HEALTH_CHECK_MODES)}, got {values[0]!r}")
+    return values[0]
 
 
 def parse_backend_arg(argv, default, allowed=None, others_ok=False):

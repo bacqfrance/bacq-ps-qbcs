@@ -15,6 +15,7 @@
 # Submit from the project root (the job changes into $PROJECT itself, whatever the submit folder is):
 #   sbatch source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/PCSS_Quantum_UI/run_aqt_loop_with_retries.sbatch backend=PIAST-Q mini    mini benchmark; backend= and the benchmark are required
 #   sbatch source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/PCSS_Quantum_UI/run_aqt_loop_with_retries.sbatch backend=PIAST-Q full    full benchmark
+#   Optional: extra_health_checks=per-chunk|per-job|false puts the health-check circuit into the submitted jobs (readme_aqt.md)
 #   Layout: PIAST-Q reports no calibration, so without layout= / calibration_file= the run uses a RANDOM layout. Add
 #   layout=optimized calibration_file=calibration_input_files/PIAST-Q/<file>.json to optimize it, or layout=lowest / layout=15,14,12.
 #   Add --force-new-run to start a new run folder even if the latest run of these settings is unfinished (the whole job,

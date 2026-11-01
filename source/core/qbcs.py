@@ -13,9 +13,9 @@ import sys
 import time
 from tqdm import tqdm
 from source.core.circuits.circuit_drawings import export_circuit_drawings, chunk_items
-from source.core.records.run_info import write_run_info
+from source.core.records.run_info import write_run_info, recorded_extra_health_checks
 from source.core.records.run_names import parse_run_name
-from source.core.records.health_check_records import now_utc_iso, format_chunk_range
+from source.core.records.health_check_records import now_utc_iso, format_chunk_range, extra_health_check_record, save_extra_health_check
 from source.core.records.job_records import (archive_failed_record, write_job_record, run_relative_path, saved_config,
                                      chunks_without_submission,
                                      MACHINE_SPECIFIC_CONFIG_KEYS)
@@ -65,6 +65,44 @@ def _chunk_in(path, key):
         return False
 
 
+def extra_hc_mode(value):
+    """"per-chunk" or "per-job" when health-check circuits go inside the jobs, else None (None, "false": today's jobs)."""
+    return value if value in ("per-chunk", "per-job") else None
+
+
+def pack_job_circuits(chunks, spam, hc, mode):
+    """The circuits of one job and where each chunk's parts sit in it (pure list work, no qiskit).
+
+    chunks: [(chunk number, that chunk's ISA circuits)] in job order; spam: the SPAM ISA circuits every chunk carries (possibly
+    empty); hc: the health-check ISA circuit (None without a mode); mode: None | "per-chunk" | "per-job".
+      None         [SPAM, chunk 1, SPAM, chunk 2, ...]
+      "per-chunk"  [HC, SPAM, chunk 1, HC, HC, SPAM, chunk 2, HC, ...]
+      "per-job"    [HC, SPAM, chunk 1, SPAM, chunk 2, ..., HC]
+    Returns (circuits, offsets): offsets[nc] = {spam_start, circ_start, circ_end}, plus hc_pre_idx / hc_post_idx with a mode
+    (per-job: the same two indices for every chunk of the job)."""
+    circuits, offsets = [], {}
+    if mode == "per-job":
+        circuits.append(hc)
+    for nc, chunk_circuits in chunks:
+        hc_pre = None
+        if mode == "per-chunk":
+            hc_pre = len(circuits)
+            circuits.append(hc)
+        spam_start = len(circuits)
+        circuits  += list(spam)
+        circ_start = len(circuits)
+        circuits  += list(chunk_circuits)
+        offsets[nc] = {"spam_start": spam_start, "circ_start": circ_start, "circ_end": len(circuits)}
+        if mode == "per-chunk":
+            offsets[nc].update(hc_pre_idx=hc_pre, hc_post_idx=len(circuits))
+            circuits.append(hc)
+    if mode == "per-job":
+        for nc in offsets:
+            offsets[nc].update(hc_pre_idx=0, hc_post_idx=len(circuits))
+        circuits.append(hc)
+    return circuits, offsets
+
+
 def _record_qubits_in_run_info(qbcs):
     """Copy qbcs's resolved physical qubits into its run's run_info.json (unchanged file: no write); a function, not
     a method, so the tests' stand-in objects for resolve_physical_qubits() need no copy of it."""
@@ -72,7 +110,8 @@ def _record_qubits_in_run_info(qbcs):
         write_run_info(qbcs.CONFIG, qbcs.CONFIG["folder_path"], qbcs.CONFIG["lnn_architecture"],
                        circuits_qiskit_v13_qpy=qbcs._qiskit_v13_qpy,
                        instance=qbcs.run_instance[0], instance_plan=qbcs.run_instance[1],
-                       scheduling_simulation=qbcs.scheduling_simulation, physical_qubits=qbcs._physical_qubits)
+                       scheduling_simulation=qbcs.scheduling_simulation, physical_qubits=qbcs._physical_qubits,
+                       extra_health_checks=getattr(qbcs, "extra_health_checks", None))
 
 
 class bacq_ps_qbcs:
@@ -164,6 +203,9 @@ class bacq_ps_qbcs:
         self._verbose                    = verbose   # gates per-chunk/per-sample detail prints; progress bars show regardless
         self._qiskit_v13_qpy             = False   # set by build(): True for all_to_all circuits
         self.scheduling_simulation       = None   # QPU-noise simulations only: True/False, the scheduling_simulation= choice (set by the simulate runners, recorded in run_info.json); None: not a simulation, circuits are scheduled where the backend allows it
+        self.extra_health_checks         = None   # "per-chunk" | "per-job" | "false" | None: health-check circuits inside the submitted jobs (set by the submit and simulate runners from resolve_extra_health_checks(), or by submit(extra_health_checks=); None: the run's recorded value, else off); recorded in run_info.json
+        self._extra_hc_isa               = None   # the transpiled health-check circuit packed into the jobs (set by submit() when extra_health_checks is on)
+        self._extra_hc_file              = None   # its file in transpiled_circuits/
         self.run_instance                = (None, None)   # IBM: (instance name, plan) of the run, recorded in run_info.json; set by submit_async_run()
         self._last_transpile             = {"transpile_s": None, "transpile_reused": False}   # set by transpile_chunk_for_backend_to_isa()
 
@@ -544,24 +586,27 @@ class bacq_ps_qbcs:
                            if self.CONFIG["SPAM_correction"] and getattr(self, "_qk_spam_circuits", None) else [])
             export_circuit_drawings(self.CONFIG["folder_path"], spam_items + chunk_items(self.roles, qk_circuits))
 
+        spam_list = []
         if self.CONFIG["SPAM_correction"]:
             if backend is not None:
                 spam_isa_path = Path(get_run_subfolder(self.CONFIG, "transpiled_circuits")) / "spam_transpiled.qpy"
                 if not spam_isa_path.exists():
                     self.transpile_spam_for_backend_to_isa(backend)
                 with open(spam_isa_path, "rb") as f:
-                    spam_isa = load(f)
-                all_circuits = spam_isa + qk_circuits
+                    spam_list = load(f)
             else:
-                all_circuits = self._qk_spam_circuits + qk_circuits
-        else:
-            all_circuits = qk_circuits
+                spam_list = list(self._qk_spam_circuits)
+        hc_mode = self._hc_mode()   # extra_health_checks: a chunk is one job here, so per-chunk and per-job pack alike
+        all_circuits, offs = pack_job_circuits([(nc, qk_circuits)], spam_list, self._extra_hc_isa if hc_mode else None, hc_mode)
+        off = offs[nc]
 
         # ── Step 2: Run on sampler (local simulation: run + result is the CPU-side "submission") ──
         timestamp(label=f"Chunk {nc}: submitting to backend.", timestamp_file=self.TIMESTAMP_FILE)
         record_path  = Path(get_run_subfolder(self.CONFIG, "job_records")) / f"job_record_chunk_{nc}.json"
         record       = self._local_job_record(nc, qiskit_sampler, backend, n_spam, len(qk_circuits),
                                               submitted_at=now_utc_iso(precise=True))
+        if hc_mode:
+            record.update(self._hc_record_fields(off, len(all_circuits), [nc]))
         sim_t0       = time.perf_counter()
         try:
             result, submit_s = self._timed_submit(
@@ -578,8 +623,12 @@ class bacq_ps_qbcs:
         record["finished_at"] = now_utc_iso(precise=True)
         collect_t0 = time.perf_counter()
         self._log_timestamp(f"chunk{nc}_collect_start")   # handling of the received results: the chunk's collection
-        spam_counts = [result[si].data.meas.get_counts() for si in range(n_spam)]
-        all_counts  = [result[ci].data.meas.get_counts() for ci in range(n_spam, n_spam + len(qk_circuits))]
+        spam_counts = [result[off["spam_start"] + si].data.meas.get_counts() for si in range(n_spam)]
+        all_counts  = [result[off["circ_start"] + ci].data.meas.get_counts() for ci in range(len(qk_circuits))]
+        if hc_mode:   # before the record says "complete": a rerun of an unfinished chunk finds the files or writes them
+            self._save_extra_health_checks(self.CONFIG["folder_path"], record, nc, lambda i: self._hc_pub_counts(result[i]),
+                                           record["scheduled_at"], record["finished_at"],
+                                           self._extra_hc_not_available(CC.not_available("local simulator: it does not return the executed circuits")))
         timestamp(label=f"Chunk {nc}: results received.", timestamp_file=self.TIMESTAMP_FILE)
 
         # ── Step 3: Organise into key structure ───────────────────────────────────
@@ -705,19 +754,17 @@ class bacq_ps_qbcs:
               f"layout={final_physical_qubits(isa_circuits[0])}")
 
         # ── Add SPAM circuits if enabled ──────────────────────────────────────
+        spam_isa = []
         if self.CONFIG["SPAM_correction"]:
             spam_qpy = Path(get_run_subfolder(self.CONFIG, "transpiled_circuits")) / "spam_transpiled.qpy"
             assert spam_qpy.exists(), "Call transpile_spam_for_backend_to_isa(backend) before submit_chunk_ibm()."
             with open(spam_qpy, "rb") as f:
                 spam_isa = load(f)
-            all_circuits = spam_isa + isa_circuits
-            n_spam       = len(spam_isa)
             assert len(spam_isa[0].cregs) > 0,   "SPAM ISA circuits have no classical registers!"
-            assert len(isa_circuits[0].cregs) > 0, "ISA circuits have no classical registers!"
-        else:
-            all_circuits = isa_circuits
-            n_spam       = 0
-            assert len(isa_circuits[0].cregs) > 0, "ISA circuits have no classical registers!"
+        n_spam = len(spam_isa)
+        assert len(isa_circuits[0].cregs) > 0, "ISA circuits have no classical registers!"
+        hc_mode = self._hc_mode()   # extra_health_checks: a chunk is one job, so per-chunk and per-job pack alike
+        all_circuits, offs = pack_job_circuits([(nc, isa_circuits)], spam_isa, self._extra_hc_isa if hc_mode else None, hc_mode)
 
         # ── Submit ────────────────────────────────────────────────────────────
         transpiled    = dict(self._last_transpile)
@@ -749,6 +796,8 @@ class bacq_ps_qbcs:
             "nsites":       self.CONFIG["nsites"],
             "CONFIG": saved_config(self.CONFIG)
         }
+        if hc_mode:
+            record.update(self._hc_record_fields(offs[nc], len(all_circuits), [nc]))
         archive_failed_record(record_path.parent, nc)   # keep a failed attempt's record (and its cost)
         write_job_record(record_path, record)
         print(f"  [Chunk {nc}] Submitted — job_id: {job_id}")
@@ -772,6 +821,7 @@ class bacq_ps_qbcs:
         physical_qubits          = None,      # optional list[int] — pin the run to these qubits instead of scoring (see resolve_physical_qubits)
         max_circuits_per_job     = None,      # IQM_* only: circuit limit of one packed job (None → IQM_MAX_CIRCUITS_PER_JOB)
         chunks                   = None,      # list[int] — submit exactly these chunks (from chunks_to_submit()); None: all left
+        extra_health_checks      = None,      # "per-chunk" | "per-job" | "false" — health-check circuits inside the submitted jobs; None: self.extra_health_checks, else the run's recorded value, else off
         ):
         """
         Submit all interleaved chunks to the target backend sequentially.
@@ -840,6 +890,14 @@ class bacq_ps_qbcs:
                                    chunks of failed jobs). Chunks already submitted or complete are
                                    still skipped. AQT_PIAST-Q: one chunk ([nc], same as chunk_index=nc).
                                    None: every chunk left (up to max_chunks).
+
+        :param extra_health_checks: "per-chunk" | "per-job" | "false" | None — put the 3-qubit health-check circuit inside the
+                                   submitted jobs: per-chunk before and after every chunk's circuits, per-job before and after
+                                   all the circuits of a job (the same layout as per-chunk where a chunk is a job: AQT, local,
+                                   IBM without batching). No extra job is created. Recorded in run_info.json and the job
+                                   records; collection writes health_checks/extra_*.json. None keeps qbcs.extra_health_checks
+                                   (set by the runners from run_info.resolve_extra_health_checks()), else the run's recorded
+                                   value, else off.
         """
         assert backend is not None, f"backend cannot be {backend}!!"
         if service == "local":
@@ -855,6 +913,12 @@ class bacq_ps_qbcs:
 
         self.TIMESTAMP_FILE = Path(self.CONFIG["folder_path"]) / TIMESTAMP_FILENAME
         timestamp(label="start", timestamp_file=self.TIMESTAMP_FILE)
+        if extra_health_checks is not None:
+            assert extra_health_checks in ("per-chunk", "per-job", "false"), f"extra_health_checks={extra_health_checks!r}"
+            self.extra_health_checks = extra_health_checks
+        elif self.extra_health_checks is None:   # a run keeps the mode it started with
+            folder = Path(self.CONFIG["folder_path"])
+            self.extra_health_checks = recorded_extra_health_checks(folder.name, folder.parent)
         # Set architecture only if not already set by build()
         if "lnn_architecture" not in self.CONFIG or self.CONFIG["lnn_architecture"] is None:
             if layout_connection == "linear_nearest_neighbor":
@@ -873,7 +937,7 @@ class bacq_ps_qbcs:
         write_run_info(self.CONFIG, self.CONFIG["folder_path"], self.CONFIG["lnn_architecture"],
                        circuits_qiskit_v13_qpy=self._qiskit_v13_qpy,
                        instance=self.run_instance[0], instance_plan=self.run_instance[1],
-                       scheduling_simulation=self.scheduling_simulation)
+                       scheduling_simulation=self.scheduling_simulation, extra_health_checks=self.extra_health_checks)
         assert hasattr(self, "chunk_paths"), (
             "interleave_job_batches() must be called before submit()."
         )
@@ -896,6 +960,7 @@ class bacq_ps_qbcs:
                 self.resolve_physical_qubits(layout_backend, physical_qubits)
             if self.CONFIG["SPAM_correction"]:
                 self.build_spam_batch_qiskit()
+            self._prepare_extra_health_check(backend, layout_backend)
             _submit_chunk = lambda nc: self.submit_chunk_local_qiskit(
                 nc, qiskit_sampler=backend, backend=layout_backend,
             )
@@ -922,6 +987,7 @@ class bacq_ps_qbcs:
             self.resolve_physical_qubits(real_backend, physical_qubits)
             if self.CONFIG["SPAM_correction"]:
                 self.transpile_spam_for_backend_to_isa(real_backend)
+            self._prepare_extra_health_check(real_backend)
 
             timestamp(label="Starting chunk submission.", timestamp_file=self.TIMESTAMP_FILE)
             n_to_submit = self.n_chunks if max_chunks is None else min(max_chunks, self.n_chunks)
@@ -949,13 +1015,15 @@ class bacq_ps_qbcs:
             # As many whole chunks (each with its SPAM circuits) as fit into one job of
             # at most max_circuits_per_job circuits go into one job. VLQ has no circuit
             # limit: its jobs hold chunks_per_qpu_job_batch chunks (VLQ_CHUNKS_PER_JOB).
-            if service == QAAS_IT4I:
-                max_circuits_per_job = (chunks_per_qpu_job_batch or VLQ_CHUNKS_PER_JOB) * self._circuits_per_chunk()
+            if service == QAAS_IT4I:   # per-job: the job's two health-check circuits come on top, so it still holds that many chunks
+                max_circuits_per_job = ((chunks_per_qpu_job_batch or VLQ_CHUNKS_PER_JOB) * self._circuits_per_chunk()
+                                        + (2 if self._hc_mode() == "per-job" else 0))
             elif max_circuits_per_job is None:
                 max_circuits_per_job = IQM_MAX_CIRCUITS_PER_JOB[service]
             self.resolve_physical_qubits(backend, physical_qubits)
             if self.CONFIG["SPAM_correction"]:
                 self.transpile_spam_for_backend_to_isa(backend)
+            self._prepare_extra_health_check(backend)
 
             timestamp(label="Starting chunk submission.", timestamp_file=self.TIMESTAMP_FILE)
             n_to_submit = self.n_chunks if max_chunks is None else min(max_chunks, self.n_chunks)
@@ -1004,6 +1072,7 @@ class bacq_ps_qbcs:
             self.resolve_physical_qubits(backend, physical_qubits)
             if self.CONFIG["SPAM_correction"]:
                 self.transpile_spam_for_backend_to_isa(backend)
+            self._prepare_extra_health_check(backend)
 
             # ── Bookend "Starting chunk submission." — once per process ───────
             if not getattr(self, "_sync_submission_started", False):
@@ -1443,6 +1512,13 @@ class bacq_ps_qbcs:
             check = CC.not_available("simulated backend (fake/Aer): there is no server copy of the circuits")
         record["circuit_check"] = check
         _warn_circuit_check(f"Chunk {nc}", check)
+        if record.get("hc_pre_idx") is not None:   # extra_health_checks: the job's health-check circuits (before the record says "complete")
+            hc_check = (self._check_extra_hc(exp_results_folder_path, record,
+                                             lambda sub, idx: CC.check_ibm(sub, [self._ibm_inputs_cache[job_id][i] for i in idx], record["nshots"]),
+                                             "IBM job.inputs['pubs'] vs the health-check ISA circuit") if service is not None
+                        else self._extra_hc_not_available(check))
+            self._save_extra_health_checks(exp_results_folder_path, record, nc, lambda i: self._hc_pub_counts(result[i]),
+                                           scheduled_at, finished_at, hc_check)
 
         record["created_at"]      = created_at
         record["scheduled_at"]    = scheduled_at
@@ -1463,7 +1539,7 @@ class bacq_ps_qbcs:
         return circuits
 
     def _check_executed_ibm(self, job, record, run_path, nc):
-        """Compare job.inputs['pubs'] (the circuits IBM ran) with the submitted ones. Never raises."""
+        """Compare job.inputs['pubs'] (IBM's copy of the job's circuits) with the submitted ones. Never raises."""
         try:
             cache = self.__dict__.setdefault("_ibm_inputs_cache", {})
             if record["job_id"] not in cache:          # a batched job is shared by several chunks
@@ -1493,7 +1569,7 @@ class bacq_ps_qbcs:
             return CC.check_failed("IQM GET jobs/{id}/payload vs submitted ISA circuits", e)
 
     def _check_executed_iqm_vlq(self, job, record, run_path, nc):
-        """Compare the circuits VLQ's server ran (qaas job.get_transpiled_circuits()) with the
+        """Compare qaas's copy of the job's circuits (job.get_transpiled_circuits()) with the
         submitted ones. Never raises."""
         method = "VLQ job.get_transpiled_circuits() vs submitted ISA circuits"
         try:
@@ -1645,6 +1721,8 @@ class bacq_ps_qbcs:
         self.CONFIG["folder_path"] = None
         self.TIMESTAMP_FILE        = None
         self._fake_job_registry    = {}
+        self.extra_health_checks   = None
+        self._extra_hc_isa = self._extra_hc_file = None
         print(f"  ⚠️  [Submit] The next submit will take circuits with linear nearest neighbor = {self.CONFIG["lnn_architecture"]}.")
 
 
@@ -1690,11 +1768,10 @@ class bacq_ps_qbcs:
             assert len(spam_isa[0].cregs) > 0, "SPAM ISA circuits have no classical registers!"
 
         # ── Accumulate circuits + compute offsets ─────────────────────────────
-        all_circuits     = []
-        chunk_offsets    = {}
         n_circ_per_chunk = None
 
         transpiled = {}
+        chunk_circuits = []
         for nc in batch_chunk_ids:
             isa_circuits = self.transpile_chunk_for_backend_to_isa(nc, backend)
             transpiled[nc] = dict(self._last_transpile)
@@ -1705,19 +1782,14 @@ class bacq_ps_qbcs:
                 print(f"  [Batch] Circuit 0: depth={isa_circuits[0].depth()}, "
                       f"gates={dict(isa_circuits[0].count_ops())}, "
                       f"layout={final_physical_qubits(isa_circuits[0])}")
-            spam_start = len(all_circuits)
-            all_circuits += spam_isa + isa_circuits
-            circ_start  = spam_start + n_spam
-            circ_end    = circ_start + n_circ_per_chunk
-            chunk_offsets[nc] = {
-                "spam_start": spam_start,
-                "circ_start": circ_start,
-                "circ_end":   circ_end,
-            }
+            chunk_circuits.append((nc, isa_circuits))
+        hc_mode = self._hc_mode()   # extra_health_checks: the health-check circuits around each chunk (per-chunk) or the job (per-job)
+        all_circuits, chunk_offsets = pack_job_circuits(chunk_circuits, spam_isa, self._extra_hc_isa if hc_mode else None, hc_mode)
 
         print(f"  [Batch {batch_chunk_ids[0]}–{batch_chunk_ids[-1]}] "
               f"Total circuits: {len(all_circuits)} "
-              f"({len(batch_chunk_ids)} chunks × {n_spam + n_circ_per_chunk})")
+              f"({len(batch_chunk_ids)} chunks × {n_spam + n_circ_per_chunk}"
+              + (f" + {len(all_circuits) - len(batch_chunk_ids) * (n_spam + n_circ_per_chunk)} health-check circuits)" if hc_mode else ")"))
 
         # ── Submit one job ────────────────────────────────────────────────────
         try:
@@ -1760,6 +1832,8 @@ class bacq_ps_qbcs:
                 "nsites":             self.CONFIG["nsites"],
                 "CONFIG":             saved_config(self.CONFIG)
             }
+            if hc_mode:
+                record.update(self._hc_record_fields(chunk_offsets[nc], len(all_circuits), batch_chunk_ids))
             archive_failed_record(record_path.parent, nc)   # keep a failed attempt's record (and its cost)
             write_job_record(record_path, record)
             print(f"  [Chunk {nc}] Record saved → {rel_path(record_path)}")
@@ -1770,19 +1844,128 @@ class bacq_ps_qbcs:
         gc.collect()
 
 
+    def _hc_mode(self):
+        """"per-chunk" | "per-job" when health-check circuits go inside the submitted jobs (extra_health_checks), else None."""
+        return extra_hc_mode(getattr(self, "extra_health_checks", None))
+
+    def _prepare_extra_health_check(self, backend, layout_backend=None):
+        """With extra_health_checks on, transpile the 3-qubit health-check circuit once for the run (health_check._health_check_isa(),
+        cached in the run's transpiled_circuits/ and shared with the standalone health checks: the same backend, qubits, reps and
+        scheduling_simulation) and keep it in self._extra_hc_isa, its file name in self._extra_hc_file, for the job packing.
+        backend: the QPU the run is transpiled for (a local simulation: the sampler, unused); layout_backend: a local noisy
+        simulation's snapshot backend (None for a noiseless local run: a generic AerSimulator, no qubits pinned).
+        Call it once the run's physical qubits are resolved. Without the option it only clears the attributes."""
+        self._extra_hc_isa = self._extra_hc_file = None
+        if self._hc_mode() is None:
+            return
+        from source.core.health_check import build_qpu_health_check_circuit, _health_check_isa
+        qubit_set = getattr(self, "_physical_qubits", None)
+        if self.CONFIG.get("service") == "local":
+            if layout_backend is None:
+                from qiskit_aer import AerSimulator
+                target, qubit_set = AerSimulator(), None
+            else:
+                target = layout_backend
+        else:
+            target = backend
+        self._extra_hc_isa, self._extra_hc_file, _ = _health_check_isa(
+            self.CONFIG["folder_path"], build_qpu_health_check_circuit(reps=1), target, qubit_set, 1,
+            self.scheduling_simulation is not False)
+
+    def _hc_record_fields(self, offsets, n_in_job, job_chunks):
+        """The job-record fields of a job with health-check circuits: the mode, the health-check circuit's file in
+        transpiled_circuits/, the job's circuit count and the chunk's offsets (spam_start, circ_start, circ_end, hc_pre_idx,
+        hc_post_idx: indices into the job's circuits), and with per-job the chunks sharing the job. {} without the option,
+        so a job record then is what it always was."""
+        mode = self._hc_mode()
+        if mode is None:
+            return {}
+        return {"extra_health_checks": mode, "extra_hc_circuit_file": self._extra_hc_file, "n_circuits_in_job": n_in_job,
+                **offsets, **({"job_chunks": [int(c) for c in job_chunks]} if mode == "per-job" else {})}
+
+    @staticmethod
+    def _hc_pub_counts(pub_result):
+        """Counts of one circuit of a SamplerV2 result (IBM, Aer): the health-check circuit's register is `c`, the chunks' `meas`."""
+        data = pub_result.data
+        return (data.c if hasattr(data, "c") else data.meas).get_counts()
+
+    def _save_extra_health_checks(self, run_path, record, nc, counts_at, scheduled_at, finished_at, circuit_check=None):
+        """Save the two health-check circuits of chunk nc's job as extra health checks (health_checks/extra_*.json, see
+        health_check_records.extra_health_check_record()). No-op for a record without hc_pre_idx (a job without the option).
+        record: the chunk's job record; counts_at(index): the raw counts of the job's circuit at that index (bitstrings reversed
+        here, as the standalone health check does, whatever the chunks' lang); scheduled_at / finished_at: the job's
+        execution window (any timestamp or 'N/A'). circuit_check: {"pre": check, "post": check} (_check_extra_hc() or
+        _extra_hc_not_available()), None = none stored. Idempotent (save_extra_health_check()): a per-job job writes its pair once,
+        a re-collection nothing. Prints a warning for a degraded check; never exits."""
+        if record.get("hc_pre_idx") is None:
+            return
+        from source.core.records.job_timing import iso_utc
+        mode   = record["extra_health_checks"]
+        chunks = record.get("job_chunks") or [nc]
+        layout = record.get("layout")
+        if not isinstance(layout, dict):
+            pq_file = Path(run_path) / "transpiled_circuits" / "physical_qubits.json"
+            pq      = json.loads(pq_file.read_text(encoding="utf-8"))["physical_qubits"] if pq_file.exists() else None
+            layout  = {str(v): q for v, q in enumerate(pq)} if pq else "N/A"
+        p011, written = {}, False
+        for position, key in (("pre", "hc_pre_idx"), ("post", "hc_post_idx")):
+            idx = record[key]
+            hc  = extra_health_check_record(
+                mode=mode, position=position, chunks=chunks, circuit_index=idx, n_circuits_in_job=record["n_circuits_in_job"],
+                counts={k[::-1]: v for k, v in counts_at(idx).items()}, nshots=record["nshots"], layout=layout,
+                backend_name=record["backend_name"], service_name=record.get("service_name"), job_id=record.get("job_id"),
+                submitted_at=record.get("submitted_at"), scheduled_at=iso_utc(scheduled_at), finished_at=iso_utc(finished_at),
+                circuit_check=(circuit_check or {}).get(position))
+            _, was_written = save_extra_health_check(run_path, hc)
+            written = written or was_written
+            if was_written and hc.get("circuit_check"):
+                _warn_circuit_check(f"Extra health check (chunk {nc}, {position})", hc["circuit_check"])
+            p011[position] = hc["P011"]
+            if was_written and hc["verdict"] != "functional":
+                print(f"  ⚠️  [Chunk {nc}] Extra health check ({position}, circuit {idx} of the job) found the QPU degraded: "
+                      f"P(011)={hc['P011']:.3f}")
+        if written:
+            print(f"  [Chunk {nc}] Extra health checks ({mode}): P(011) {p011['pre']:.3f} before, {p011['post']:.3f} after")
+
+    @staticmethod
+    def _extra_hc_not_available(check):
+        """The circuit_check of both extra health-check slots of a job whose provider can't return the executed circuits
+        (the chunk's not_available check): {"pre": ..., "post": ...}."""
+        return {"pre": check, "post": dict(check)}
+
+    def _check_extra_hc(self, run_path, record, compare, method):
+        """circuit_check of each of a job's two health-check slots, {"pre": check, "post": check}: compare([submitted], [index])
+        with submitted = the saved health-check ISA circuit and index = hc_pre_idx / hc_post_idx, returning a circuit_check dict.
+        A slot that fails to compare gets check_failed; the other is unaffected. Never raises."""
+        out = {}
+        try:
+            hc = CC.load_qpy(Path(run_path) / "transpiled_circuits" / record["extra_hc_circuit_file"])[0]
+        except Exception as e:
+            return {"pre": CC.check_failed(method, e), "post": CC.check_failed(method, e)}
+        for position, key in (("pre", "hc_pre_idx"), ("post", "hc_post_idx")):
+            try:
+                out[position] = compare([hc], [record[key]])
+            except Exception as e:
+                out[position] = CC.check_failed(method, e)
+        return out
+
     def _circuits_per_chunk(self):
-        """Circuits one chunk contributes to a job: its SPAM circuits (one per basis state) + its own."""
-        return (2**self.CONFIG["nsites"] if self.CONFIG["SPAM_correction"] else 0) + self.chunk_size
+        """Circuits one chunk contributes to a job: its SPAM circuits (one per basis state) + its own, + the two health-check
+        circuits around it with extra_health_checks=per-chunk."""
+        return ((2**self.CONFIG["nsites"] if self.CONFIG["SPAM_correction"] else 0) + self.chunk_size
+                + (2 if self._hc_mode() == "per-chunk" else 0))
 
     def _chunks_per_iqm_job(self, max_circuits_per_job):
         """How many whole chunks (each with its own SPAM circuits) fit into one IQM job
-        of at most max_circuits_per_job circuits."""
+        of at most max_circuits_per_job circuits. extra_health_checks=per-chunk adds 2 circuits to every chunk, per-job takes 2 off
+        the job's limit."""
         n_spam      = 2**self.CONFIG["nsites"] if self.CONFIG["SPAM_correction"] else 0   # one SPAM circuit per basis state
-        per_chunk   = n_spam + self.chunk_size
-        n_per_job   = max_circuits_per_job // per_chunk
+        per_chunk   = self._circuits_per_chunk()   # SPAM + the chunk's circuits (+ 2 health checks with per-chunk)
+        budget      = max_circuits_per_job - (2 if self._hc_mode() == "per-job" else 0)
+        n_per_job   = budget // per_chunk
         assert n_per_job >= 1, (
-            f"One chunk ({n_spam} SPAM + {self.chunk_size} circuits = {per_chunk}) does not fit "
-            f"into a job of at most {max_circuits_per_job} circuits.")
+            f"One chunk ({n_spam} SPAM + {self.chunk_size} circuits{' + 2 health checks' if self._hc_mode() == 'per-chunk' else ''} "
+            f"= {per_chunk}) does not fit into a job of at most {budget} circuits.")
         return n_per_job
 
     def submit_batch_iqm(self, batch_chunk_ids, backend, service_name, max_circuits_per_job):
@@ -1827,19 +2010,17 @@ class bacq_ps_qbcs:
 
         # ── Accumulate circuits + compute offsets ─────────────────────────────
         from source.core.qpu.layout_selection import final_physical_qubits
-        all_circuits, offsets, transpiled, n_circuits = [], {}, {}, {}
+        transpiled, n_circuits, chunk_circuits = {}, {}, []
         for nc in todo:
             isa_circuits = self.transpile_chunk_for_backend_to_isa(nc, backend)
             transpiled[nc] = dict(self._last_transpile)
             assert len(isa_circuits[0].cregs) > 0, f"Chunk {nc} ISA circuits have no classical registers!"
             print(f"  [Chunk {nc}] Circuit 0: depth={isa_circuits[0].depth()}, "
                   f"gates={dict(isa_circuits[0].count_ops())}, layout={final_physical_qubits(isa_circuits[0])}")
-            spam_start     = len(all_circuits)
-            all_circuits  += spam_isa + isa_circuits
             n_circuits[nc] = len(isa_circuits)
-            offsets[nc]    = {"spam_start": spam_start,
-                              "circ_start": spam_start + n_spam,
-                              "circ_end":   spam_start + n_spam + len(isa_circuits)}
+            chunk_circuits.append((nc, isa_circuits))
+        hc_mode = self._hc_mode()   # extra_health_checks: the health-check circuits around each chunk (per-chunk) or the job (per-job)
+        all_circuits, offsets = pack_job_circuits(chunk_circuits, spam_isa, self._extra_hc_isa if hc_mode else None, hc_mode)
         n_in_job = len(all_circuits)
         assert n_in_job <= max_circuits_per_job, (
             f"IQM job of chunks {todo} has {n_in_job} circuits > limit {max_circuits_per_job}")
@@ -1883,6 +2064,7 @@ class bacq_ps_qbcs:
                 "n_circuits":         n_circuits[nc],
                 "n_circuits_in_job":  n_in_job,
                 **offsets[nc],
+                **(self._hc_record_fields({}, n_in_job, todo) if hc_mode else {}),
                 "submitted_circuit_files": self._submitted_circuit_files(nc, n_spam),
                 # submit_s: the one submission of the whole job (shared by its chunks)
                 "timing":             {**submit_timing(**transpiled[nc], submit_s=submit_s),
@@ -2026,19 +2208,18 @@ class bacq_ps_qbcs:
         layout_dict  = {str(v): p for v, p in enumerate(final_qubits)} if final_qubits else "N/A"
 
         # ── Add SPAM circuits if enabled ──────────────────────────────────────
+        spam_isa = []
         if self.CONFIG["SPAM_correction"]:
             spam_qpy = Path(get_run_subfolder(self.CONFIG, "transpiled_circuits")) / "spam_transpiled.qpy"
             assert spam_qpy.exists(), "Call transpile_spam_for_backend_to_isa(backend) first."
-            with open(spam_qpy, "rb") as f: 
+            with open(spam_qpy, "rb") as f:
                 spam_isa = load(f)
-            all_circuits = spam_isa + isa_circuits
-            n_spam       = len(spam_isa)
             assert len(spam_isa[0].cregs) > 0,    "SPAM ISA circuits have no classical registers!"
-            assert len(isa_circuits[0].cregs) > 0, "ISA circuits have no classical registers!"
-        else:
-            all_circuits = isa_circuits
-            n_spam       = 0
-            assert len(isa_circuits[0].cregs) > 0, "ISA circuits have no classical registers!"
+        n_spam = len(spam_isa)
+        assert len(isa_circuits[0].cregs) > 0, "ISA circuits have no classical registers!"
+        hc_mode = self._hc_mode()   # extra_health_checks: a chunk is one job, so per-chunk and per-job pack alike
+        all_circuits, offs = pack_job_circuits([(nc, isa_circuits)], spam_isa, self._extra_hc_isa if hc_mode else None, hc_mode)
+        off = offs[nc]
 
         # ── Deterministic QPU-time estimate (queue-independent) ───────────────
         shots = self.CONFIG["shots"]
@@ -2046,9 +2227,10 @@ class bacq_ps_qbcs:
             qpu_us_main = sum(aqt_circuit_qpu_us(c) for c in isa_circuits) * shots
             qpu_us_spam = (sum(aqt_circuit_qpu_us(c) for c in spam_isa) * shots
                            if self.CONFIG["SPAM_correction"] else 0.0)
+            qpu_us_hc   = aqt_circuit_qpu_us(self._extra_hc_isa) * shots * 2 if hc_mode else 0.0   # the job's two health-check circuits
         except ValueError as e:
             print(f"  [Chunk {nc}] QPU-time estimate skipped: {e}")
-            qpu_us_main = qpu_us_spam = None
+            qpu_us_main = qpu_us_spam = qpu_us_hc = None
 
         # ── Submit: shot parts x batches of 50 (qiskit-aqt-provider limit) ─────
         # The qiskit-aqt-provider client rejects a job of more than 50 circuits (its payload model, not an
@@ -2161,8 +2343,8 @@ class bacq_ps_qbcs:
         finished_at  = parts[-1]["finished_at"]
 
         # ── Split merged results into SPAM and main circuits
-        spam_raw    = [all_results[si] for si in range(n_spam)]
-        all_counts  = [all_results[n_spam + ci] for ci in range(len(isa_circuits))]
+        spam_raw    = [all_results[off["spam_start"] + si] for si in range(n_spam)]
+        all_counts  = [all_results[off["circ_start"] + ci] for ci in range(len(isa_circuits))]
 
         # spam_raw   = [result.get_counts(all_circuits[si]) for si in range(n_spam)]
         # all_counts = [result.get_counts(all_circuits[n_spam + ci]) for ci in range(len(isa_circuits))]
@@ -2219,7 +2401,7 @@ class bacq_ps_qbcs:
         print_chunk_saved(nc, n_spam, len(measurement_counts), len(fidelity_nec_dict))
 
         # ── Save job record as complete ───────────────────────────────────────
-        qpu_s_physics = None if qpu_us_main is None else round((qpu_us_main + qpu_us_spam) / 1e6, 6)
+        qpu_s_physics = None if qpu_us_main is None else round((qpu_us_main + qpu_us_spam + qpu_us_hc) / 1e6, 6)   # the health-check circuits included
         record = {
             "backend_name":              str(backend),
             "service_name":              PCSS,
@@ -2237,6 +2419,7 @@ class bacq_ps_qbcs:
             "qpu_seconds_estimate":      qpu_s_physics,
             "qpu_seconds_estimate_main": None if qpu_us_main is None else round(qpu_us_main / 1e6, 6),
             "qpu_seconds_estimate_spam": None if qpu_us_spam is None else round(qpu_us_spam / 1e6, 6),
+            **({"qpu_seconds_estimate_extra_hc": None if qpu_us_hc is None else round(qpu_us_hc / 1e6, 6)} if hc_mode else {}),
             "nshots":                    self.CONFIG["shots"],                       # total per circuit, all parts
             "shot_parts":                shot_parts,                                 # shots of each execution of the chunk
             "max_shots_per_circuit":     AQT_MAX_SHOTS,
@@ -2254,6 +2437,11 @@ class bacq_ps_qbcs:
             "CONFIG": saved_config(self.CONFIG)
         }
         record["timing"]["collect_s"] = round(time.perf_counter() - collect_t0, 3)
+        if hc_mode:   # before the record says "complete": a rerun finds the files or writes them
+            record.update(self._hc_record_fields(off, len(all_circuits), [nc]))
+            self._save_extra_health_checks(self.CONFIG["folder_path"], record, nc, lambda i: all_results[i],
+                                           record["scheduled_at"], record["finished_at"],
+                                           self._extra_hc_not_available(record["circuit_check"]))
         archive_failed_record(record_path.parent, nc)   # keep a failed attempt's record (and its cost)
         write_job_record(record_path, record)
         self._log_timestamp(f"chunk{nc}_collect_end")
@@ -2301,7 +2489,7 @@ class bacq_ps_qbcs:
         write_run_info(self.CONFIG, os.path.join(PROJECT_ROOT, "datafiles", run_folder),
                        self.CONFIG["lnn_architecture"], circuits_qiskit_v13_qpy=self._qiskit_v13_qpy,
                        instance=self.run_instance[0], instance_plan=self.run_instance[1],
-                       scheduling_simulation=self.scheduling_simulation)
+                       scheduling_simulation=self.scheduling_simulation, extra_health_checks=self.extra_health_checks)
 
     def resolve_physical_qubits(self, backend, physical_qubits=None, run_folder=None, layout=None,
                                 layout_backend=None, calibration_source=None):
@@ -2789,6 +2977,8 @@ class bacq_ps_qbcs:
         record["finished_at"]   = finished_at
         record["result_path"]   = run_relative_path(exp_results_folder_path, "raw_results", "results_counts.json")
         record["circuit_check"] = CC.not_available("IQM EQE1 (MQSS) does not return the executed circuits")
+        self._save_extra_health_checks(exp_results_folder_path, record, nc, lambda i: result.counts[i], scheduled_at, finished_at,
+                                       self._extra_hc_not_available(record["circuit_check"]))
         merge_timing(record, **eqe_timing)
         write_job_record(record_path, record)
 
@@ -2930,6 +3120,24 @@ class bacq_ps_qbcs:
         else:
             check = self._check_executed_iqm_resonance(backend, record, exp_results_folder_path, nc)
         _warn_circuit_check(f"Chunk {nc}", check)
+        if record.get("hc_pre_idx") is not None:   # extra_health_checks: the job's health-check circuits (before the record says "complete")
+            if vlq:
+                hc_method = "VLQ job.get_transpiled_circuits() vs the health-check ISA circuit"
+                hc_exe    = []   # fetched once for both slots
+                def hc_cmp(sub, idx):
+                    if not hc_exe:
+                        hc_exe.extend(VLQ.transpiled_circuits(cache[job_id]["job"], job_id))
+                    return CC.check_vlq(sub, [hc_exe[i] for i in idx], hc_method)
+            else:
+                hc_method = "IQM GET jobs/{id}/payload vs the health-check ISA circuit"
+                def hc_cmp(sub, idx):
+                    payload = self._iqm_payload_cache[job_id]
+                    body    = payload.get("payload", payload)
+                    return CC.check_iqm(sub, {**body, "circuits": [body["circuits"][i] for i in idx]},
+                                        backend.index_to_qubit_name, record["nshots"])
+            hc_check = self._check_extra_hc(exp_results_folder_path, record, hc_cmp, hc_method)
+            self._save_extra_health_checks(exp_results_folder_path, record, nc, lambda i: all_results[i],
+                                           t.get("execution_start"), t.get("execution_end"), hc_check)
 
         record["scheduled_at"]  = t.get("execution_start") or "N/A"
         record["finished_at"]   = t.get("execution_end") or "N/A"

@@ -12,12 +12,11 @@ SAME pre-built circuits (see qbcs.reset_for_resubmit()). A ratio far below the e
 sqrt(shots) scaling would indicate coherent residual noise in that role's
 correction rather than ordinary shot noise.
 
-All six roles are safe to assert here, unlike test_01: RC/cRC's flakiness
-there came from Qiskit and myQLM each drawing their OWN independent random
-twirl in separate pipeline calls. Here, qbcs.build() (with a fixed rng_seed)
-runs once and both shot-count runs resubmit the SAME twirled circuits via
-reset_for_resubmit() — no cross-run twirl-sampling variance to confound the
-shot-noise-scaling check.
+All six roles are asserted here, as in test_01. Here, qbcs.build() (with a
+fixed rng_seed) runs once and both shot-count runs resubmit the SAME twirled
+circuits via reset_for_resubmit(), so there is no cross-run twirl-sampling
+variance to confound the shot-noise-scaling check; in test_01, Qiskit and
+myQLM each draw their OWN independent random twirl in separate pipeline calls.
 
 The analysis side runs through source/analysis_scripts/run_post_process.py's analyze_run()
 exactly as for a real-QPU run: the run's own settings (shots, samples, depths,

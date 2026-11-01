@@ -156,13 +156,15 @@ The full 480-chunk run simulates
 in about 4 h with the default `scheduling_simulation=true`, roughly an hour with `false` (≈ 8 s per chunk; measured with IBM Fez's calibration, Resonance's are similar), plus
 the usual circuit build.
 
+The submit and simulate scripts also take the optional `extra_health_checks=per-chunk|per-job|false`, which packs the 3-qubit health-check circuit into the submitted jobs themselves, so it runs with the chunks (`per-chunk`: before and after every chunk; `per-job`: before and after each job; not stated: the run's recorded value, `false` for a new run; a different value for an existing run folder exits with code 2). Collection writes `health_checks/extra_chunk_<nc>_{pre,post}.json` or `health_checks/extra_job_<first chunk>_{pre,post}.json`, which `plot_health_checks.py` plots beside the standalone checks (main USER_MANUAL §7); each record's `circuit_check` compares its slot with the job's payload.
+
 ## 5. Timing, billing and circuit check
 
 Every chunk and health-check record gets a `timing` block and a `circuit_check`:
 
 - **QPU time** (`qpu_s`): the time IQM Resonance bills, the job's raw `metrics.billed_seconds`. IQM Resonance bills per job: a failed job that reached IQM (it has a `job_id`) counts in full in the summary's QPU time and cost (all its chunks' circuits × `nshots`, once if several chunks share it); a submission failure without a `job_id`, and a job never collected, are not counted and are named in the cost text (main USER_MANUAL §7).
 - **Queue time** (`queue_s`): from the job's creation to `compilation_started` on IQM's server timeline.
-- **Circuit check**: the job's payload (`GET jobs/{id}/payload`) compared gate by gate with the submitted ISA
+- **Circuit check**: IQM's copy of the job's circuits (the payload, `GET jobs/{id}/payload`, which lists each operation's physical qubits, `locus`) compared gate by gate with the submitted ISA
   circuits in `transpiled_circuits/`. A mismatch is warned about and recorded, never fatal.
 - A failed job is recorded with the billed time and timeline IQM still reports.
 

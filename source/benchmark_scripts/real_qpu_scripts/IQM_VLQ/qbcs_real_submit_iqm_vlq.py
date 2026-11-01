@@ -29,7 +29,7 @@ usage_if_requested(sys.argv[1:], make_usage(__file__, "Submit a BACQ benchmark r
 
 from pathlib import Path
 from source.core.qpu import iqm_vlq as VLQ
-from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args, pop_force_new_run_flag, pop_retry_health_check_flag
+from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args, parse_extra_health_checks_arg, pop_force_new_run_flag, pop_retry_health_check_flag
 from source.core.runner_support.run_submission import submit_async_run, health_check_retry_folder
 from source.core.qbcs import VLQ_CHUNKS_PER_JOB
 
@@ -38,8 +38,9 @@ FORCE_NEW_RUN, ARGV = pop_force_new_run_flag(sys.argv[1:])   # --force-new-run: 
 RETRY_HC, ARGV = pop_retry_health_check_flag(ARGV)   # --retry-health-check (from the *_with_retries.py script): only the health check after the last chunks, in the latest run
 BACKEND_NAME, BACKEND_CFG = parse_backend_config(ARGV, Path(__file__).parent)   # required backend=NAME, checked against backends.json
 SERVICE_NAME = service_name("IQM_VLQ")   # the access platform, as records and qbcs call it (source/core/records/run_names.py)
-BENCH            = parse_benchmark_args(ARGV, extra_keys=("backend",))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
+BENCH            = parse_benchmark_args(ARGV, extra_keys=("backend", "extra_health_checks"))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
 LAYOUT           = parse_layout_args(ARGV, live_calibration="IQM VLQ")   # layout=optimized | random | lowest | 15,14,21 — see source/core/runner_support/benchmark_args.py
+EXTRA_HEALTH_CHECKS = parse_extra_health_checks_arg(ARGV)   # extra_health_checks=per-chunk|per-job|false (optional; None: the run's recorded value, else false): health-check circuits inside the submitted jobs
 SAMPLE_SIZE      = BENCH.sample_size
 LNN              = BACKEND_CFG["lnn"]   # the backend's topology, from backends.json
 DO_SPAM          = True
@@ -64,6 +65,7 @@ print(f"  Calibration set: {cal['calibration_set_id']}")
 submit_async_run(
     run_folder = RUN_FOLDER, backend_name = BACKEND_NAME, service_name = SERVICE_NAME,
     real_backend = real_backend, collect_service = real_backend,   # qaas backend — used for retrieve_job()
+    extra_health_checks = EXTRA_HEALTH_CHECKS,
     bench = BENCH, layout = LAYOUT, lnn = LNN, do_spam = DO_SPAM, chunks_to_submit = CHUNKS_TO_SUBMIT,
     submit_kwargs = dict(chunks_per_qpu_job_batch = CHUNKS_PER_JOB),
     config_extra = [("Chunks per job", f"{CHUNKS_PER_JOB}")],

@@ -11,7 +11,7 @@ are reused, and for finding a venv's interpreter:
     built without circuits_root() would land there.
   - check_circuit_cache_config() records CIRCUIT_CODE_VERSION in a new cache, reuses a
     cache of the same version, and refuses one of another version or without a version,
-    naming both versions.
+    naming both versions; extra_health_checks adds nothing to the cache config.
   - venv_python_path() gives Scripts/python.exe on Windows and bin/python elsewhere.
   - A missing token (read_token), a missing or incomplete LEXIS project file (iqm_vlq.read_project_info)
     end the script the same way (common.exit_with_error): one ❌ line on stderr, exit code 2
@@ -137,6 +137,13 @@ def test_scrub_paths_removes_project_and_home_folders():
     assert str(root) not in out and root.as_posix() not in out and str(home) not in out.replace("~", "")
     assert "source/y.py" in out and "~/.cfg" in out
     assert C.scrub_paths(None) is None
+
+
+def test_extra_health_checks_leave_the_cache_config_unchanged(version_root):
+    """The health-check circuit is added at submission only: the cache config holds no such key."""
+    C.check_circuit_cache_config(_config())
+    saved = json.loads((version_root / "all_to_all_Nt1-3" / C.CACHE_CONFIG_FILENAME).read_text(encoding="utf-8"))
+    assert not any("health" in k for k in saved)
 
 
 if __name__ == "__main__":

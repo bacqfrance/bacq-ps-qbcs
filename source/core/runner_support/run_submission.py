@@ -83,7 +83,7 @@ def _seconds_since_last_submission(run_path):
 def submit_async_run(*, run_folder, backend_name, service_name, real_backend, collect_service, bench, layout, lnn,
                      chunks_to_submit=None, do_spam=True, dt=DT, submit_kwargs=None, config_extra=(), log_extra_lines=(),
                      health_check_session=None, after_layout=None, collect_script=None, retry_health_check=False,
-                     skip_pre_check_within_s=None, instance=None):
+                     skip_pre_check_within_s=None, instance=None, extra_health_checks=None):
     """Submit run_folder's chunks without a submission record to real_backend; exits with
     EXIT_HC_NOT_SUBMITTED when the health check after the submission could not be submitted.
 
@@ -100,7 +100,10 @@ def submit_async_run(*, run_folder, backend_name, service_name, real_backend, co
     skip_pre_check_within_s: no health check before the submission when the run's latest job (chunk or health check)
     was submitted less than this many seconds ago, unless that job is a degraded health check or one before the chunks that was
     never collected (None: always check); instance: IBM's (instance name, plan), recorded in the
-    run's run_info.json (an existing record is kept). Returns the run folder path."""
+    run's run_info.json (an existing record is kept); extra_health_checks: the script's extra_health_checks=per-chunk|per-job|false
+    (parse_extra_health_checks_arg(); None: not stated), resolved against the run's recorded value before the first health check
+    (run_info.resolve_extra_health_checks(): a conflict exits with code 2), recorded in run_info.json and used by submit().
+    Returns the run folder path."""
     from source.core.qbcs import bacq_ps_qbcs
     from source.core.common import rel_path
     from source.core.health_check import require_functional_health_check, submit_post_health_check
@@ -109,6 +112,7 @@ def submit_async_run(*, run_folder, backend_name, service_name, real_backend, co
     from source.core.records.health_check_records import (install_submit_crash_log, format_chunk_range, EXIT_HC_NOT_SUBMITTED,
                                                           append_submit_log, print_run_config)
     from source.core.records.job_records import chunks_without_submission
+    from source.core.records.run_info import resolve_extra_health_checks
 
     nshots, sample_size, list_times = bench.nshots, bench.sample_size, bench.list_times
     chunk_size = int(len(list_times) * 6)           # 6 circuits per depth
@@ -131,6 +135,11 @@ def submit_async_run(*, run_folder, backend_name, service_name, real_backend, co
         print(f"\n✅ All {n_wanted} chunks already submitted — nothing to do.")
         sys.exit(0)
     print(f"  This submission:  chunks {format_chunk_range(todo)} ({len(todo)})")
+    # Health-check circuits inside the jobs: the mode of the run (its recorded one, else the stated one, else false) — before the
+    # first health check, so a conflicting value stops the script before anything is billed
+    extra_mode = resolve_extra_health_checks(run_folder, extra_health_checks)
+    if extra_mode != "false":
+        print(f"  Extra health checks: {extra_mode} (health-check circuits inside the submitted jobs)")
 
     # ── Build qbcs instance and the circuits (from the cache) ─────────────────────
     qbcs = bacq_ps_qbcs(
@@ -145,6 +154,7 @@ def submit_async_run(*, run_folder, backend_name, service_name, real_backend, co
         nshots                      = nshots,
         dt                          = dt,
     )
+    qbcs.extra_health_checks = extra_mode   # recorded in run_info.json by record_run_info() / submit(), used when the jobs are packed
     qbcs.build(circuit_transpilation_LNN=lnn)
     if instance is not None:
         qbcs.run_instance = tuple(instance)
@@ -189,6 +199,7 @@ def submit_async_run(*, run_folder, backend_name, service_name, real_backend, co
         backend           = real_backend,
         layout_connection = "linear_nearest_neighbor" if lnn else "all_to_all",
         chunks            = todo,
+        extra_health_checks = extra_mode,
         **(submit_kwargs or {}),
     )
     print_done_block(f"{len(todo)} chunk(s) submitted to {backend_name}: {format_chunk_range(todo)}",
@@ -212,6 +223,8 @@ def submit_async_run(*, run_folder, backend_name, service_name, real_backend, co
         )
 
     extra_lines = log_extra_lines() if callable(log_extra_lines) else list(log_extra_lines)
+    if extra_mode != "false":
+        extra_lines.append(f"Extra health checks: {extra_mode}")
     log_path = append_submit_log(run_folder_path, backend=backend_name, chunks=todo, n_chunks=sample_size, nshots=nshots,
                                  layout=layout_summary(layout, run_qubits, cal_source), run_qubits=run_qubits,
                                  extra_lines=extra_lines, post_hc_ok=post_hc_ok, post_hc_numbers=post_hc_numbers)

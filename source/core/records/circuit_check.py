@@ -1,13 +1,14 @@
 """
 circuit_check.py
-Check that the circuits a provider executed are exactly the ones we submitted, and
+Check that a provider's copy of the circuits matches the ones we submitted, and
 summarise those checks for the analysis. No myQLM; qiskit is imported inside functions.
 
-At collect time (source/core/qbcs.py, and source/core/health_check.py for health checks):
+At collect time (source/core/qbcs.py, and source/core/health_check.py for health checks; the same per slot for the extra health checks):
     IBM            the server's copy of the job's circuits, job.inputs["pubs"]
     IQM Resonance  the server's copy of the job's circuits, raw GET jobs/{id}/payload
-    IQM VLQ        the circuits the server ran, qaas job.get_transpiled_circuits()
-    IQM EQE1, AQT  not available — the services do not return the executed circuits
+    IQM VLQ        its copy of the job's circuits, qaas job.get_transpiled_circuits()
+    All three copies carry the physical qubits, so gates and qubits are compared.
+    IQM EQE1, AQT  not available — the services do not return the circuits
 Each chunk / health check record gets
     circuit_check = {status, method, n_submitted, n_executed, n_differences, differences, checked_at}
 (match / mismatch); not_available has {status, method (None), reason, checked_at} and
@@ -27,7 +28,10 @@ and old records converted to the current format) is checked instead for
 all of the run's transpiled circuits — chunks, the SPAM batch, the health checks — sitting on
 the same physical qubits (method 'qubit_consistency'). Legacy runs — old IBM, IQM Resonance
 and IQM EQE1 records without any circuit_check (job_timing.LEGACY_SERVICES) — get the same
-check under method 'legacy_qubit_consistency', and the summary says legacy_run=True. An old AQT
+check under method 'legacy_qubit_consistency', and the summary says legacy_run=True.
+The extra health checks (health_checks/extra_*.json, the health-check circuits inside the submitted jobs) have a
+circuit_check of their own, per slot (pre / post), and count in the "health_checks" summary as "extra chunk 1 post"; one
+without a circuit_check key (an older run) is left out. An old AQT
 record that was not converted to the current format stops the analysis.
 """
 
@@ -486,6 +490,28 @@ def summarize_circuit_checks(run_path, n_samples=None):
                                method))
         else:
             hc_entries.append((h["label"], MATCH, None, method))
+
+    # Extra health checks (health_checks/extra_*.json) count with the health checks, named "extra chunk 1 post" /
+    # "extra job 0 pre". One without a circuit_check (written before it existed) is left out, not failed. A not_available
+    # one is checked for the qubits of its own recorded layout (the health-check circuit's), like the numbered ones.
+    from source.core.records.health_check_records import load_extra_health_checks
+    for x in load_extra_health_checks(run_path):
+        if "circuit_check" not in x or not health_check_in_scope(x, n_samples):
+            continue
+        label = f"extra {'chunk' if x.get('mode') == 'per-chunk' else 'job'} {min(x['chunks'])} {x.get('position')}"
+        cc = x.get("circuit_check") or {}
+        st = cc.get("status")
+        if st in (MATCH, MISMATCH, CHECK_FAILED):
+            hc_entries.append((label, st, cc.get("differences") or cc.get("error"), "executed_vs_submitted"))
+            continue
+        lay = _hc_layout(x)
+        if lay is None:
+            hc_entries.append((label, NOT_AVAILABLE, {"reason": "no layout recorded"}, None))
+        elif ref is not None and lay != ref:
+            hc_entries.append((label, MISMATCH, {"reason": f"health check on qubits {list(lay)}, run on {list(ref)}"},
+                               "qubit_consistency"))
+        else:
+            hc_entries.append((label, MATCH, None, "qubit_consistency"))
 
     legacy.save()
     return {

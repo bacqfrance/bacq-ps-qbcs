@@ -641,7 +641,7 @@ def calibration_to_live(layout_backend, backend):
     calibration file (`layout_backend`, a snapshot backend) and executed on `backend`. IQM EQE1: {file qubit: live qubit}
     (eqe1_live_mapping(); its numbering differs from the file's). Any other QPU numbers its qubits as its calibration does, so
     None; AQT gets a guard instead: PIAST-Q's executed circuits are not returned, so the numbering cannot be checked afterwards,
-    and the file must at least list as many ions as the live backend (ValueError otherwise). Also None without a live Target."""
+    and the file must list the same number of ions as the live backend (ValueError otherwise). Also None without a live Target."""
     snap   = getattr(layout_backend, "snapshot", None)
     target = getattr(backend, "target", None)
     if snap is None or target is None or backend is layout_backend:

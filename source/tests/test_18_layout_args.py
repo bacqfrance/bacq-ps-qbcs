@@ -35,7 +35,9 @@ layouts in source/core/qpu/iqm_vlq.py):
     the graphs differ, an order-preserving matching as the fallback), the placements restricted to what the file and the live
     backend both have, the record holding physical_qubits (live) and calibration_qubits / calibration_to_live / calibration_numbering,
     a rerun converting recorded calibration_qubits / qubit_names to today's indices, AQT's ion-count guard, and the star
-    machines' qubit_index_map (Sirius's 16 numbered qubits) compared with the live backend's.
+    machines' qubit_index_map (Sirius's 16 numbered qubits) compared with the live backend's;
+  - the extra_health_checks= argument: parse_extra_health_checks_arg, resolve_extra_health_checks (the mode a run recorded) and
+    the usage text of the scripts that take it.
 """
 
 import sys, os
@@ -58,6 +60,7 @@ from qiskit.transpiler import InstructionProperties, Target
 from source.core.runner_support import benchmark_args as BA
 from source.core.qpu import iqm_star
 from source.core.qpu import iqm_vlq as V
+from source.core.records import run_info as RI
 from source.core.records.run_names import health_check_run_name, qpu_run_name, qpu_run_prefix
 from source.core.qpu.calibration_input import (detect_format, load_calibration, newest_provider_file, source_name,
                                       use_calibration_file)
@@ -215,9 +218,118 @@ def test_simulate_usage_shows_the_scheduling_argument():
     script = PROJECT / "source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/qbcs_real_simulate_iqm_eqe1.py"
     for form in ("simulate", "simulate_builtin", "simulate_required"):
         text = BA.make_usage(script, "x", backend=False, layout=form)
-        assert text.splitlines()[0].endswith("[scheduling_simulation=true|false]") and "SCHEDULING" in text
+        assert "[scheduling_simulation=true|false]" in text.splitlines()[0] and "SCHEDULING" in text
     for form in ("submit_live", "submit_no_live", "collect"):
         assert "scheduling_simulation" not in BA.make_usage(script, "x", layout=form)
+
+
+# ── extra_health_checks= (health-check circuits inside the submitted jobs) ─────
+def test_extra_health_checks_argument(capsys):
+    assert BA.parse_extra_health_checks_arg([]) is None and BA.parse_extra_health_checks_arg(["mini", "layout=random"]) is None
+    for mode in ("per-chunk", "per-job", "false"):
+        assert BA.parse_extra_health_checks_arg(["mini", f"extra_health_checks={mode}"]) == mode
+    for bad in (["extra_health_checks=true"], ["extra_health_checks="], ["extra_health_checks=per_chunk"],
+                ["extra_health_checks=per-job", "extra_health_checks=false"]):
+        with pytest.raises(SystemExit) as e:
+            BA.parse_extra_health_checks_arg(bad)
+        assert e.value.code == 2
+    assert "extra_health_checks" in capsys.readouterr().err
+    # benchmark parsing accepts the key only when the script passes it in extra_keys
+    BA.parse_benchmark_args(["mini", "extra_health_checks=per-job"], extra_keys=("extra_health_checks",), layout_args=False)
+    with pytest.raises(SystemExit) as e:
+        BA.parse_benchmark_args(["mini", "extra_health_checks=per-job"], layout_args=False)
+    assert e.value.code == 2
+
+
+def test_usage_shows_the_extra_health_checks_option_on_submit_and_simulate_forms_only():
+    script = PROJECT / "source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/qbcs_real_submit_iqm_eqe1.py"
+    for form in ("submit_live", "submit_no_live", "simulate", "simulate_builtin", "simulate_required"):
+        text = BA.make_usage(script, "x", backend=False, layout=form)
+        assert "[extra_health_checks=per-chunk|per-job|false]" in text.splitlines()[0] and "per-chunk | per-job | false" in text
+    assert "extra_health_checks" not in BA.make_usage(script, "x", layout="collect")
+    assert "[extra_health_checks=" in BA.make_usage(script, "x", backend=False, layout=None, extra_health_checks=True)   # the local simulation scripts
+
+
+def test_every_local_simulation_script_takes_the_extra_health_checks_option():
+    for script in (PROJECT / "source/benchmark_scripts/local_simulation_scripts").glob("benchmark_*.py"):
+        text = script.read_text(encoding="utf-8")
+        assert '"extra_health_checks"' in text and "extra_health_checks=EXTRA_HEALTH_CHECKS" in text, script.name
+
+
+def _run(tmp_path, recorded=None, started=False, name="run"):
+    """A run folder under tmp_path: run_info.json with extra_health_checks=recorded (the key left out when None) and, with
+    started, a job record."""
+    folder = tmp_path / name
+    folder.mkdir()
+    info = {"lnn": True}
+    if recorded is not None:
+        info["extra_health_checks"] = recorded
+    (folder / RI.MANIFEST_NAME).write_text(json.dumps(info), encoding="utf-8")
+    if started:
+        (folder / "job_records").mkdir()
+        (folder / "job_records" / "job_record_chunk_0.json").write_text("{}", encoding="utf-8")
+    return name
+
+
+@pytest.mark.parametrize("recorded", ["per-chunk", "per-job", "false"])
+def test_resolve_with_a_recorded_value(tmp_path, capsys, recorded):
+    run = _run(tmp_path, recorded=recorded, started=True)
+    assert RI.resolve_extra_health_checks(run, None, tmp_path) == recorded       # nothing stated: the recorded one
+    assert RI.resolve_extra_health_checks(run, recorded, tmp_path) == recorded   # same value stated
+    other = next(m for m in ("per-chunk", "per-job", "false") if m != recorded)
+    with pytest.raises(SystemExit) as e:
+        RI.resolve_extra_health_checks(run, other, tmp_path)                     # another value stated
+    assert e.value.code == 2
+    err = capsys.readouterr().err
+    assert "❌" in err and f"extra_health_checks={recorded}" in err and "--force-new-run" in err
+
+
+def test_resolve_with_a_recorded_value_before_any_job_record(tmp_path):
+    run = _run(tmp_path, recorded="per-job", started=False)   # manifest written after build(), before the first submission
+    assert RI.resolve_extra_health_checks(run, None, tmp_path) == "per-job"
+    with pytest.raises(SystemExit):
+        RI.resolve_extra_health_checks(run, "per-chunk", tmp_path)
+
+
+def test_resolve_without_a_record_but_with_job_records(tmp_path, capsys):
+    run = _run(tmp_path, recorded=None, started=True)   # a run made before the option, or started without it
+    assert RI.resolve_extra_health_checks(run, None, tmp_path) == "false"
+    assert RI.resolve_extra_health_checks(run, "false", tmp_path) == "false"
+    for stated in ("per-chunk", "per-job"):
+        with pytest.raises(SystemExit) as e:
+            RI.resolve_extra_health_checks(run, stated, tmp_path)
+        assert e.value.code == 2
+    assert "extra_health_checks=false" in capsys.readouterr().err
+
+
+def test_resolve_for_a_new_run(tmp_path):
+    for name in (_run(tmp_path, name="with_manifest"), "absent"):   # the manifest record_run_info() writes after build(), and no folder
+        assert RI.resolve_extra_health_checks(name, None, tmp_path) == "false"
+        for stated in ("per-chunk", "per-job", "false"):
+            assert RI.resolve_extra_health_checks(name, stated, tmp_path) == stated
+
+
+def test_a_resume_without_the_option_keeps_the_recorded_mode_and_a_legacy_manifest_reads_false(tmp_path):
+    run = _run(tmp_path, recorded="per-chunk", started=True)
+    assert RI.recorded_extra_health_checks(run, tmp_path) == "per-chunk"
+    assert RI.resolve_extra_health_checks(run, BA.parse_extra_health_checks_arg(["mini"]), tmp_path) == "per-chunk"
+    legacy = _run(tmp_path, recorded=None, started=True, name="legacy")   # legacy manifest: no key
+    assert RI.recorded_extra_health_checks(legacy, tmp_path) is None
+    assert RI.resolve_extra_health_checks(legacy, None, tmp_path) == "false"
+    assert RI.recorded_extra_health_checks("nope", tmp_path) is None
+
+
+def test_write_run_info_records_keeps_and_leaves_out_extra_health_checks(tmp_path):
+    cfg = {"shots": 10, "samples": 8, "T_list": [0.2], "dt": 0.2, "chunk_size": 4, "SPAM_correction": True}
+    folder = tmp_path / "run"
+    RI.write_run_info(cfg, folder, True)
+    assert "extra_health_checks" not in json.loads((folder / RI.MANIFEST_NAME).read_text(encoding="utf-8"))   # None: left out
+    RI.write_run_info(cfg, folder, True, extra_health_checks="per-job")
+    assert RI.recorded_extra_health_checks("run", tmp_path) == "per-job"
+    RI.write_run_info(cfg, folder, True)                                      # None keeps the recorded value
+    assert RI.recorded_extra_health_checks("run", tmp_path) == "per-job"
+    RI.write_run_info(cfg, folder, True, extra_health_checks="false")         # "false" is recorded too
+    assert RI.recorded_extra_health_checks("run", tmp_path) == "false"
 
 
 # ── choosing the layout ───────────────────────────────────────────────────────
@@ -250,7 +362,6 @@ def _timed_chain_target(t1_t2, d_1q=24e-9, d_2q=50e-9):
 
 
 def test_idle_decay_log_is_the_exact_relaxation_fidelity():
-    import math
     from source.core.qpu.layout_selection import idle_decay_log
     assert idle_decay_log(50e-6, 30e-6, 0.0) == pytest.approx(0.0)
     f = (1 + 2 * math.exp(-10 / 30) + math.exp(-10 / 50)) / 4
@@ -463,7 +574,6 @@ def test_incomplete_qubits_and_couplers_are_unusable_per_provider():
 
 
 def dead_not_used(t):
-    from source.core.qpu.layout_selection import all_placements, check_forced_layout
     assert all_placements(_chain3(), t) == []
     with pytest.raises(ValueError, match="not usable"):
         check_forced_layout(_chain3(), t, [1, 2, 3])

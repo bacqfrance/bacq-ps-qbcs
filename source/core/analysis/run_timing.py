@@ -436,12 +436,19 @@ def qpu_queue_breakdown(run_path, nchunks=None, service=None):
     }
 
 
+def extra_hc_circuits(rec, first_of_job):
+    """Health-check circuits a job record adds to its job's workload (extra_health_checks): 2 per chunk with per-chunk, 2 per
+    job with per-job (counted on the job's first record seen), 0 without the option."""
+    mode = rec.get("extra_health_checks")
+    return 2 if mode == "per-chunk" or (mode == "per-job" and first_of_job) else 0
+
+
 def qpu_workload(run_path, nchunks=None):
     """What a run sent to the QPU, for pricing it: jobs, circuits and shots of the
     complete chunk records and accompanying health checks — the same records
     qpu_queue_breakdown() times. Chunks sharing a job_id form one job (IBM packs 48 per
     job, IQM several in the mini benchmark); a chunk without one (AQT) and every health
-    check (one circuit) are a job each. A chunk holds n_circuits + n_spam circuits, each
+    check (one circuit) are a job each. A chunk holds n_circuits + n_spam circuits (plus extra_hc_circuits()), each
     executed once per entry of its shot_parts (AQT splits more than 200 shots per circuit
     into several executions; records without the field ran once). The circuits and shots
     the failed attempts executed (n_failed_jobs, n_failed_circuits, n_failed_shots, from
@@ -466,11 +473,12 @@ def qpu_workload(run_path, nchunks=None):
         n_circ = int(rec.get("n_spam") or 0) + int(rec.get("n_circuits") or 0)
         n_exec = len(rec.get("shot_parts") or [rec["nshots"]])
         n_split_chunks += n_exec > 1
+        n_extra = extra_hc_circuits(rec, key not in jobs)
         job = jobs.setdefault(key, [0, 0])
         chunks_in_job[key] = chunks_in_job.get(key, 0) + 1
         circuits_per_chunk = max(circuits_per_chunk, n_circ)
-        job[0] += n_circ * n_exec
-        job[1] += n_circ * int(rec["nshots"])
+        job[0] += (n_circ + n_extra) * n_exec
+        job[1] += (n_circ + n_extra) * int(rec["nshots"])
     n_chunk_jobs = len(jobs)
     uncollected = {key_of(nc, rec) for nc, rec in records.items() if rec.get("status") == "submitted"}
     for i, h in enumerate(run_health_check_records(run_path)):
@@ -545,6 +553,7 @@ def failed_attempts_breakdown(run_path, nchunks=None):
             reached = rec.get("job_id") not in (None, "", "N/A") and rec.get("failure_stage") != "submission"
             if reached and not sync:        # per-job billing: all the chunks' circuits of the job
                 n_circ = int(rec.get("n_spam") or 0) + int(rec.get("n_circuits") or 0)
+                n_circ += extra_hc_circuits(rec, key not in per_job)
                 pj = per_job.setdefault(key, [0, 0, 0])
                 pj[0] += 1
                 pj[1] += n_circ

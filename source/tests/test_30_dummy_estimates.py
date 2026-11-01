@@ -11,7 +11,8 @@ Unit tests (no simulation build, no network, temporary folders) for the dummy no
   - a null or missing term of the definitions is an error, never 0; all eight shipped definitions are valid;
   - dummy_estimates.json: written once (a resumed run keeps its inputs), no absolute path;
   - run_jobs(): a run's chunk jobs (SPAM circuits first) and accompanying health checks read from a cached circuit
-    folder and the job / health-check records, scoped to the first n_samples chunks;
+    folder and the job / health-check records, scoped to the first n_samples chunks, with the extra_health_checks
+    circuits of the jobs counted per mode;
   - the driver's rule dummy_run_folder(): a finished run is skipped (no #2), an unfinished one is resumed, none is new.
 """
 
@@ -174,6 +175,23 @@ def test_run_jobs_from_the_cache_and_records(tmp_path, monkeypatch):
     total = DE.modelled_qpu_time(jobs, forte)[0]
     one = lambda c, shots: shots * (forte["per_shot_overhead"] + c[0] * forte["t_1q"] + c[1] * forte["t_2q"] + forte["t_meas"])
     assert total == pytest.approx(2 * (2 * one((1, 0, 2), 10) + one((1, 1, 2), 10)) + one((3, 4, 3), 100))
+
+
+@pytest.mark.parametrize("fields, n_hc", [({}, [0, 0]), ({"extra_health_checks": "false"}, [0, 0]),
+                                          ({"extra_health_checks": "per-chunk"}, [2, 2]),
+                                          ({"extra_health_checks": "per-job"}, [2, 2]),
+                                          ({"extra_health_checks": "per-job", "job_chunks": [0, 1]}, [2, 0])])
+def test_run_jobs_counts_the_health_check_circuits_inside_the_jobs(tmp_path, monkeypatch, fields, n_hc):
+    monkeypatch.setattr(DE, "chunk_scope", lambda *a: None)
+    monkeypatch.setattr(DE, "_cache_top", lambda *a: "top")
+    monkeypatch.setattr(DE, "get_chunk_folder", lambda *a: str(tmp_path))
+    monkeypatch.setattr(DE, "_qpy_counts", lambda path: [(1, 1, 2)])
+    (tmp_path / "job_records").mkdir()
+    for nc in range(2):
+        (tmp_path / "job_records" / f"job_record_chunk_{nc}.json").write_text(
+            json.dumps({"chunk_id": nc, "status": "complete", "nshots": 10, "n_spam": 0, "n_circuits": 1, **fields}), encoding="utf-8")
+    jobs = DE.run_jobs(tmp_path, type("Info", (), {"circuits_qiskit_v13_qpy": True})(), {})
+    assert [j["circuits"] for j in jobs] == [[(1, 1, 2)] + [DE.health_check_counts()] * n for n in n_hc]
 
 
 def _run_folder(root, name, collected, sample_size=2):

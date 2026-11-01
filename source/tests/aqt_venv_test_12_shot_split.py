@@ -24,7 +24,8 @@ Unit tests (no simulator, no QPU, no network) for AQT's 200-shots-per-circuit li
   - health_check.submit_health_check: that timeout in an accompanying health check leaves a failed record
     (queue and transpile time, no QPU time) that the failed-attempts analysis counts;
   - run_timing.qpu_workload: each execution of a split chunk counts as circuits,
-    the shots are the total.
+    the shots are the total;
+  - extra_health_checks: the health-check circuits sit around the chunk in every shot part.
 """
 
 import sys, os
@@ -337,3 +338,31 @@ def test_unsplit_chunk_runs_once(tmp_path):
     rec = json.loads((tmp_path / "job_records" / "job_record_chunk_0.json").read_text(encoding="utf-8"))
     assert rec["shot_parts"] == [10] and rec["n_executed_circuits"] == N_SPAM + N_MAIN
     assert RT.qpu_workload(tmp_path)["n_split_chunks"] == 0
+
+
+def test_extra_health_checks_sit_around_the_chunk_in_every_shot_part(tmp_path):
+    """extra_health_checks: [HC, SPAM, chunk, HC] in each part; SPAM and chunk results are still read at their own positions."""
+    obj, backend = _qbcs(tmp_path, 450), _StubAQT()
+    obj.extra_health_checks = "per-chunk"
+    obj._extra_hc_isa, obj._extra_hc_file = _circuits(1)[0], "health_check_transpiled.qpy"
+    obj.submit_chunk_aqt(0, backend)
+
+    n_job = N_SPAM + N_MAIN + 2
+    assert backend.calls == [(n_job, 150)] * 3
+    rec = json.loads((tmp_path / "job_records" / "job_record_chunk_0.json").read_text(encoding="utf-8"))
+    assert (rec["hc_pre_idx"], rec["spam_start"], rec["circ_start"]) == (0, 1, 1 + N_SPAM)
+    assert (rec["circ_end"], rec["hc_post_idx"], rec["n_circuits_in_job"]) == (1 + N_SPAM + N_MAIN, n_job - 1, n_job)
+
+    pre = json.loads((tmp_path / "health_checks" / "extra_chunk_0_pre.json").read_text(encoding="utf-8"))
+    post = json.loads((tmp_path / "health_checks" / "extra_chunk_0_post.json").read_text(encoding="utf-8"))
+    assert pre["counts"] == {"000": 447, "111": 3} and pre["scheduled_at"] is None
+    assert sum(post["counts"].values()) == 450 and post["circuit_index"] == n_job - 1
+    assert pre["circuit_check"]["status"] == post["circuit_check"]["status"] == "not_available"   # AQT returns no executed circuits
+
+    # The stub gives position 0 (the health check) all zeros, so SPAM's first circuit (position 1) must not be all zeros
+    spam = json.loads((tmp_path / "raw_results" / "spam_calibration_counts_per_chunk.json").read_text(encoding="utf-8"))["chunk_0"]
+    first = next(iter(spam.values()))
+    assert len(spam) == N_SPAM and max(first, key=first.get) != "000"
+
+    w = RT.qpu_workload(tmp_path)
+    assert w["n_circuits"] == 3 * n_job and w["n_shots"] == 450 * n_job

@@ -14,8 +14,7 @@ sys.stderr.reconfigure(encoding="utf-8")
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../..")))   # the project root, for the source.* imports
 os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../..")))   # datafiles/ paths are relative to the project root
 from source.core.records.run_names import health_check_run_name, service_name, dated_run_folder
-from source.core.qpu.providers import IQM_RESONANCE_URL
-from source.core.qpu.providers import STANDALONE_HEALTH_CHECK_REPS, STANDALONE_HEALTH_CHECK_NSHOTS
+from source.core.qpu.providers import IQM_RESONANCE_URL, STANDALONE_HEALTH_CHECK_REPS, STANDALONE_HEALTH_CHECK_NSHOTS
 from source.core.runner_support.benchmark_args import make_usage, usage_if_requested   # light (numpy only): the usage is printed before anything else loads
 from source.core.qpu.tokens import read_token
 usage_if_requested(sys.argv[1:], make_usage(__file__, "Health check of an IQM Resonance QPU: submit and collect in one go. Standalone, unrelated to any benchmark run.", benchmark=False))   # no arguments or --help: print the usage and do nothing

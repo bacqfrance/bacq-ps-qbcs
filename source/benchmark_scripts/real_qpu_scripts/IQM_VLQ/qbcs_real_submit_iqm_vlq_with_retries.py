@@ -25,7 +25,7 @@ usage_if_requested(sys.argv[1:], make_usage(__file__, "Submit a BACQ benchmark r
 
 from pathlib import Path
 from source.core.qpu import iqm_vlq as VLQ
-from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args, pop_force_new_run_flag
+from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args, parse_extra_health_checks_arg, pop_force_new_run_flag
 from source.core.runner_support.submit_with_retries import run_with_retries, launch_submit_script, PAUSE_S
 
 SUBMIT_SCRIPT = Path(__file__).parent / "qbcs_real_submit_iqm_vlq.py"
@@ -34,8 +34,9 @@ WAIT_AFTER_FAILED_SUBMIT_S = PAUSE_S   # VLQ: a failed launch that submitted no 
 # ── Config: the same arguments as qbcs_real_submit_iqm_vlq.py, which decide the run folder ──
 FORCE_NEW_RUN, ARGV = pop_force_new_run_flag(sys.argv[1:])   # --force-new-run: only for the first launch (a new folder); later passes resume it
 BACKEND_NAME, BACKEND_CFG = parse_backend_config(ARGV, Path(__file__).parent)   # required backend=NAME, checked against backends.json
-BENCH            = parse_benchmark_args(ARGV, extra_keys=("backend",))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
+BENCH            = parse_benchmark_args(ARGV, extra_keys=("backend", "extra_health_checks"))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
 LAYOUT           = parse_layout_args(ARGV, live_calibration="IQM VLQ")   # layout=optimized | random | lowest | 15,14,21 — see source/core/runner_support/benchmark_args.py
+parse_extra_health_checks_arg(ARGV)   # validated here; the submit script gets it with the other arguments and resolves it against the run
 LNN              = BACKEND_CFG["lnn"]   # the backend's topology, from backends.json
 DO_SPAM          = True
 UNDATED          = qpu_run_name("IQM_VLQ", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag)   # the run settings; the run folder is the dated one of these (dated_run_folder)

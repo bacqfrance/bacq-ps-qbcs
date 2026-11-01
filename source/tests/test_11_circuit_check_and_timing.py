@@ -29,7 +29,9 @@ Unit tests (no simulator, no QPU, no network) for
     client._executor.client.send_request, the timeline and calibration set id through client.get_job();
   - the queue total is the longest wait except on AQT; the AQT transpile rate comes from the runs that measured it;
   - layout selection (source/core/qpu/layout_selection.py): the native single-qubit gates are counted on
-    the circuit transpiled onto one SWAP-free probe placement (the same on every placement).
+    the circuit transpiled onto one SWAP-free probe placement (the same on every placement);
+  - extra_health_checks (health-check circuits inside the jobs): the workload counts their circuits, and the
+    health_checks/extra_*.json files are named by mode, written once per job and loaded back.
 """
 
 import sys, os
@@ -586,3 +588,71 @@ def test_utc_helpers_are_shared():
     assert JT.iso_utc("N/A") is None and JT.iso_utc(None) is None
     assert JT.parse_utc("2026-08-27 15:17:12", naive_tz=JT.MQSS_TIMEZONE) == datetime(2026, 8, 27, 13, 17, 12, tzinfo=timezone.utc)
     assert JT.parse_utc("2026-08-27 15:17:12") == datetime(2026, 8, 27, 15, 17, 12, tzinfo=timezone.utc)
+
+
+# ── extra health checks inside the jobs (extra_health_checks=): workload and the extra_*.json files ──
+def _hc_job_records(tmp_path, mode, n_chunks=2, job_id="j1"):
+    """n_chunks complete chunk records of ONE job (20 circuits and 600 shots each); mode None leaves the field out."""
+    jr = tmp_path / "job_records"
+    jr.mkdir(exist_ok=True)
+    for nc in range(n_chunks):
+        rec = {"chunk_id": nc, "job_id": job_id, "status": "complete", "service_name": "MQSS_LRZ",
+               "n_spam": 8, "n_circuits": 12, "nshots": 600, "timing": {}}
+        if mode is not None:
+            rec["extra_health_checks"] = mode
+        (jr / f"job_record_chunk_{nc}.json").write_text(json.dumps(rec), encoding="utf-8")
+
+
+@pytest.mark.parametrize("mode, extra", [("per-job", 2), ("per-chunk", 4), ("false", 0), (None, 0)])
+def test_workload_counts_the_extra_health_check_circuits(tmp_path, mode, extra):
+    _hc_job_records(tmp_path, mode)   # a job of two chunks
+    w = RT.qpu_workload(tmp_path)
+    assert w["n_jobs"] == 1 and w["n_circuits"] == 40 + extra and w["n_shots"] == (40 + extra) * 600
+    assert w["max_circuits_per_job"] == 40 + extra
+    assert w["n_health_checks"] == 0   # the extra circuits are no separate jobs
+
+
+def test_workload_counts_per_job_extra_circuits_once_per_job_not_per_chunk(tmp_path):
+    _hc_job_records(tmp_path, "per-job", n_chunks=3)
+    assert RT.qpu_workload(tmp_path)["n_circuits"] == 3 * 20 + 2
+    assert RT.extra_hc_circuits({"extra_health_checks": "per-job"}, True) == 2
+    assert RT.extra_hc_circuits({"extra_health_checks": "per-job"}, False) == 0
+    assert RT.extra_hc_circuits({"extra_health_checks": "per-chunk"}, False) == 2
+    assert RT.extra_hc_circuits({}, True) == 0
+
+
+def _extra_record(mode, position, chunks, **over):
+    from source.core.records.health_check_records import extra_health_check_record
+    kw = dict(mode=mode, position=position, chunks=chunks, circuit_index=0 if position == "pre" else 9, n_circuits_in_job=10,
+              counts={"011": 98, "000": 2}, nshots=100, layout=[0, 1, 2], backend_name="b", service_name="MQSS_LRZ", job_id="j1",
+              submitted_at="2026-10-01T10:00:00Z", scheduled_at="2026-10-01T10:01:00Z", finished_at="2026-10-01T10:02:00Z")
+    kw.update(over)
+    return extra_health_check_record(**kw)
+
+
+def test_extra_health_check_files_are_named_by_mode_and_written_once_per_job(tmp_path):
+    from source.core.records import health_check_records as HR
+    rec = _extra_record("per-job", "pre", [4, 5])   # a per-job job of chunks 4 and 5: one file, named after its first chunk
+    assert rec["schema"] == HR.EXTRA_HEALTH_CHECK_SCHEMA and rec["P011"] == pytest.approx(0.98) and rec["verdict"] == "functional"
+    path, written = HR.save_extra_health_check(tmp_path, rec)
+    assert written and path.name == "extra_job_4_pre.json" and path.parent.name == "health_checks"
+    assert HR.save_extra_health_check(tmp_path, _extra_record("per-job", "pre", [4, 5]))[1] is False   # the job's second chunk writes nothing
+    HR.save_extra_health_check(tmp_path, _extra_record("per-job", "post", [4, 5]))
+    path, _ = HR.save_extra_health_check(tmp_path, _extra_record("per-chunk", "post", [7]))
+    assert path.name == "extra_chunk_7_post.json"
+    HR.save_extra_health_check(tmp_path, _extra_record("per-chunk", "pre", [7]))
+    assert sorted(p.name for p in (tmp_path / "health_checks").iterdir()) == [
+        "extra_chunk_7_post.json", "extra_chunk_7_pre.json", "extra_job_4_post.json", "extra_job_4_pre.json"]
+    loaded = HR.load_extra_health_checks(tmp_path)
+    assert [(r["chunks"][0], r["position"]) for r in loaded] == [(4, "pre"), (4, "post"), (7, "pre"), (7, "post")]
+    bad = _extra_record("per-job", "pre", [4, 5], counts={"011": 10, "000": 90}, job_id="j2")   # another job in the same file name: rewritten
+    assert bad["verdict"] == "degraded" and HR.save_extra_health_check(tmp_path, bad)[1] is True
+    assert HR.load_extra_health_checks(tmp_path / "nothing") == []
+
+
+def test_run_health_check_records_ignore_the_extra_files(tmp_path):
+    from source.core.records import health_check_records as HR
+    HR.save_extra_health_check(tmp_path, _extra_record("per-chunk", "pre", [0]))
+    HR.save_extra_health_check(tmp_path, _extra_record("per-job", "post", [0, 1]))
+    assert CC.run_health_check_records(tmp_path) == []
+    assert RT.qpu_workload(tmp_path)["n_health_checks"] == 0

@@ -14,6 +14,7 @@ Usage (see source/core/runner_support/benchmark_args.py; the benchmark is requir
   python3 benchmark_dummy_noisy_emulators.py full                   full benchmark: 480 samples, Nt = 1…19, 10 shots
   python3 benchmark_dummy_noisy_emulators.py mini nshots_per_circuit=N
   python3 benchmark_dummy_noisy_emulators.py nshots_per_circuit=N n_samples=M n_depths=K   (or nt_list=1,5,9)
+  python3 benchmark_dummy_noisy_emulators.py mini extra_health_checks=per-chunk   health-check circuits inside the jobs (per-chunk | per-job | false); a resumed run keeps its value
 The run folders are <benchmark>_sim-dummy_<NAME>_lnn-<bool>_service-local_spam-True_layout-none_<YYYY-MM-DD>_#<N> (source/core/records/run_names.py),
 NAME being the dummy's key in the JSON (ibm-marrakesh, ionq-forte, ...).
 Exit code 2 if a dummy failed (the others are still run).
@@ -26,14 +27,15 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))   # datafiles/ paths are relative to the project root
 from source.core.records.run_names import local_run_name
 from source.core.runner_support.benchmark_args import make_usage, usage_if_requested   # light (numpy only): the usage is printed before anything else loads
-usage_if_requested(sys.argv[1:], make_usage(__file__, "Run the BACQ benchmark on the local simulator for each dummy noisy emulator of definitions_dummy_noisy_emulators.json: coherent CNOT noise at the dummy's infidelity, with the QPU time and cost modelled afterwards. Finished dummies are skipped. Each noise setting has its own circuit cache: build the largest sample size first.", backend=False))   # no arguments or --help: print the usage and do nothing
+usage_if_requested(sys.argv[1:], make_usage(__file__, "Run the BACQ benchmark on the local simulator for each dummy noisy emulator of definitions_dummy_noisy_emulators.json: coherent CNOT noise at the dummy's infidelity, with the QPU time and cost modelled afterwards. Finished dummies are skipped. Each noise setting has its own circuit cache: build the largest sample size first.", backend=False, extra_health_checks=True))   # no arguments or --help: print the usage and do nothing
 
 from pathlib import Path
-from source.core.runner_support.benchmark_args import parse_benchmark_args
+from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_extra_health_checks_arg
 from source.core.analysis.dummy_estimates import (load_definitions, estimates_record, write_dummy_estimates, dummy_run_folder,
                                                   DEFINITIONS_PATH)
 
-BENCH = parse_benchmark_args(sys.argv[1:], layout_args=False)
+BENCH = parse_benchmark_args(sys.argv[1:], extra_keys=("extra_health_checks",), layout_args=False)
+EXTRA_HEALTH_CHECKS = parse_extra_health_checks_arg(sys.argv[1:])   # extra_health_checks=per-chunk|per-job|false (optional; None: each run's recorded value, else false): health-check circuits inside the simulated jobs
 
 
 def sampler_factory():
@@ -52,7 +54,7 @@ def run_dummy(name, entry):
         return False
     print(f"\n=== Dummy {name}: {run_folder} ===")
     write_dummy_estimates(Path("datafiles") / run_folder, name, entry)   # before simulating; an existing file is kept
-    run_local_simulation(run_folder=run_folder, bench=BENCH, lnn=est["lnn"], backend_label=f"AerSimulator (coherent CNOT noise, dummy {name})",
+    run_local_simulation(extra_health_checks=EXTRA_HEALTH_CHECKS, run_folder=run_folder, bench=BENCH, lnn=est["lnn"], backend_label=f"AerSimulator (coherent CNOT noise, dummy {name})",
                          do_spam=True, sampler_factory=sampler_factory,
                          extra_qbcs_kwargs=dict(infidelity_total=est["infidelity_total"], ratio_ct=est["ratio_ct"], noise_type=est["noise_type"]),
                          extra_config=[("Coherent noise", f"{est['noise_type']}, infidelity {est['infidelity_total']:.6g}, crosstalk ratio {est['ratio_ct']}"),

@@ -80,12 +80,12 @@ def _warn_circuit_check(label, check):
     """Terminal line for a circuit_check result (source/core/records/circuit_check.py) — a warning, never an error."""
     st = check.get("status")
     if st == CC.MATCH:
-        print(f"  [{label}] Executed circuits match the submitted ones ({check.get('n_executed')} circuits).")
+        print(f"  [{label}] The provider's circuits match the submitted ones ({check.get('n_executed')} circuits).")
     elif st == CC.MISMATCH:
-        print(f"  ⚠️  [{label}] EXECUTED CIRCUITS DIFFER FROM THE SUBMITTED ONES "
+        print(f"  ⚠️  [{label}] THE PROVIDER'S CIRCUITS DIFFER FROM THE SUBMITTED ONES "
               f"({check.get('n_differences')} differences, first: {(check.get('differences') or [None])[0]})")
     elif st == CC.CHECK_FAILED:
-        print(f"  ⚠️  [{label}] Could not check the executed circuits: {check.get('error')}")
+        print(f"  ⚠️  [{label}] Could not check the provider's circuits: {check.get('error')}")
 
 
 # ── Health check retry/exit-code handling (submit scripts) ────────────────────

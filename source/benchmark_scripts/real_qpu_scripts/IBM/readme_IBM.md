@@ -173,6 +173,8 @@ The full 480-chunk run simulates
 in about 4 h with the default `scheduling_simulation=true`, roughly an hour with `false` (≈ 8 s per chunk measured with IBM Fez's calibration), plus
 the usual circuit build.
 
+The submit and simulate scripts also take the optional `extra_health_checks=per-chunk|per-job|false`, which packs the 3-qubit health-check circuit into the submitted jobs themselves, so it runs with the chunks (`per-chunk`: before and after every chunk; `per-job`: before and after each job; not stated: the run's recorded value, `false` for a new run; a different value for an existing run folder exits with code 2). Collection writes `health_checks/extra_chunk_<nc>_{pre,post}.json` or `health_checks/extra_job_<first chunk>_{pre,post}.json`, which `plot_health_checks.py` plots beside the standalone checks (main USER_MANUAL §7); each record's `circuit_check` compares its slot with the job's `inputs['pubs']` (`not_available` on a simulated backend).
+
 ## 5. Timing, billing and circuit check
 
 Every chunk and health-check record gets a `timing` block and a `circuit_check`:
@@ -180,7 +182,7 @@ Every chunk and health-check record gets a `timing` block and a `circuit_check`:
 - **QPU time** (`qpu_s`): the time IBM bills, `usage.qpu_charge_time_seconds` of the job. IBM bills per job: a failed job that reached IBM (it has a `job_id`) counts in full in the summary's QPU time and cost (all its chunks' circuits × `nshots`, once if several chunks share it); a submission failure without a `job_id`, and a job never collected, are not counted and are named in the cost text (main USER_MANUAL §7).
 - **Cost** (summary): the job carries no money amount (IBM reports the billed seconds and abstract resource units), so the effective cost is the QPU time at the Pay-As-You-Go list price. A run on the Open Plan instance was free (actual cost 0); a run on any other (pay-as-you-go) instance was billed that price, so the summary's actual cost equals its effective cost. Which one applies comes from the run's recorded instance plan.
 - **Queue time** (`queue_s`): from the job's creation to the start of its first execution span.
-- **Circuit check**: the circuits IBM ran (`job.inputs["pubs"]`) compared gate by gate with the submitted ISA
+- **Circuit check**: IBM's copy of the job's circuits (`job.inputs["pubs"]`, with the physical qubits) compared gate by gate with the submitted ISA
   circuits in `transpiled_circuits/`. A mismatch is warned about and recorded, never fatal.
 
 The full comparison of all QPUs is the timing table in main USER_MANUAL §7; the code is in `source/core/records/job_timing.py` (timing) and `source/core/records/circuit_check.py` (circuit check).

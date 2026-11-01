@@ -279,8 +279,13 @@ def test_bar_plot_linear_keeps_zero(tmp_path):
     from source.core.analysis import collective_plots as CP
     runs = [{"n_acc": 0}, {"n_acc": 7}, {"n_acc": None}]
     path = tmp_path / "n_acc.png"
-    CP._bar_plot(runs, ["a", "b", "c"], "n_acc", "N", "N per run", lambda v: f"{v:.0f}", path, log=False)
+    drawn = []                                    # value_fmt is called once per bar drawn
+    CP._bar_plot(runs, ["a", "b", "c"], "n_acc", "N", "N per run", lambda v: drawn.append(v) or f"{v:.0f}", path, log=False)
     assert path.stat().st_size > 0
+    assert drawn == [0, 7]                        # the zero is drawn, the missing value is left out
+    drawn.clear()
+    CP._bar_plot(runs, ["a", "b", "c"], "n_acc", "N", "N per run", lambda v: drawn.append(v) or f"{v:.0f}", tmp_path / "log.png", log=True)
+    assert drawn == [7]                           # a log axis drops the zero
 
 
 def test_service_names():

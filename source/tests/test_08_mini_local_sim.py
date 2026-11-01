@@ -6,7 +6,8 @@ user starts with it — with the `mini` argument — and unmodified except for i
 output folder name (and, in the no-SPAM case, do_spam=True replaced by do_spam=False) (so it can't touch a real mini_sim-noiseless_… run). Its results are then
 analyzed through source/analysis_scripts/run_post_process.py like any other run: summary JSON + plots must carry
 the mini benchmark's own 200 shots / 8 samples / 2 depths, and the run must hold the drawings of
-the first circuit of every error-mitigation role (source/core/circuits/circuit_drawings.py).
+the first circuit of every error-mitigation role (source/core/circuits/circuit_drawings.py). The mini run is also
+made with extra_health_checks=per-chunk and per-job: the run records the mode and saves the extra health checks.
 """
 
 import sys, os
@@ -82,3 +83,37 @@ def test_08_mini_local_sim_results_are_analyzable(do_spam):
         assert (plots_dir / fname).exists(), f"missing plot {fname}"
     if not do_spam:
         assert not (plots_dir / "awae_spam.png").exists() and not (run_path / "processed_results" / "run_data_spam.json").exists()
+
+
+@pytest.mark.parametrize("mode", ["per-chunk", "per-job"])
+def test_08_mini_local_sim_with_extra_health_checks(mode):
+    """A mini run with health-check circuits inside its jobs: the same results structure, the extra files, the option recorded,
+    and analyze_run() (which takes no such argument) plots and summarizes them."""
+    test_folder = run_name_for_test(f"test08extra{mode.replace('-', '')}")
+    src = SCRIPT.read_text(encoding="utf-8")
+    src = f"__file__ = {str(SCRIPT)!r}\nimport sys; sys.argv = [__file__, 'mini', 'extra_health_checks={mode}']\n" + src
+    assert src.count(FOLDER_LINE) == 1, "benchmark_noiseless_all_to_all.py's RUN_FOLDER line changed — update this test"
+    src = src.replace(FOLDER_LINE, f'RUN_FOLDER = "{test_folder}"')
+    rm_glob(f"datafiles/{test_folder}", run_plots_dir(test_folder).as_posix())
+    result = subprocess.run([venv_python("local_sim.venv", "test_08 (the mini benchmark child process)"), "-c", src],
+                            encoding="utf-8", errors="replace", cwd=PROJECT_ROOT, capture_output=True)
+    assert result.returncode == 0, f"benchmark_noiseless_all_to_all.py failed:\n{result.stdout[-2000:]}\n{result.stderr[-3000:]}"
+
+    run_path = PROJECT_ROOT / "datafiles" / test_folder
+    assert json.loads((run_path / "run_info.json").read_text(encoding="utf-8"))["extra_health_checks"] == mode
+    stem = "extra_chunk" if mode == "per-chunk" else "extra_job"
+    files = sorted(p.name for p in (run_path / "health_checks").glob("extra_*.json"))
+    assert files == sorted(f"{stem}_{nc}_{pos}.json" for nc in range(8) for pos in ("pre", "post"))
+    for name in files:
+        rec = json.loads((run_path / "health_checks" / name).read_text(encoding="utf-8"))
+        assert rec["mode"] == mode and rec["P011"] == 1.0 and rec["verdict"] == "functional"
+
+    # The benchmark's own results are read at the right offsets: the same shape as without the option
+    counts = json.loads((run_path / "raw_results" / "results_counts.json").read_text(encoding="utf-8"))
+    assert sorted(counts) == sorted(f"chunk_{nc}" for nc in range(8))
+    assert all(sum(c.values()) == 200 for chunk in counts.values() for job in chunk.values() for c in job.values())
+
+    assert analyze_run(test_folder)[0], "analyzing the mini run failed"
+    assert (PROJECT_ROOT / run_plots_dir(test_folder) / "health_checks.png").exists()
+    summary = json.loads((run_path / "processed_results" / "health_checks.json").read_text(encoding="utf-8"))
+    assert len(summary["extra_health_checks"]) == 16

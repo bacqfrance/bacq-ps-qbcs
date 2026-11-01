@@ -21,7 +21,12 @@ for an item with a start time but no end time that is neither of those). A healt
 could not be submitted is a black P at its submission-attempt time; a failed chunk job is a
 black bar from its start to its end when the provider reported both, else a black P at its
 submission time.
-Skips runs without new-format health checks, printing a line.
+Extra health checks (health_checks/extra_*.json: circuits inside the submitted jobs) are drawn as green triangles
+(pre ^, post v) beside the job they ran in, at the circuit's estimated time in the job (scheduled_at + circuit_index /
+(n_circuits_in_job - 1) x (finished_at - scheduled_at); at finished_at when the provider has no scheduled_at), with a thin
+line joining each pre to its post; they are also written to the json summary's extra_health_checks key, and incomplete_extra_health_checks lists the
+(mode, chunks) groups with a pre but no post, or a post but no pre (empty when none).
+Skips runs without new-format health checks (standalone or extra), printing a line.
 """
 
 import os
@@ -46,7 +51,7 @@ from source.core.records.circuit_check import load_run_verification, add_circuit
 from source.core.records.chunk_scope import load_run_completeness, add_completeness_banner, completeness
 
 from source.core.records.health_check_records import (
-    HEALTH_CHECK_THRESHOLD, load_health_checks, collect_chunk_jobs, parse_utc, format_chunk_range,
+    HEALTH_CHECK_THRESHOLD, load_health_checks, load_extra_health_checks, collect_chunk_jobs, parse_utc, format_chunk_range,
 )
 
 # ── Config (same defaults / env overrides as plot_awae.py) ────────────────────
@@ -69,11 +74,31 @@ COLOR_JOB   = "steelblue"
 COLOR_MISSING = "red"   # health check submitted but not collected: submission time only
 COLOR_FAILED = "black"   # health check could not even be submitted: submission-attempt time only
 COLOR_UNCOLLECTED_JOB = "purple"   # chunk job submitted, its chunks not collected: submission time only
+COLOR_EXTRA = "seagreen"   # extra health checks run inside the submitted jobs
+EXTRA_MARKER = {"pre": "^", "post": "v"}
+EXTRA_DX     = {"pre": -0.2, "post": 0.2}   # x offsets so a pre and its post do not overlap
 MAX_TICKS   = 40
 
 
 def _iso(dt):
     return None if dt is None else dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def _incomplete_extras(recs):
+    """The (mode, chunks) groups of extra health checks that have a pre without a post or a post without a pre:
+    [{"mode", "chunks", "missing": "pre" | "post"}], sorted by first chunk."""
+    groups = {}
+    for r in recs:
+        groups.setdefault((r["mode"], tuple(sorted(r["chunks"]))), set()).add(r["position"])
+    return [{"mode": m, "chunks": list(c), "missing": "post" if "pre" in pos else "pre"}
+            for (m, c), pos in sorted(groups.items(), key=lambda kv: (kv[0][1], kv[0][0])) if len(pos) == 1]
+
+
+def _extra_pairs(recs):
+    """(pre, post) pairs of extra health checks of the same mode, chunks and job."""
+    key = lambda r: (r["mode"], tuple(sorted(r["chunks"])), r.get("job_id"))
+    pres = {key(r): r for r in recs if r["position"] == "pre"}
+    return [(pres[key(r)], r) for r in recs if r["position"] == "post" and key(r) in pres]
 
 
 def _thin(idx_list):
@@ -83,7 +108,8 @@ def _thin(idx_list):
 
 def main():
     checks = load_health_checks(RUN_PATH)
-    if not checks:
+    extras = load_extra_health_checks(RUN_PATH)
+    if not checks and not extras:
         print(f"⏭  {RUN_FOLDER}: no health checks in the current format — skipping health check plot")
         return
     jobs = collect_chunk_jobs(RUN_PATH)
@@ -109,6 +135,25 @@ def main():
     else:
         items_view = items
 
+    # ── Extra health checks (inside the jobs): estimated time and x position of the job they ran in ──
+    job_items = [it for it in items if it["kind"] == "J"]
+    for r in extras:
+        sched, fin = parse_utc(r.get("scheduled_at")), parse_utc(r.get("finished_at"))
+        n_c = r.get("n_circuits_in_job") or 0
+        if sched is not None and fin is not None and n_c > 1:
+            r["_t"] = sched + (fin - sched) * (r["circuit_index"] / (n_c - 1))
+        else:
+            r["_t"] = fin or sched or parse_utc(r.get("submitted_at"))   # no scheduled time (AQT, local): at the finish
+        match = [it for it in job_items if set(it["chunks"]) & set(r["chunks"])]
+        if match:
+            r["_x"] = match[0]["x"]
+        else:
+            timed = [it for it in items if (it["start"] or it["sub"]) is not None]
+            r["_x"] = min(timed, key=lambda it: abs(((it["start"] or it["sub"]) - r["_t"]).total_seconds()))["x"] \
+                if timed and r["_t"] is not None else None
+    extras_view = [r for r in extras if r["_x"] is not None
+                   and (ZOOM_X is None or ZOOM_X[0] <= r["_x"] <= ZOOM_X[1])]
+
     n_items = max(len(items_view), 1)
     lw = 5 if n_items <= 30 else 3 if n_items <= 100 else 1.5
 
@@ -124,6 +169,18 @@ def main():
         ok = it["rec"]["P011"] > HEALTH_CHECK_THRESHOLD
         ax_top.plot(it["x"], it["rec"]["P011"], "o", color=COLOR_CHECK, mec="black" if ok else "red",
                     mew=1.0 if ok else 2.0, zorder=2)
+    modes = sorted({r["mode"] for r in extras_view})
+    for pos in ("pre", "post"):
+        pts = [r for r in extras_view if r["position"] == pos and r.get("P011") is not None]
+        for k, r in enumerate(pts):
+            ok = r["P011"] > HEALTH_CHECK_THRESHOLD
+            ax_top.plot(r["_x"] + EXTRA_DX[pos], r["P011"], EXTRA_MARKER[pos], color=COLOR_EXTRA,
+                        mec="black" if ok else "red", mew=1.0 if ok else 2.0, ms=6, zorder=2,
+                        label=f"extra health check, {pos} ({', '.join(modes)})" if k == 0 else None)
+    for pre, post in _extra_pairs(extras_view):
+        if pre.get("P011") is not None and post.get("P011") is not None:
+            ax_top.plot([pre["_x"] + EXTRA_DX["pre"], post["_x"] + EXTRA_DX["post"]], [pre["P011"], post["P011"]],
+                        "-", color=COLOR_EXTRA, lw=0.8, alpha=0.6, zorder=1)
     ax_top.axhline(HEALTH_CHECK_THRESHOLD, color="black", ls="--", lw=1, alpha=0.6,
                    label=f"threshold = {HEALTH_CHECK_THRESHOLD}")
     ax_top.set_ylim(0, 1.05)
@@ -138,7 +195,7 @@ def main():
     ) if s) + ")" if (n_pending or n_failed or n_failed_jobs) else ""
     ax_top.set_title(f"Health checks — {NAME.figure_label_full}" + title_suffix, fontweight="bold")
     ax_top.grid(True, alpha=0.3)
-    ax_top.legend(loc="lower right", fontsize=8)
+    ax_top.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), borderaxespad=0, fontsize=8)
     ck = _thin([it["x"] for it in hcs])
     ax_top.set_xticks(ck)
     ax_top.set_xticklabels([next(i["label"] for i in hcs if i["x"] == x) for x in ck], fontsize=7, color=COLOR_CHECK)
@@ -182,6 +239,16 @@ def main():
             ax_bot.plot([it["x"], it["x"]], [mdates.date2num(s), mdates.date2num(e)],
                         "-", color=color, lw=lw, solid_capstyle="butt")
             ax_bot.plot(it["x"], mdates.date2num(s), "s", color=color, ms=3)   # keeps short bars visible
+    for r in extras_view:
+        if r["_t"] is not None:
+            ax_bot.plot(r["_x"] + EXTRA_DX[r["position"]], mdates.date2num(r["_t"]), EXTRA_MARKER[r["position"]],
+                        color=COLOR_EXTRA, mec="black" if (r.get("P011") or 0) > HEALTH_CHECK_THRESHOLD else "red",
+                        ms=6, zorder=3)
+    for pre, post in _extra_pairs(extras_view):
+        if pre["_t"] is not None and post["_t"] is not None:
+            ax_bot.plot([pre["_x"] + EXTRA_DX["pre"], post["_x"] + EXTRA_DX["post"]],
+                        [mdates.date2num(pre["_t"]), mdates.date2num(post["_t"])],
+                        "-", color=COLOR_EXTRA, lw=0.8, alpha=0.8, zorder=2)
     ax_bot.yaxis_date()
     ax_bot.yaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d\n%H:%M:%S"))
     ax_bot.set_ylabel("time (UTC)")
@@ -221,10 +288,13 @@ def main():
                                   label="health check uncollected (submission time)"),
                            Line2D([0], [0], marker="P", color=COLOR_FAILED, ls="",
                                   label="health check could not be submitted (attempt time)")]
+                          + ([Line2D([0], [0], marker=EXTRA_MARKER[p], color=COLOR_EXTRA, ls="-", lw=0.8,
+                                     label=f"extra health check {p} (estimated time, {', '.join(modes)})")
+                              for p in ("pre", "post")] if extras_view else [])
                           + ([Line2D([0], [0], color=COLOR_FAILED, lw=4,
                                      label="failed QPU job J✗ (bar, or + at submission); J✗s: submission failed")]
                              if n_failed_jobs else []),
-                  loc="upper left", fontsize=8)
+                  loc="upper left", bbox_to_anchor=(1.01, 1.0), borderaxespad=0, fontsize=8)
     fig.tight_layout()
     add_circuit_check_banner(fig, load_run_verification(RUN_PATH, SUFFIX))
     block = load_run_completeness(RUN_PATH, SUFFIX) or completeness(RUN_PATH, INFO.sample_size, N_SAMPLES)
@@ -237,6 +307,10 @@ def main():
     print(f"✅ Saved → {rel_path(fname)}")
 
     # ── JSON summary ─────────────────────────────────────────────────────────
+    incomplete_extras = _incomplete_extras(extras)
+    if incomplete_extras:
+        print(f"⚠️  {len(incomplete_extras)} extra health check(s) without their pre or post: "
+              + ", ".join(f"{g['mode']} chunks {format_chunk_range(g['chunks'])} (no {g['missing']})" for g in incomplete_extras))
     out = RUN_PATH / "processed_results" / f"health_checks{SUFFIX}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({
@@ -245,6 +319,10 @@ def main():
         "uncollected_health_checks": [c["number"] for c in checks if c.get("status") != "complete"],
         "failed_health_checks": [c["number"] for c in checks if c.get("status") == "failed"],
         "health_checks": checks,
+        **({"extra_health_checks": [{**{k: v for k, v in r.items() if not k.startswith("_")},
+                                     "estimated_time": _iso(r["_t"]), "x": r["_x"]} for r in extras]}
+           if extras else {}),
+        **({"incomplete_extra_health_checks": incomplete_extras} if extras else {}),
         "failed_chunk_jobs": [dict(job=it["number"], chunks=it["chunks"], submitted_at=_iso(it["sub"]),
                                    submission_failed=it["label"].endswith("✗s"))
                               for it in items if it["kind"] == "J" and it["failed"]],

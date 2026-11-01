@@ -10,6 +10,8 @@ qpy, png, pdf, npz and the circuit cache are skipped) and asserts that none cont
   - the project root (backslash, forward-slash and JSON-escaped spellings) or the home folder,
   - a Windows drive path (drive letter + colon + slash) or a UNC path (two backslashes + server),
   - an absolute POSIX path under /home, /Users, /mnt, /tmp, /var, /root or /opt.
+A second test checks the extra_health_checks outputs (health_checks/extra_*.json, the job record's
+extra_hc_circuit_file, run_info.json) the same way.
 """
 
 import sys, os
@@ -92,6 +94,39 @@ def test_saved_config_keeps_json_values_and_drops_paths_and_arrays():
     out = saved_config({"coherent_noise": noise, "other": None, "shots": 100, "name": "x", "L": [1, 2],
                         "epsilon": np.array([-1, 0, 1]), "folder_path": "C:/x"})
     assert out == {"coherent_noise": noise, "other": None, "shots": 100, "name": "x", "L": [1, 2]}
+
+
+def test_extra_health_check_outputs_hold_no_absolute_path(tmp_path):
+    """extra_health_checks: the health_checks/extra_*.json files, the job record's extra_hc_circuit_file and run_info.json's
+    extra_health_checks key, written by the code's own writers into an absolute (temporary) run folder."""
+    import json
+    from types import SimpleNamespace
+    from source.core.qbcs import bacq_ps_qbcs
+    from source.core.records.health_check_records import extra_health_check_record, save_extra_health_check
+    from source.core.records.run_info import write_run_info
+
+    run = tmp_path / "tests" / "test23_extra_hc"
+    config = {"shots": 100, "samples": 4, "T_list": [0.2], "dt": 0.2, "chunk_size": 2}
+    write_run_info(config, run, False, extra_health_checks="per-chunk")
+    for position, idx in (("pre", 0), ("post", 3)):
+        rec = extra_health_check_record(
+            mode="per-chunk", position=position, chunks=[0], circuit_index=idx, n_circuits_in_job=4, counts={"110": 90, "000": 10},
+            nshots=100, layout={"0": 5, "1": 6, "2": 7}, backend_name="fake", service_name="local", job_id="j1",
+            submitted_at="2026-01-01T00:00:00Z", scheduled_at="2026-01-01T00:00:01Z", finished_at="2026-01-01T00:00:02Z")
+        save_extra_health_check(run, rec)
+    fake = SimpleNamespace(_hc_mode=lambda: "per-chunk", _extra_hc_file="health_check_transpiled.qpy")
+    fields = bacq_ps_qbcs._hc_record_fields(fake, {"hc_pre_idx": 0, "hc_post_idx": 3}, 4, [0])
+    (run / "job_records").mkdir()
+    (run / "job_records" / "job_record_chunk_0.json").write_text(json.dumps({"nc": 0, **fields}, indent=2), encoding="utf-8")
+
+    files = list(_text_files(run))
+    names = {p.name for p in files}
+    assert {"run_info.json", "job_record_chunk_0.json"} <= names and sum(n.startswith("extra_") for n in names) == 2, sorted(names)
+    assert json.loads((run / "run_info.json").read_text(encoding="utf-8"))["extra_health_checks"] == "per-chunk"
+    assert fields["extra_hc_circuit_file"] == "health_check_transpiled.qpy"
+    literals = _forbidden_literals() | {str(tmp_path), tmp_path.as_posix()}
+    found = [line for p in files for line in _leaks(p, literals)]
+    assert not found, "\n".join(found)
 
 
 def test_23_saved_files_hold_no_absolute_path():

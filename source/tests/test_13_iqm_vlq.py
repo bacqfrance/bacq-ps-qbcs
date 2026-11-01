@@ -86,7 +86,7 @@ def test_selection_scores_every_ordered_choice_by_role():
     assert rec["log_success"] == pytest.approx(sum(rec["chosen_grades"].values()))
     assert rec["log_success"] == max(s for _, s in rec["top_candidates"])
 
-    # an independent recomputation of one grade: readout + prx + MOVE pairs + CZs
+    # an independent recomputation of one grade: readout + prx + CZs (this qubit has no MOVE pairs)
     q, v = rec["qubit_names"][2], 2
     m    = metrics[q]
     f_prx = 1 - (1 - m["f1q"]) / V.PRX_PER_CLIFFORD
@@ -125,7 +125,7 @@ def test_star_walker_serializes_the_moves_on_the_resonator():
     # the six resonator gates cannot overlap: MOVE a, CZ b, MOVE a, MOVE b, CZ c, MOVE b
     serial = 2 * dur["move", (a, 24)] + dur["cz", (b, 24)] + 2 * dur["move", (b, 24)] + dur["cz", (c, 24)]
     assert timing["T"] >= serial + dur["measure", (a,)] - 1e-15
-    assert timing["T"] == pytest.approx(dur["r", (a,)] + serial + dur["measure", (c,)]) or timing["T"] > serial
+    assert timing["T"] == pytest.approx(dur["r", (a,)] + serial + dur["measure", (c,)])
     assert timing["busy"][24] == pytest.approx(serial)
     rec = score_transpiled(tc, view)
     assert rec["counts"]["move"] == 4 and rec["idle_log"] <= 0 and rec["t_circuit_s"] == pytest.approx(timing["T"])

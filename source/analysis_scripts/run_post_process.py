@@ -529,7 +529,7 @@ def already_analyzed(run_folder, n_samples):
     """Whether stages 1-5 can be skipped for the run's analysis on n_samples chunks (None = the full run): its
     run_data (and run_data_spam with SPAM), summary and, if the run has health checks, health_checks json all exist in
     processed_results/ and are newer than raw_results/results_counts.json (so newly collected chunks re-analyze)."""
-    from source.core.records.health_check_records import load_health_checks
+    from source.core.records.health_check_records import load_health_checks, load_extra_health_checks
 
     run_path = PROJECT_ROOT / "datafiles" / run_folder
     processed = run_path / "processed_results"
@@ -537,7 +537,7 @@ def already_analyzed(run_folder, n_samples):
     files = [processed / f"run_data{suffix}.json", processed / run_summary_name(n_samples)]
     if load_run_info(run_folder).do_spam:
         files.append(processed / f"run_data_spam{suffix}.json")
-    if load_health_checks(run_path):
+    if load_health_checks(run_path) or load_extra_health_checks(run_path):
         files.append(processed / f"health_checks{suffix}.json")
     counts_mtime = (run_path / "raw_results" / "results_counts.json").stat().st_mtime
     return all(f.exists() and f.stat().st_mtime > counts_mtime for f in files)

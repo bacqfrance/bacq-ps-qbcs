@@ -184,7 +184,7 @@ reports (`select_star_qubits()`, the scorer IQM Resonance's Sirius shares, in `s
    (nothing is scheduled in the submission); the resonator is shared, so MOVEs and CZs run one after another, and a qubit idles for
    the end of the circuit minus the start of its first gate minus its own gate time. The score gets Σ_q log F(t_idle; T1, T2)
    with F = (1 + 2·exp(−t/T2) + exp(−t/T1))/4 (T2 capped at 2·T1).
-4. **Choice.** Every ordered choice of three distinct usable qubits is prescreened (23·22·21 = 10,626), the best 50 are scored exactly, and the best
+4. **Choice.** Every ordered choice of three distinct usable qubits is prescreened (n·(n−1)·(n−2): 10,626 with 23 usable qubits, 12,144 with all 24), the best 50 are scored exactly, and the best
    is recorded in `<run>/transpiled_circuits/physical_qubits.json`, with the roles, each chosen
    qubit's grade and metrics and the calibration set id; the qubits also go into `run_info.json` as `physical_qubits`. The record
    also holds the qubits' names (`qubit_names`, and `top_candidate_names` for the top choices). Indices are the backend's own
@@ -214,6 +214,8 @@ qubits, under the same noise model, so it shows what the health circuit scores
 with this calibration; a "degraded" score is reported but doesn't stop the
 run. It keeps the submit script's records too: a job record per chunk in `job_records/` (`service_name: "local"`) and a `submit.log` entry with the snapshot's calibration summary, the run qubits and both health-check verdicts.
 
+The submit and simulate scripts also take the optional `extra_health_checks=per-chunk|per-job|false`, which packs the 3-qubit health-check circuit into the submitted jobs themselves, so it runs with the chunks (`per-chunk`: before and after every chunk; `per-job`: before and after each job; not stated: the run's recorded value, `false` for a new run; a different value for an existing run folder exits with code 2). Collection writes `health_checks/extra_chunk_<nc>_{pre,post}.json` or `health_checks/extra_job_<first chunk>_{pre,post}.json`, which `plot_health_checks.py` plots beside the standalone checks (main USER_MANUAL §7); each record's `circuit_check` compares its slot with `job.get_transpiled_circuits()`.
+
 ## 5. Timing, billing and circuit check
 
 Every chunk and health-check record gets a `timing` block and a `circuit_check` (see `source/core/records/job_timing.py`, `TIMING_NOTES["QAAS_IT4I"]`):
@@ -223,7 +225,7 @@ Every chunk and health-check record gets a `timing` block and a `circuit_check` 
 - **Queue time** (`queue_s`): end of our upload → IQM `compilation_started`: the wait in IT4I's HEAppE job system (`it4i_wait_s`, upload end → IQM `created`) plus IQM's queue (`iqm_queue_s`).
 - **Consumed resources** (`consumpted_resources`, sic, qaas's field name): the LEXIS project's cumulative consumption counter after the job; in every job we checked it grew by exactly `remote_hw_runtime`.
 - **Timelines** (`timeline`, `qaas_events`): IQM's server timeline and qaas' client/remote events, UTC.
-- **Circuit check**: qaas returns the circuits the server ran (`job.get_transpiled_circuits()`);
+- **Circuit check**: qaas returns its copy of the job's circuits (`job.get_transpiled_circuits()`, with the physical qubits);
   the collect script compares them gate by gate with the submitted ones (`circuit_check` in each record).
 
 IT4I documents a charge of at least 0.9 s per job; the counter we observed charges the execution

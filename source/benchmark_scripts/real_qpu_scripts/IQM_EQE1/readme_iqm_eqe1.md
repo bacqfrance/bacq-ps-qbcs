@@ -165,6 +165,8 @@ python3 source/benchmark_scripts/real_qpu_scripts/IQM_EQE1/qbcs_real_simulate_iq
 
 `scheduling_simulation=true|false` is optional, default `true`: `true` transpiles the circuits like the submission and then schedules them ALAP (delays only), so idle qubits relax through T1/T2 as on the QPU (full benchmark about 4 h); `false` does not schedule them, so idle relaxation is **not** taken into account (only the relaxation during gates), like the noiseless and coherent-noise simulations (about 1 h). The choice is recorded in `run_info.json` and `submit.log`, the health checks follow it, and an unfinished run folder cannot be resumed with the other value (main USER_MANUAL §4.2).
 
+The submit and simulate scripts also take the optional `extra_health_checks=per-chunk|per-job|false`, which packs the 3-qubit health-check circuit into the submitted jobs themselves, so it runs with the chunks (`per-chunk`: before and after every chunk; `per-job`: before and after each job; not stated: the run's recorded value, `false` for a new run; a different value for an existing run folder exits with code 2). Collection writes `health_checks/extra_chunk_<nc>_{pre,post}.json` or `health_checks/extra_job_<first chunk>_{pre,post}.json`, which `plot_health_checks.py` plots beside the standalone checks (main USER_MANUAL §7); EQE1 does not return the executed circuits, so both records store `circuit_check` `not_available`.
+
 What the noise model contains, and what it doesn't:
 
 - Gate errors on `r` and `cz`, and readout errors, with T1/T2 relaxation during gates and, with `scheduling_simulation=true`, while a qubit waits for the others

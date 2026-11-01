@@ -37,6 +37,7 @@ iteration, with a live wallclock ETA and a QPU-time-budget projection.
 Benchmark size (required — there is no default), from the command line (source/core/runner_support/benchmark_args.py; readme: "Benchmark size and run folders"):
   mini · full · mini|full nshots_per_circuit=N ·
   nshots_per_circuit=N n_samples=M n_depths=K (or nt_list=1,5,9)
+extra_health_checks=per-chunk|per-job|false is optional (default: the run's recorded value, else false): it packs the health-check circuit into every chunk's job (readme_aqt.md).
 """
 
 import os
@@ -60,7 +61,7 @@ usage_if_requested(sys.argv[1:], make_usage(__file__, "Submit a BACQ benchmark r
 from pathlib import Path
 from pcss_qapi import AuthorizationService
 from pcss_qapi.aqt.provider import PCSS_AQTProvider
-from source.core.runner_support.benchmark_args import parse_benchmark_args, DT, parse_backend_config, parse_layout_args, parse_run_folder_arg, pop_force_new_run_flag
+from source.core.runner_support.benchmark_args import parse_benchmark_args, DT, parse_backend_config, parse_layout_args, parse_run_folder_arg, pop_force_new_run_flag, parse_extra_health_checks_arg
 from source.core.qpu.calibration_input import resolve_run_layout, layout_summary
 from source.core.qbcs import bacq_ps_qbcs
 from source.core.health_check import submit_health_check
@@ -72,12 +73,13 @@ from source.core.records.job_records import chunks_without_submission
 from source.core.circuits.SPAM_functions import compute_and_save_spam_confusion_matrix
 from source.core.records.job_timing import aqt_shot_parts, AQT_MAX_SHOTS
 from source.core.common import rel_path
+from source.core.records.run_info import resolve_extra_health_checks
 
 # ── Config ────────────────────────────────────────────────────────────────────
 FORCE_NEW_RUN, ARGV = pop_force_new_run_flag(sys.argv[1:])   # --force-new-run: start a new run folder even if the latest run of these settings is unfinished
 BACKEND_NAME, BACKEND_CFG = parse_backend_config(ARGV, Path(__file__).parent)   # required backend=NAME, checked against backends.json
 SERVICE_NAME = service_name("AQT_PIAST-Q")   # the access platform, as records and qbcs call it (source/core/records/run_names.py)
-BENCH            = parse_benchmark_args(ARGV, extra_keys=("backend", "run_folder"))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
+BENCH            = parse_benchmark_args(ARGV, extra_keys=("backend", "run_folder", "extra_health_checks"))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
 LAYOUT           = parse_layout_args(ARGV, calibration_required=True)   # random unless calibration_file= is given — see source/core/runner_support/benchmark_args.py
 NSHOTS           = BENCH.nshots
 SAMPLE_SIZE      = BENCH.sample_size
@@ -151,6 +153,15 @@ CHUNK_STOP = min(CHUNK_STOP, qbcs.n_chunks)
 # 'complete' record (may have gaps). The PRE health check records the whole list, each POST check its chunk.
 todo_chunks        = [nc for nc in chunks_without_submission(run_folder_path, CHUNK_STOP) if nc >= CHUNK_START - 1]
 install_submit_crash_log(run_folder_path, todo_chunks)   # an uncaught error still leaves an entry in submit.log
+
+# extra_health_checks=per-chunk|per-job|false: health-check circuits inside every chunk's job. The run's mode (its recorded one, else the
+# stated one, else false); a conflicting value exits with code 2 here, before the first health check. A chunk is one job on AQT, so
+# per-chunk and per-job pack the same circuits.
+EXTRA_HC_STATED     = parse_extra_health_checks_arg(ARGV)
+EXTRA_HEALTH_CHECKS = resolve_extra_health_checks(RUN_FOLDER, EXTRA_HC_STATED) if todo_chunks else (EXTRA_HC_STATED or "false")
+qbcs.extra_health_checks = EXTRA_HEALTH_CHECKS   # recorded in run_info.json, used by submit()
+if EXTRA_HEALTH_CHECKS != "false":
+    print(f"  Extra health checks: {EXTRA_HEALTH_CHECKS} (health-check circuits inside every chunk's job)")
 
 # ── Physical qubits for this run (ions 0…19 of PIAST-Q) — after the crash log, before the first health check, so it runs on them too ──
 # (recorded in <run>/transpiled_circuits/physical_qubits.json; submit() reuses the record)
@@ -238,6 +249,7 @@ for CHUNKS_TO_SUBMIT in range(CHUNK_START, CHUNK_STOP + 1):
             backend           = real_backend,
             layout_connection = "linear_nearest_neighbor" if LNN else "all_to_all",
             chunks            = [nc],
+            extra_health_checks = EXTRA_HEALTH_CHECKS,
         )
     except AQTTaskTimeout as e:
         # submit_chunk_aqt has already saved the attempt as a failed record (job_records/failed_attempts/ once rerun)

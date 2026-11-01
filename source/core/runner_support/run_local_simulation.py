@@ -17,7 +17,7 @@ from source.core.runner_support.benchmark_args import DT
 
 def run_local_simulation(*, run_folder, bench, lnn, backend_label, do_spam=True, sampler_factory=None,
                          extra_qbcs_kwargs=None, extra_config=None, noisy_setup=None, layout=None,
-                         scheduling_simulation=True):
+                         scheduling_simulation=True, extra_health_checks=None):
     """Build, simulate and analyze run_folder as the local benchmark scripts do.
 
     bench: BenchmarkArgs (source/core/runner_support/benchmark_args.py); lnn: the circuit topology;
@@ -30,18 +30,22 @@ def run_local_simulation(*, run_folder, bench, lnn, backend_label, do_spam=True,
     layout: the LayoutArgs of a noisy run (None: optimized).
     scheduling_simulation: a noisy run's optional scheduling_simulation=true|false (parse_scheduling_arg()): True transpiles the
     circuits (chunks, SPAM, health checks) scheduled so idle qubits relax, False leaves that out; recorded in run_info.json,
-    and a run folder recorded with the other value is refused (check_scheduling_simulation()). The noiseless runs ignore it."""
+    and a run folder recorded with the other value is refused (check_scheduling_simulation()). The noiseless runs ignore it.
+    extra_health_checks: the scripts' optional extra_health_checks=per-chunk|per-job|false (parse_extra_health_checks_arg(); None: not
+    stated): health-check circuits inside the simulated jobs, resolved against the run's recorded value
+    (run_info.resolve_extra_health_checks()) before the first health check; every run, noiseless ones too."""
     from source.core.qpu.providers import ACCOMPANYING_HEALTH_CHECK_NSHOTS
     from source.core.qbcs import bacq_ps_qbcs
     from source.core.common import print_done_block
     from source.core.qpu.calibration_input import layout_summary, resolve_layout_or_exit
     from source.core.runner_support.benchmark_args import LayoutArgs
-    from source.core.records.run_info import check_scheduling_simulation
+    from source.core.records.run_info import check_scheduling_simulation, resolve_extra_health_checks
     from source.core.health_check import submit_health_check
     from source.core.records.health_check_records import (load_health_checks, format_chunk_range, install_submit_crash_log,
                                                    append_submit_log, health_check_log_line, print_run_config)
 
     t0 = time.perf_counter()
+    extra_mode = resolve_extra_health_checks(run_folder, extra_health_checks)   # a conflict with the run's recorded value stops here
     noisy = noisy_setup is not None
     if noisy:
         check_scheduling_simulation(run_folder, scheduling_simulation)   # before anything is built: a resumed run reuses its transpiled circuits, so it must keep its scheduling_simulation=
@@ -60,6 +64,7 @@ def run_local_simulation(*, run_folder, bench, lnn, backend_label, do_spam=True,
         rng_seed                    = 0,         # change this to get a different set of twirled circuits
     )
 
+    qbcs.extra_health_checks = extra_mode   # recorded in run_info.json, used when the jobs are packed
     if noisy:
         qbcs.scheduling_simulation = scheduling_simulation   # recorded in run_info.json, used by every transpilation
     qbcs.build(circuit_transpilation_LNN=lnn)   # compile + interleave chunks (see USER_MANUAL §5.4); the cached circuits when noisy
@@ -71,6 +76,8 @@ def run_local_simulation(*, run_folder, bench, lnn, backend_label, do_spam=True,
     if noisy:
         extra.append(("Run qubits", run_qubits))
         extra.append(("Scheduling", str(scheduling_simulation).lower()))
+    if extra_mode != "false":
+        extra.append(("Extra health checks", extra_mode))
     print_run_config(run_folder, nshots=bench.nshots, sample_size=bench.sample_size, lnn=lnn, do_spam=do_spam,
                      list_times=bench.list_times, chunk_size=qbcs.CONFIG["chunk_size"], extra=extra)
 
@@ -103,6 +110,7 @@ def run_local_simulation(*, run_folder, bench, lnn, backend_label, do_spam=True,
         backend    = sampler_factory(),
         **submit_layout,
         chunks     = todo_chunks,
+        extra_health_checks = extra_mode,
     )
 
     if todo_chunks:
@@ -116,6 +124,7 @@ def run_local_simulation(*, run_folder, bench, lnn, backend_label, do_spam=True,
         log_path = append_submit_log(run_folder_path, backend=backend_label, chunks=todo_chunks, n_chunks=qbcs.n_chunks,
                                      nshots=bench.nshots, **log_layout,
                                      extra_lines=([f"Scheduling simulation: {str(scheduling_simulation).lower()}"] if noisy else [])
+                                                 + ([f"Extra health checks: {extra_mode}"] if extra_mode != "false" else [])
                                                  + [health_check_log_line("PRE ", hc_pre),
                                                   health_check_log_line("POST", hc_post)])
     t2 = time.perf_counter()

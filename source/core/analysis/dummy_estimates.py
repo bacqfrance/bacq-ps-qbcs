@@ -208,8 +208,10 @@ def health_check_counts():
 
 def run_jobs(run_path, info, estimates, n_samples=None):
     """The jobs of a run folder for the models: one per complete chunk record (its SPAM circuits first, then the
-    chunk's circuits, all at the record's shots) and one per complete accompanying health check, within the first
-    n_samples chunks (None: all), with gate counts loaded from the circuit cache."""
+    chunk's circuits, all at the record's shots, plus the health-check circuits inside the job with extra_health_checks)
+    and one per complete accompanying health check, within the first n_samples chunks (None: all), with gate counts
+    loaded from the circuit cache."""
+    from source.core.analysis.run_timing import extra_hc_circuits
     from source.core.records.circuit_check import run_health_check_records, health_check_in_scope
     from source.core.records.job_records import chunk_record_files
     run_path = Path(run_path)
@@ -218,7 +220,7 @@ def run_jobs(run_path, info, estimates, n_samples=None):
     top      = _cache_top(estimates, info)
     kind     = "qiskit_v13" if info.circuits_qiskit_v13_qpy else "qiskit"
     chunk_dir = Path(get_chunk_folder(top, kind))
-    spam_counts = None
+    spam_counts = hc = None
     jobs = []
     for nc, p in sorted(chunk_record_files(run_path / "job_records").items()):
         if scope is not None and nc not in scope:
@@ -232,8 +234,11 @@ def run_jobs(run_path, info, estimates, n_samples=None):
                 spam_counts = _qpy_counts(chunk_dir / f"spam_{kind}.qpy")
             circuits += spam_counts[:int(rec["n_spam"])]
         circuits += _qpy_counts(chunk_dir / f"chunk_{nc}_{kind}.qpy")[:int(rec["n_circuits"])]
+        n_extra = extra_hc_circuits(rec, nc == min(rec.get("job_chunks") or [nc]))
+        if n_extra:
+            hc = hc or health_check_counts()
+            circuits += [hc] * n_extra
         jobs.append({"kind": "chunk", "shots": int(rec["nshots"]), "circuits": circuits})
-    hc = None
     for h in run_health_check_records(run_path):
         if h.get("status") != "complete" or not health_check_in_scope(h, nchunks):
             continue

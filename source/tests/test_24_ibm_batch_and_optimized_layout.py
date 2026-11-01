@@ -10,7 +10,9 @@ Unit tests (no simulator run, no QPU, no network, no qiskit_ibm_runtime needed):
     circuits, the run is refused with a ValueError (resolve_layout_or_exit turns it into one line and exit code 2)
     before anything is recorded; a layout that exists, and a forced list, still resolve;
   - the VLQ calibration source saved with a layout carries no absolute path;
-  - the run_local_simulation driver ends cleanly (one line, exit code 2) on an unusable layout, through resolve_layout_or_exit.
+  - the run_local_simulation driver ends cleanly (one line, exit code 2) on an unusable layout, through resolve_layout_or_exit;
+  - extra_health_checks: pack_job_circuits (the health-check circuits around each chunk or the job), extra_hc_mode and the
+    circuits-per-job capacity of _chunks_per_iqm_job.
 """
 
 import sys, os
@@ -235,3 +237,63 @@ def test_local_simulation_driver_calls_resolve_layout_or_exit():
     import inspect
     from source.core.runner_support import run_local_simulation as R
     assert "resolve_layout_or_exit(qbcs, snapshot_backend" in inspect.getsource(R)
+
+
+# ── extra_health_checks=: the packing of the jobs and their capacity ──────────
+from source.core.qbcs import bacq_ps_qbcs, pack_job_circuits, extra_hc_mode
+
+CHUNKS = [(0, ["a0", "a1"]), (1, ["b0", "b1"])]   # two chunks of two circuits, two SPAM circuits each
+
+
+def test_pack_job_circuits_layout_in_every_mode():
+    c, o = pack_job_circuits(CHUNKS, ["S0", "S1"], "HC", None)
+    assert c == ["S0", "S1", "a0", "a1", "S0", "S1", "b0", "b1"]
+    assert o == {0: {"spam_start": 0, "circ_start": 2, "circ_end": 4}, 1: {"spam_start": 4, "circ_start": 6, "circ_end": 8}}
+    c, o = pack_job_circuits(CHUNKS, ["S0", "S1"], "HC", "per-chunk")   # [HC, SPAM, chunk 1, HC, HC, SPAM, chunk 2, HC]
+    assert c == ["HC", "S0", "S1", "a0", "a1", "HC", "HC", "S0", "S1", "b0", "b1", "HC"]
+    assert o[0] == {"spam_start": 1, "circ_start": 3, "circ_end": 5, "hc_pre_idx": 0, "hc_post_idx": 5}
+    assert o[1] == {"spam_start": 7, "circ_start": 9, "circ_end": 11, "hc_pre_idx": 6, "hc_post_idx": 11}
+    c, o = pack_job_circuits(CHUNKS, ["S0", "S1"], "HC", "per-job")     # [HC, SPAM, chunk 1, SPAM, chunk 2, HC]
+    assert c == ["HC", "S0", "S1", "a0", "a1", "S0", "S1", "b0", "b1", "HC"]
+    assert o[0] == {"spam_start": 1, "circ_start": 3, "circ_end": 5, "hc_pre_idx": 0, "hc_post_idx": 9}
+    assert o[1] == {"spam_start": 5, "circ_start": 7, "circ_end": 9, "hc_pre_idx": 0, "hc_post_idx": 9}   # the same two indices
+
+
+@pytest.mark.parametrize("mode", [None, "per-chunk", "per-job"])
+def test_pack_job_circuits_offsets_slice_the_chunks_out(mode):
+    spam = ["S0", "S1"]
+    c, o = pack_job_circuits(CHUNKS, spam, "HC" if mode else None, mode)
+    for nc, circs in CHUNKS:
+        assert c[o[nc]["spam_start"]:o[nc]["circ_start"]] == spam and c[o[nc]["circ_start"]:o[nc]["circ_end"]] == circs
+        if mode:
+            assert c[o[nc]["hc_pre_idx"]] == c[o[nc]["hc_post_idx"]] == "HC"
+        else:
+            assert "hc_pre_idx" not in o[nc]
+    assert len(c) == 8 + {None: 0, "per-chunk": 4, "per-job": 2}[mode]
+    assert pack_job_circuits([(3, ["x"])], [], None, None) == (["x"], {3: {"spam_start": 0, "circ_start": 0, "circ_end": 1}})
+
+
+def test_extra_hc_mode():
+    assert extra_hc_mode("per-chunk") == "per-chunk" and extra_hc_mode("per-job") == "per-job"
+    assert extra_hc_mode("false") is None and extra_hc_mode(None) is None
+
+
+def _capacity_qbcs(mode):
+    q = SimpleNamespace(CONFIG={"nsites": 3, "SPAM_correction": True}, chunk_size=12, extra_health_checks=mode)
+    q._hc_mode = lambda: bacq_ps_qbcs._hc_mode(q)
+    q._circuits_per_chunk = lambda: bacq_ps_qbcs._circuits_per_chunk(q)
+    return q
+
+
+@pytest.mark.parametrize("mode, per_chunk, in_100, in_120", [(None, 20, 5, 6), ("false", 20, 5, 6), ("per-chunk", 22, 4, 5), ("per-job", 20, 4, 5)])
+def test_job_capacity_in_every_mode(mode, per_chunk, in_100, in_120):
+    q = _capacity_qbcs(mode)
+    assert q._circuits_per_chunk() == per_chunk                          # 8 SPAM + 12 (+2 with per-chunk)
+    assert bacq_ps_qbcs._chunks_per_iqm_job(q, 100) == in_100            # per-job: (100 - 2) // 20
+    assert bacq_ps_qbcs._chunks_per_iqm_job(q, 120) == in_120
+
+
+def test_a_job_too_small_for_one_chunk_and_its_health_checks_is_refused():
+    with pytest.raises(AssertionError):
+        bacq_ps_qbcs._chunks_per_iqm_job(_capacity_qbcs("per-job"), 21)   # 21 - 2 < 20
+    assert bacq_ps_qbcs._chunks_per_iqm_job(_capacity_qbcs(None), 21) == 1

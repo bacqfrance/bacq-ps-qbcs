@@ -7,6 +7,10 @@ Used by the pipeline, the runners and the analysis.
 
 File layout (single counter, alongside job_records/ and raw_results/):
     datafiles/<run_folder>/health_checks/health_check_<N>.json
+    datafiles/<run_folder>/health_checks/extra_chunk_<nc>_pre|post.json   (extra_health_checks=per-chunk: the health-check
+    datafiles/<run_folder>/health_checks/extra_job_<first chunk>_pre|post.json  circuits inside the submitted jobs; per-job:
+                                                          one pair per job; their names do not match health_check_*.json,
+                                                          so the numbered-check readers and the timing never see them)
     datafiles/<run_folder>/chunk_times_UTC_time.json      (old local simulator runs only; local
                                                           runs now write job records like real QPUs)
     datafiles/<run_folder>/submit.log                     (append_submit_log(), every submit / simulate script)
@@ -25,6 +29,7 @@ from source.core.records.job_records import chunks_without_submission, run_relat
 HEALTH_CHECK_THRESHOLD = 0.5     # pass criterion: P(011) > threshold; must be >= 0.5 (health_check_verdict relies on it)
 HEALTH_CHECK_SCHEMA    = 2       # files without schema >= 2 are ignored (old format)
 HEALTH_DIRNAME         = "health_checks"
+EXTRA_HEALTH_CHECK_SCHEMA = 1     # schema of the extra_*.json files (the health checks inside the submitted jobs)
 LOCAL_TIMES_FILENAME   = "chunk_times_UTC_time.json"
 
 # Exit codes the real-QPU submit scripts use when a PRE/POST health check doesn't come back
@@ -98,6 +103,76 @@ def health_check_verdict(counts):
     HEALTH_CHECK_THRESHOLD (which is at least 0.5, so
     011 is then also the most frequent outcome), else "degraded"."""
     return "functional" if health_check_p011(counts) > HEALTH_CHECK_THRESHOLD else "degraded"
+
+
+# ── Extra health checks: the health-check circuits inside the submitted jobs ───
+def extra_health_check_path(run_path, mode, chunk, position):
+    """health_checks/extra_chunk_<chunk>_<position>.json (mode "per-chunk") or extra_job_<chunk>_<position>.json
+    ("per-job": chunk is the job's first chunk); position "pre" | "post"."""
+    kind = "chunk" if mode == "per-chunk" else "job"
+    return health_dir(run_path) / f"extra_{kind}_{chunk}_{position}.json"
+
+
+def extra_health_check_record(*, mode, position, chunks, circuit_index, n_circuits_in_job, counts, nshots, layout, backend_name,
+                              service_name, job_id, submitted_at, scheduled_at, finished_at, circuit_check=None):
+    """The record of one health-check circuit that ran inside a submitted job. counts: bitstrings in myQLM order (the
+    health_check_p011() convention); chunks: the chunk (per-chunk) or the chunks of the job (per-job);
+    circuit_index: the circuit's position in the job's circuit list (0 .. n_circuits_in_job - 1);
+    circuit_check: the comparison with the circuit the provider executed (circuit_check.py), left out when None."""
+    record = {
+        "schema":            EXTRA_HEALTH_CHECK_SCHEMA,
+        "mode":              mode,
+        "position":          position,
+        "chunks":            [int(c) for c in chunks],
+        "circuit_index":     int(circuit_index),
+        "n_circuits_in_job": int(n_circuits_in_job),
+        "job_id":            job_id,
+        "P011":              health_check_p011(counts),
+        "verdict":           health_check_verdict(counts),
+        "threshold":         HEALTH_CHECK_THRESHOLD,
+        "counts":            counts,
+        "nshots":            nshots,
+        "layout":            layout,
+        "backend_name":      backend_name,
+        "service_name":      service_name,
+        "submitted_at":      submitted_at,
+        "scheduled_at":      scheduled_at,
+        "finished_at":       finished_at,
+    }
+    if circuit_check is not None:
+        record["circuit_check"] = circuit_check
+    return record
+
+
+def save_extra_health_check(run_path, record):
+    """Write an extra health check (extra_health_check_record()) atomically to its file and return (path, written). Idempotent:
+    a file already holding this job's result (same job_id, submitted_at and circuit_index) is left as it is (written False),
+    so a re-collection (and every chunk of a per-job job after the first) writes nothing. The file is named after the first
+    of the record's chunks."""
+    path = extra_health_check_path(run_path, record["mode"], min(record["chunks"]), record["position"])
+    old = _read_json(path) if path.exists() else None
+    if (isinstance(old, dict) and old.get("job_id") == record["job_id"] and old.get("circuit_index") == record["circuit_index"]
+            and old.get("submitted_at") == record["submitted_at"]):
+        return path, False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(record, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
+    return path, True
+
+
+def load_extra_health_checks(run_path):
+    """All extra health checks of a run (health_checks/extra_*.json), sorted by first chunk, then pre before post. Files
+    with another schema or unreadable files are skipped."""
+    d = health_dir(run_path)
+    out = []
+    if not d.is_dir():
+        return out
+    for p in d.glob("extra_*.json"):
+        rec = _read_json(p)
+        if isinstance(rec, dict) and rec.get("schema") == EXTRA_HEALTH_CHECK_SCHEMA and rec.get("chunks"):
+            out.append(rec)
+    return sorted(out, key=lambda r: (min(r["chunks"]), r["position"] != "pre"))
 
 
 # ── Chunks / QPU jobs ─────────────────────────────────────────────────────────

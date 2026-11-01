@@ -198,7 +198,8 @@ Each chunk gets `datafiles/<run>/job_records/job_record_chunk_<nc>.json`, each h
 - `service_name`, `backend_name`, `chunk_id`, `job_id` (shared by the chunks of one job),
   `status` (`submitted` → `complete` or `failed`), `submitted_at` (UTC ISO), `nshots`,
   `n_spam`, `n_circuits`, the offsets `spam_start` / `circ_start` / `circ_end` of the chunk in its
-  job, `n_circuits_in_job`, `layout`, `submitted_circuit_files`, `trotter_steps_list`, `roles`,
+  job, `n_circuits_in_job`, `layout`, and with `extra_health_checks` on (`per-chunk` / `per-job`, USER_MANUAL §7; the packing helper
+  in `qbcs.py` returns the offsets) also `extra_health_checks`, `extra_hc_circuit_file`, `hc_pre_idx`, `hc_post_idx` (and `job_chunks` with `per-job`; `n_circuits_in_job` counts the health-check circuits), `submitted_circuit_files`, `trotter_steps_list`, `roles`,
   `nsites`, `CONFIG`;
 - after collection: `scheduled_at`, `finished_at`, `circuit_check`, and for a chunk record `result_path` (a health check keeps `counts`, `P011`, `verdict`, `threshold` and `collected_at` in its own record);
 - a `timing` block (`source/core/records/job_timing.py` terms):
@@ -238,11 +239,13 @@ A run with gaps is then analyzed from the collected chunks (`+nsamples-<collecte
 
 ### 6. Circuit check
 
-After collecting, compare the circuits the provider executed with the ones submitted
+After collecting, compare the provider's copy of the job's circuits, including the physical qubits, with the ones submitted
 (`source/core/records/circuit_check.py`): `check_ibm` (IBM `job.inputs["pubs"]`), `check_iqm` (IQM job
 payload), `check_vlq` (qaas transpiled circuits). If the provider cannot return them, record
-`CC.not_available("<why>")`; the analysis then checks that all circuits used the same physical
-qubits instead. The check never raises: wrap it and return `CC.check_failed(method, error)`.
+`CC.not_available("<why>")`; the analysis then falls back to checking that all circuits used the same physical
+qubits. The check never raises: wrap it and return `CC.check_failed(method, error)`. With `extra_health_checks` the two health-check slots of a job are compared one by one
+(`_check_extra_hc()` in `qbcs.py` returns a check per slot, `pre` and `post`); a provider without executed circuits
+stores `not_available` in both extra records.
 
 ### 7. Health checks
 

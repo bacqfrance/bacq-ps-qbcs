@@ -18,6 +18,7 @@ Usage (see source/core/runner_support/benchmark_args.py; the benchmark is requir
   python3 benchmark_fake_fez_lnn.py full scheduling_simulation=false   full benchmark: 480 samples, Nt = 1…19, 10 shots
   python3 benchmark_fake_fez_lnn.py mini nshots_per_circuit=N
   python3 benchmark_fake_fez_lnn.py nshots_per_circuit=N n_samples=M n_depths=K   (or nt_list=1,5,9)
+  python3 benchmark_fake_fez_lnn.py mini extra_health_checks=per-chunk   health-check circuits inside the jobs (per-chunk | per-job | false); a resumed run keeps its value
 Any of them takes the optional scheduling_simulation=true | false (default true): true transpiles the circuits like the submission and then schedules them ALAP (delays only), so idle qubits relax through T1/T2 as on
 the QPU (slower: about 4 times the time of false on the full benchmark); false leaves idle-qubit relaxation out. It is recorded in run_info.json,
 and a run folder started with the other value is refused.
@@ -34,12 +35,13 @@ from source.core.records.run_names import local_run_name, dated_run_folder
 from source.core.runner_support.benchmark_args import make_usage, usage_if_requested   # light (numpy only): the usage is printed before anything else loads
 usage_if_requested(sys.argv[1:], make_usage(__file__, "Run the LNN BACQ benchmark on the local Aer simulator with the noise of Qiskit's built-in FakeFez backend (no network, no token). Run it in venvs/ibm.venv; the LNN circuits of the same benchmark size must already be cached (benchmark_noiseless_lnn.py).", backend=False, layout="simulate_builtin"))   # no arguments or --help: print the usage and do nothing
 from pathlib import Path
-from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_layout_args, parse_scheduling_arg
+from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_layout_args, parse_scheduling_arg, parse_extra_health_checks_arg
 from source.core.runner_support.run_local_simulation import run_local_simulation
 
-BENCH      = parse_benchmark_args(sys.argv[1:], extra_keys=("scheduling_simulation",))
+BENCH      = parse_benchmark_args(sys.argv[1:], extra_keys=("scheduling_simulation", "extra_health_checks"))
 LAYOUT     = parse_layout_args(sys.argv[1:], no_calibration_file=True)
 SCHEDULING = parse_scheduling_arg(sys.argv[1:])   # scheduling_simulation=true|false (optional, default true): idle qubits relax (true) or not (false)
+EXTRA_HEALTH_CHECKS = parse_extra_health_checks_arg(sys.argv[1:])   # extra_health_checks=per-chunk|per-job|false (optional; None: the run's recorded value, else false): health-check circuits inside the simulated jobs
 RUN_FOLDER = dated_run_folder(local_run_name(BENCH.tag, "sim-fake-fez", lnn=True, layout_tag=LAYOUT.tag))
 BACKEND    = "Aer with FakeFez noise (local)"
 
@@ -54,4 +56,4 @@ def noisy_setup():
     return snapshot_path, snapshot_backend, sampler
 
 run_local_simulation(run_folder=RUN_FOLDER, bench=BENCH, lnn=True, backend_label=BACKEND, do_spam=True, noisy_setup=noisy_setup, layout=LAYOUT,
-                     scheduling_simulation=SCHEDULING)
+                     scheduling_simulation=SCHEDULING, extra_health_checks=EXTRA_HEALTH_CHECKS)

@@ -430,6 +430,8 @@ device's current calibration and simulate the whole run locally with it: ~1 h CP
 
 Every simulate script takes the optional `scheduling_simulation=true|false` (default `true`; add `scheduling_simulation=false` to any command above for the faster run); see the note in §4 and each readme. With `true` a full run takes ≈ 4 h instead of ≈ 1 h.
 
+Every submit and simulate script also takes the optional `extra_health_checks=per-chunk|per-job|false` (default: the run's recorded value, `false` for a new run), which puts the health-check circuit into the submitted jobs themselves, so the QPU's state is also checked during the benchmark; the checks are plotted with the standalone ones (USER_MANUAL §7).
+
 ### 6.3 Submit and collect
 
 > 💰 **COST — this step runs on real hardware.** Expected cost at list prices, health checks included

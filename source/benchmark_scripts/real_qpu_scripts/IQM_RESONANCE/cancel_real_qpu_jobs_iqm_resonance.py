@@ -3,11 +3,11 @@ cancel_real_qpu_jobs_iqm_resonance.py
 Cancel the jobs of a run on IQM Resonance that are still queued or running, according to the job records on disk.
 Jobs that already ended are left alone and the records on disk are not changed: run the collect script
 afterwards to update them. Without layout= and date=, every run of the benchmark with
-queued or running jobs is handled in turn.
+something left to collect is handled in turn.
 
   backend=NAME            required (emerald, garnet, sirius)
   health_check            cancel the standalone health check of that backend (its latest) instead of a benchmark run
-  layout=... / date=...   optional: that one run; without them, every run of the benchmark with queued or running jobs (all layouts and dates)
+  layout=... / date=...   optional: that one run; without them, every run of the benchmark with something left to collect (all layouts and dates)
 
 Benchmark size (required unless `health_check` is given; no default), from the command line (source/core/runner_support/benchmark_args.py; readme: "Benchmark size and run folders"):
   mini · full · mini|full nshots_per_circuit=N ·
@@ -23,8 +23,7 @@ sys.stderr.reconfigure(encoding="utf-8")
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../..")))   # the project root, for the source.* imports
 os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../..")))   # datafiles/ paths are relative to the project root
 from source.core.runner_support.benchmark_args import make_usage, usage_if_requested   # light (numpy only): the usage is printed before anything else loads
-from source.core.qpu.providers import IQM_RESONANCE_URL
-from source.core.qpu.providers import STANDALONE_HEALTH_CHECK_REPS, STANDALONE_HEALTH_CHECK_NSHOTS
+from source.core.qpu.providers import IQM_RESONANCE_URL, STANDALONE_HEALTH_CHECK_REPS, STANDALONE_HEALTH_CHECK_NSHOTS
 from source.core.records.run_names import qpu_run_prefix, health_check_run_name, latest_run_folder
 from source.core.qpu.tokens import read_token
 usage_if_requested(sys.argv[1:], make_usage(__file__, "Cancel the jobs of a run on IQM Resonance that are still queued or running (jobs that already ended are left alone; the records on disk are not changed). Waits for nothing.", health_check_flag=True, layout="collect"))   # no arguments or --help: print the usage and do nothing
@@ -42,7 +41,9 @@ LAYOUT       = parse_layout_args(ARGV, collect=True)   # layout=... / date=... p
 LNN          = BACKEND_CFG["lnn"]   # the backend's topology, from backends.json
 DO_SPAM      = True
 RUN_FOLDERS  = [] if BENCH is None else find_collect_run_folders(qpu_run_prefix("IQM_RESONANCE", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM), LAYOUT, parse_date_arg(ARGV))
-HC_FOLDER    = latest_run_folder(health_check_run_name("IQM_RESONANCE", BACKEND_NAME, STANDALONE_HEALTH_CHECK_REPS, STANDALONE_HEALTH_CHECK_NSHOTS)) or health_check_run_name("IQM_RESONANCE", BACKEND_NAME, STANDALONE_HEALTH_CHECK_REPS, STANDALONE_HEALTH_CHECK_NSHOTS)   # the standalone health check's folder
+HC_NAME      = health_check_run_name("IQM_RESONANCE", BACKEND_NAME, STANDALONE_HEALTH_CHECK_REPS, STANDALONE_HEALTH_CHECK_NSHOTS)
+HC_LATEST    = latest_run_folder(HC_NAME)   # None: no standalone health check on disk
+HC_FOLDER    = HC_LATEST or HC_NAME   # the standalone health check's folder
 
 # ── Connect ───────────────────────────────────────────────────────────────────
 print(f"\n[{BACKEND_NAME} — connection]")

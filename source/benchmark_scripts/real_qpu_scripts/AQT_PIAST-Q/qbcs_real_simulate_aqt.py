@@ -31,6 +31,8 @@ scheduling_simulation=true|false is optional (default true): true transpiles the
 (slower: about 4 times the time of false on the full benchmark); false leaves idle-qubit relaxation out. It is recorded in run_info.json, and a run
 folder started with the other value is refused.
 
+extra_health_checks=per-chunk|per-job|false is optional (default: the run's recorded value, else false): it packs the health-check circuit into the simulated jobs; a different value for an existing run folder is refused.
+
 Benchmark size (required — there is no default), from the command line (source/core/runner_support/benchmark_args.py; readme: "Benchmark size and run folders"):
   mini · full · mini|full nshots_per_circuit=N ·
   nshots_per_circuit=N n_samples=M n_depths=K (or nt_list=1,5,9)
@@ -48,16 +50,17 @@ usage_if_requested(sys.argv[1:], make_usage(__file__, "Run the BACQ benchmark on
 from pathlib import Path
 
 
-from source.core.runner_support.benchmark_args import parse_benchmark_args, DT, parse_backend_config, parse_layout_args, parse_scheduling_arg
+from source.core.runner_support.benchmark_args import parse_benchmark_args, DT, parse_backend_config, parse_layout_args, parse_scheduling_arg, parse_extra_health_checks_arg
 from source.core.qpu.calibration_input import use_calibration_file, newest_provider_file
 from source.core.runner_support.run_simulation import simulate_run
 from source.core.qpu.qpu_snapshot import SNAPSHOT_FILENAME
 
 # ── Config ────────────────────────────────────────────────────────────────────
 BACKEND_NAME, BACKEND_CFG = parse_backend_config(sys.argv[1:], Path(__file__).parent)   # required backend=NAME, checked against backends.json
-BENCH            = parse_benchmark_args(sys.argv[1:], extra_keys=("backend", "scheduling_simulation"))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
+BENCH            = parse_benchmark_args(sys.argv[1:], extra_keys=("backend", "scheduling_simulation", "extra_health_checks"))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
 LAYOUT           = parse_layout_args(sys.argv[1:], calibration_required=True, layout_required=True, calibration_any_layout=True)   # layout=... [calibration_file=...] — see source/core/runner_support/benchmark_args.py
 SCHEDULING       = parse_scheduling_arg(sys.argv[1:])   # scheduling_simulation=true|false (optional, default true): idle qubits relax (true) or not (false)
+EXTRA_HEALTH_CHECKS = parse_extra_health_checks_arg(sys.argv[1:])   # extra_health_checks=per-chunk|per-job|false (optional; None: the run's recorded value, else false): health-check circuits inside the submitted jobs
 LNN              = BACKEND_CFG["lnn"]   # the backend's topology, from backends.json
 DO_SPAM          = True
 RUN_FOLDER       = dated_run_folder(qpu_run_name("AQT_PIAST-Q", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag, data_type="sim-qpu-noise"))
@@ -70,4 +73,4 @@ _, _, CAL_SOURCE = use_calibration_file(LAYOUT.calibration_file or newest_provid
 
 # ── Simulate: build, qubits, health checks, every chunk left, submit.log, analysis (source/core/runner_support/run_simulation.py) ──
 simulate_run(run_folder=RUN_FOLDER, bench=BENCH, layout=LAYOUT, lnn=LNN, snapshot_path=snapshot_path, cal_source=CAL_SOURCE,
-             do_spam=DO_SPAM, dt=DT, seed=SEED, scheduling_simulation=SCHEDULING)
+             do_spam=DO_SPAM, dt=DT, seed=SEED, scheduling_simulation=SCHEDULING, extra_health_checks=EXTRA_HEALTH_CHECKS)

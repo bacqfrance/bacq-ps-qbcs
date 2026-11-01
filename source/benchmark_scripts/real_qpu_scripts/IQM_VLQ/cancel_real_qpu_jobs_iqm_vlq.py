@@ -3,11 +3,11 @@ cancel_real_qpu_jobs_iqm_vlq.py
 Cancel the jobs of a run on IQM VLQ (HEAppE) that are still queued or running, according to the job records on disk.
 Jobs that already ended are left alone and the records on disk are not changed: run the collect script
 afterwards to update them. Without layout= and date=, every run of the benchmark with
-queued or running jobs is handled in turn.
+something left to collect is handled in turn.
 
   backend=NAME            required (VLQ)
   health_check            cancel the standalone health check of that backend (its latest) instead of a benchmark run
-  layout=... / date=...   optional: that one run; without them, every run of the benchmark with queued or running jobs (all layouts and dates)
+  layout=... / date=...   optional: that one run; without them, every run of the benchmark with something left to collect (all layouts and dates)
 
 Benchmark size (required unless `health_check` is given; no default), from the command line (source/core/runner_support/benchmark_args.py; readme: "Benchmark size and run folders"):
   mini · full · mini|full nshots_per_circuit=N ·

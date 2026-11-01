@@ -21,7 +21,7 @@ from source.core.records.run_names import qpu_run_name
 usage_if_requested(sys.argv[1:], make_usage(__file__, "Submit a BACQ benchmark run to IQM EQE1 (MQSS), retrying a failed launch of qbcs_real_submit_iqm_eqe1.py at once, then every 1 min, until every chunk is submitted; gives up after 20 min without progress.", layout="submit_no_live"))   # no arguments or --help: print the usage and do nothing
 
 from pathlib import Path
-from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args, pop_force_new_run_flag
+from source.core.runner_support.benchmark_args import parse_benchmark_args, parse_backend_config, parse_layout_args, parse_extra_health_checks_arg, pop_force_new_run_flag
 from source.core.runner_support.submit_with_retries import run_with_retries, launch_submit_script
 
 SUBMIT_SCRIPT = Path(__file__).parent / "qbcs_real_submit_iqm_eqe1.py"
@@ -31,8 +31,9 @@ RETRY_LIMIT_HOURS = 20 / 60        # give up after 20 min of failed launches wit
 # ── Config: the same arguments as qbcs_real_submit_iqm_eqe1.py, which decide the run folder ──
 FORCE_NEW_RUN, ARGV = pop_force_new_run_flag(sys.argv[1:])   # --force-new-run: only for the first launch (a new folder); later passes resume it
 BACKEND_NAME, BACKEND_CFG = parse_backend_config(ARGV, Path(__file__).parent)   # required backend=NAME, checked against backends.json
-BENCH            = parse_benchmark_args(ARGV, extra_keys=("backend",))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
+BENCH            = parse_benchmark_args(ARGV, extra_keys=("backend", "extra_health_checks"))   # full / mini / custom — see source/core/runner_support/benchmark_args.py
 LAYOUT           = parse_layout_args(ARGV, calibration_required=True)   # layout=... [calibration_file=...] — see source/core/runner_support/benchmark_args.py
+parse_extra_health_checks_arg(ARGV)   # validated here; the submit script gets it with the other arguments and resolves it against the run
 LNN              = BACKEND_CFG["lnn"]   # the backend's topology, from backends.json
 DO_SPAM          = True
 UNDATED          = qpu_run_name("IQM_EQE1", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag)   # the run settings; the run folder is the dated one of these (dated_run_folder)
