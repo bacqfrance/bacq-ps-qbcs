@@ -132,12 +132,12 @@ qbcs_real_submit_ibm.py                qbcs_real_collect_ibm.py
   against the job records on disk, without waiting or changing anything. Same arguments as the
   submit/collect scripts (`backend=NAME`, mini/full, …); add the word `health_check` to check the
   backend's standalone health-check job instead. Prints the jobs that are not done, a summary
-  (done / pending / error / cancelled / unavailable), the backend's queue and your 10 most recent
+  (done / pending / error / cancelled / unavailable; the pending ones counted apart by status, e.g. QUEUED and RUNNING), the backend's queue length (every user's jobs, so it does not match the run's pending count) and your 10 most recent
   IBM jobs. Useful for checking on a run without doing a full collect. (Same report as the IQM scripts;
   shared code in `source/core/qpu/job_status_check.py`.)
 - **`cancel_real_qpu_jobs_ibm.py`** — cancels the jobs of a run folder that are still queued or running on IBM, after reading their live status. Same arguments as the status script (`backend=NAME`, mini/full, …, `layout=`/`date=`; without them every run with something left to collect is handled in turn); add the word `health_check` to cancel the backend's latest standalone health-check job instead. Jobs that already ended are left alone, a job shared by several chunks is cancelled once, and the records on disk are not changed: run the collect script afterwards (same arguments) to update their status. `instance=NAME` as in the other IBM scripts. Exit code `2` when a cancellation fails. (Shared code in `source/core/qpu/job_cancel.py`.)
 - **`health_check_real_ibm.py`** — a standalone submit-and-collect health check in one script, unrelated to
-  any benchmark run (its own run folder, wiped before every submission); it blocks until the job finishes,
+  any benchmark run (its own run folder; a new submission clears only an unfinished earlier attempt, and a finished check gets a new folder); it blocks until the job finishes,
   like the other QPUs' health-check scripts. `backend=NAME` is required. Exit codes: `0` functional, `10` degraded, `2` for a problem you can fix (no argument, a missing or unknown `backend=`, a missing token), `1` for any other error (a provider or SDK error, a failed submission, collection or job); `11` and `12` come only from the accompanying checks of the submit scripts.
 
 All of them are safe to re-run — see the main USER_MANUAL §5.5 (idempotency) and §7.

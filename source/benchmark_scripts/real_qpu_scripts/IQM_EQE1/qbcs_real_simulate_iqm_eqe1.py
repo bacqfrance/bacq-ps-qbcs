@@ -51,7 +51,6 @@ from source.core.records.run_names import qpu_run_name, dated_run_folder
 usage_if_requested(sys.argv[1:], make_usage(__file__, "Run the BACQ benchmark on the local Aer simulator with IQM EQE1's calibration: same circuits and settings as qbcs_real_submit_iqm_eqe1.py, but no QPU time.", layout="simulate_required"))   # no arguments or --help: print the usage and do nothing
 from pathlib import Path
 
-
 from source.core.runner_support.benchmark_args import parse_benchmark_args, DT, parse_backend_config, parse_layout_args, parse_scheduling_arg, parse_extra_health_checks_arg
 from source.core.qpu.calibration_input import use_calibration_file, newest_provider_file
 from source.core.runner_support.run_simulation import simulate_run

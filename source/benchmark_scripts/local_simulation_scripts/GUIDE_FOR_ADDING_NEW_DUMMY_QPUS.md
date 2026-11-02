@@ -47,7 +47,7 @@ Edit only `definitions_dummy_noisy_emulators.json`, beside this guide. A new pro
 7. **Durations of IBM and IQM QPUs** can be taken from a calibration, as the median over the qubits and pairs of the gate
    (`sx`/`x` or `r` for `t_1q`; `cz` for `t_2q`) and measurement durations:
    - from a saved `calibration_snapshot.json` of a real run on that QPU (`USER_MANUAL §5.4`);
-   - or from a read-only fetch of the backend's target (IBM: `connect_ibm(...)` then `service.backend("<name>").target`, in `venvs/ibm.venv`;
+   - or from a read-only fetch of the backend's target (IBM: `service, _ = connect_ibm(...)` then `service.backend("<name>").target`, in `venvs/ibm.venv`;
      IQM Resonance: `IQMProvider(...).get_backend(use_metrics=True)`, in `venvs/iqm_resonance.venv`, with the token of `tokens/README.md`).
 
    IBM's per-shot overhead can be the backend configuration's `default_rep_delay`. The values are copied into the JSON, so a run never

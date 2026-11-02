@@ -22,7 +22,7 @@ from source.core.qpu.tokens import read_token
 usage_if_requested(sys.argv[1:], make_usage(__file__, "Health check of a real IBM QPU: submit and collect in one go. Standalone, unrelated to any benchmark run.", benchmark=False, instance=True))   # no arguments or --help: print the usage and do nothing
 
 from source.core.runner_support.benchmark_args import parse_backend_config, parse_instance_arg
-from source.core.qpu.providers import connect_ibm
+from source.core.qpu.providers import connect_ibm, IBM_CHANNEL
 from source.core.health_check import submit_health_check, collect_health_check, print_standalone_summary
 from source.core.common import rel_path
 
@@ -39,10 +39,10 @@ shutil.rmtree(f"datafiles/{RUN_FOLDER}", ignore_errors=True)   # clears only an 
 # ── Connect to IBM ────────────────────────────────────────────────────────────
 print(f"\n[{BACKEND_NAME} — connection]")
 token        = read_token("ibm_token")
-service, _ = connect_ibm(token, INSTANCE_ARG, BACKEND_NAME)
+service, _    = connect_ibm(token, INSTANCE_ARG, BACKEND_NAME)
 real_backend = service.backend(BACKEND_NAME)
 
-print("  Channel:  ibm_quantum_platform")
+print(f"  Channel:  {IBM_CHANNEL}")
 print(f"  Backend:  {real_backend.name}")
 print(f"  Qubits:   {real_backend.num_qubits}")
 

@@ -170,7 +170,7 @@ qbcs_real_submit_aqt_loop.py           (synchronous — one submit() call per ch
   arguments as the loop script (prints it when run as a script). Used by both PCSS loop
   sbatch files.
 - **`health_check_real_aqt.py`** — a standalone submit-and-collect health check in one script,
-  unrelated to any benchmark run (its own run folder, wiped before every submission); it blocks until the job finishes, like the other QPUs' health-check
+  unrelated to any benchmark run (its own run folder; a new submission clears only an unfinished earlier attempt, and a finished check gets a new folder); it blocks until the job finishes, like the other QPUs' health-check
   scripts. `backend=NAME` is required. Its own folder is
   `datafiles/health-check+reps-<N>+nshots-<shots>_real-data_aqt-<backend>_lnn-none_service-pcss_spam-none_layout-none_<YYYY-MM-DD>_#<N>/`. Use it to see
   whether PIAST-Q is worth a run before starting one. Not a benchmark run, so it

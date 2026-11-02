@@ -28,8 +28,9 @@ def job_state_of_status(status):
     job counts as failed, like an errored one; anything not final (queued, running, validating, …) is pending.
     Collection, the IBM health-check wait and the status report map a status to its job state here;
     job_status_check.classify() only refines the failed states into ERROR vs CANCELLED.
-    Known literals: IBM and IQM Resonance statuses as their SDKs report them; EQE1 (MQSS): COMPLETED, PENDING and CANCELLED
-    observed live (a PENDING job cancelled with cancel_job() then reads CANCELLED), WAITING and FAILED from the client's
+    Known literals: IBM and IQM Resonance statuses as their SDKs report them; EQE1 (MQSS): COMPLETED, PENDING, WAITING and
+    CANCELLED observed live (a job runs PENDING, then WAITING, then COMPLETED; a PENDING job cancelled with cancel_job()
+    then reads CANCELLED; the Qiskit adapter reads PENDING as INITIALIZING and WAITING as QUEUED), FAILED from the client's
     enum only (not observed). VLQ (qiskit JobStatus via
     HEAppE): DONE, RUNNING, ERROR observed live (a HEAppE "Failed" job reads ERROR). A job cancelled with cancel() reads
     ERROR when queried through a fresh backend object: qaas reports CANCELLED only through the object that issued the cancel
@@ -60,8 +61,8 @@ def pick_ibm_instance(instances, name=None):
         return found[0]
     opens = [i for i in instances if i["plan"] == IBM_OPEN_PLAN]
     if len(opens) != 1:
-        exit_with_error(f"the account has {len(opens)} IBM Open Plan instances, so none is the default — name one with "
-                        f"instance=NAME; available: {listing}")
+        exit_with_error(f"the account has {len(opens)} IBM Open Plan instances, so there is no single default — name one "
+                        f"with instance=NAME; available: {listing}")
     return opens[0]
 
 

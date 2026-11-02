@@ -363,6 +363,8 @@ def use_run_calibration(run_dir, calibration_file=None, calibration_set="default
         # VLQ's layout choice needs IT4I's raw calibration (qubits, couplers, metrics), so the file must be a
         # vlq_calibration.json as a VLQ run saves it (datafiles/<run>/vlq_calibration.json).
         src = Path(calibration_file)
+        if not src.is_absolute():
+            src = PROJECT_ROOT / src   # a relative path is relative to the project root, as in calibration_input.load_calibration
         try:
             file_cal = json.loads(src.read_text(encoding="utf-8"))
         except (OSError, ValueError) as e:

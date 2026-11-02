@@ -48,7 +48,7 @@ HC_FOLDER    = HC_LATEST or HC_NAME   # the standalone health check's folder
 
 # ── Connect ───────────────────────────────────────────────────────────────────
 print(f"\n[{BACKEND_NAME} — connection]")
-token   = read_token("ibm_token")
+token      = read_token("ibm_token")
 service, _ = connect_ibm(token, ibm_instance_for_runs(parse_instance_arg(ARGV), RUN_FOLDERS), BACKEND_NAME)   # the runs' recorded instance (the standalone health check has none: instance= or the Open Plan one)
 
 run_cancels(BACKEND_NAME, RUN_FOLDERS, HC_FOLDER, HEALTH_CHECK,

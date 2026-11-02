@@ -18,6 +18,7 @@ import json
 import os
 from pathlib import Path
 
+from source.core.common import exit_with_error
 from source.core.records.run_names import hc_filter_label
 
 from source.core.records.health_check_records import (chunks_passing_extra_health_checks, load_health_checks,
@@ -75,7 +76,7 @@ def scope_from_env(run_folder, sample_size, n_samples=None):
         return n_samples
     scope = health_check_scope(Path("datafiles") / run_folder, float(value), sample_size)
     if scope is None:
-        raise SystemExit(f"❌ {run_folder} has no extra health checks — --filter-per-health-check does not apply")
+        exit_with_error(f"{run_folder} has no extra health checks — --filter-per-health-check does not apply")
     return scope
 
 

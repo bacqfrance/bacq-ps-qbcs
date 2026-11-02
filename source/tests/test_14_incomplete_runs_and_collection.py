@@ -326,6 +326,7 @@ def test_remote_job_state_unknown_service_and_missing_backend_name_raise():
     ("JobStatus.ERROR", "failed", "ERROR"), ("FAILED", "failed", "ERROR"),
     ("JobStatus.CANCELLED", "failed", "CANCELLED"),          # a cancelled job counts as failed
     ("QUEUED", "pending", "PENDING"), ("RUNNING", "pending", "PENDING"),
+    ("PENDING", "pending", "PENDING"), ("WAITING", "pending", "PENDING"),   # EQE1 (MQSS): PENDING, then WAITING, then COMPLETED
 ])
 def test_one_reading_of_job_status_texts(status, state, report):
     """Collection, the IBM health-check wait and the status report read status texts the same way."""
@@ -333,6 +334,14 @@ def test_one_reading_of_job_status_texts(status, state, report):
     from source.core.qpu.job_status_check import classify
     assert job_state_of_status(status) == state
     assert classify(status) == report
+
+
+def test_pending_breakdown_tells_the_pending_status_texts_apart():
+    from source.core.qpu.job_status_check import pending_breakdown
+    assert pending_breakdown(["PENDING"] * 21 + ["WAITING"] * 2) == "PENDING 21, WAITING 2"
+    assert pending_breakdown(["JobStatus.QUEUED", "QUEUED", "RUNNING"]) == "QUEUED 2, RUNNING 1"
+    assert pending_breakdown(["PENDING"] * 3) is None   # all the same: nothing to tell apart
+    assert pending_breakdown([]) is None
 
 
 # ── The chunks a submission and its health checks cover ───────────────────────

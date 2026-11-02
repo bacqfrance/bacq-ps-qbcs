@@ -54,7 +54,8 @@ JOB_TYPE = CircuitJobRequest(circuits="", circuit_format="qasm", resource_name=B
                              shots=1, no_modify=True, queued=False)
 
 def overview():
-    return [f"{BACKEND_NAME}: pending jobs={adapter.get_backend(BACKEND_NAME).num_pending_jobs}"]
+    # the resource's queue over all users (num_pending_jobs), not this run's pending jobs
+    return [f"{BACKEND_NAME} queue (all users): {adapter.get_backend(BACKEND_NAME).num_pending_jobs} jobs waiting to be scheduled"]
 
 run_status_checks(BACKEND_NAME, RUN_FOLDERS, HC_FOLDER, HEALTH_CHECK,
                  remote_status=lambda job_id: adapter.client.job_status(job_id, JOB_TYPE).value,

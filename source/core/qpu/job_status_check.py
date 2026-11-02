@@ -25,11 +25,25 @@ def pop_health_check_flag(argv):
 
 
 def classify(status):
-    """DONE / ERROR / CANCELLED / PENDING from a provider's status text (an enum's repr or value)."""
+    """DONE / ERROR / CANCELLED / PENDING from a provider's status text (an enum's repr or value).
+    PENDING covers every status that is not final (EQE1: PENDING and WAITING; IBM: QUEUED, RUNNING, …);
+    pending_breakdown() tells them apart in the summary."""
     state, s = job_state_of_status(status), str(status).upper()
     if state == "failed":                       # cancelled counts as failed; the report only shows it apart
         return "ERROR" if "ERROR" in s or "FAIL" in s else "CANCELLED"
     return state.upper()                        # DONE / PENDING
+
+
+def pending_breakdown(statuses):
+    """The pending jobs' status texts counted apart, e.g. "PENDING 21, WAITING 2"; None when they are all
+    the same text (nothing to tell apart). `statuses`: the provider's status text of each pending job."""
+    counts = {}
+    for status in statuses:
+        text = str(status).split(".")[-1].upper()   # "JobStatus.QUEUED" and "QUEUED" read alike
+        counts[text] = counts.get(text, 0) + 1
+    if len(counts) < 2:
+        return None
+    return ", ".join(f"{text} {n}" for text, n in sorted(counts.items()))
 
 
 def _load_records(folder, health_check):
@@ -56,7 +70,8 @@ def run_status_check(provider, run_folder, health_check_folder, health_check, re
     run_folder          the benchmark run folder under datafiles/
     health_check_folder the standalone health-check folder under datafiles/
     remote_status       job_id -> the provider's status text; raises when the job cannot be queried
-    overview            optional () -> list of lines: the state of the QPU/provider (queue length, …)
+    overview            optional () -> list of lines: the state of the QPU/provider (its queue length counts every
+                        user's jobs, not only this run's, so it is not comparable with the PENDING count)
     recent_jobs         optional n -> list of lines: the account's latest jobs; None when the
                         provider's API has no job listing
     """
@@ -70,6 +85,7 @@ def run_status_check(provider, run_folder, health_check_folder, health_check, re
 
     live   = {}                                   # job_id -> status text, queried once per job
     counts = {}
+    pending_texts = []                            # the status text of each pending record
     for label, job_id, status_disk in records:
         if job_id not in live:
             try:
@@ -79,7 +95,9 @@ def run_status_check(provider, run_folder, health_check_folder, health_check, re
         status_live = live[job_id]
         kind = "UNAVAILABLE" if status_live.startswith("UNAVAILABLE") else classify(status_live)
         counts[kind] = counts.get(kind, 0) + 1
-        if kind != "DONE":                        # only print the jobs that are not done
+        if kind == "PENDING":
+            pending_texts.append(status_live)
+        if kind != "DONE":                       # only print the jobs that are not done
             print(f"  {label} | job_id={job_id} | disk={status_disk} | {provider}={status_live}")
 
     section("Summary")
@@ -88,6 +106,8 @@ def run_status_check(provider, run_folder, health_check_folder, health_check, re
     for kind in ("DONE", "PENDING", "ERROR", "CANCELLED", "UNAVAILABLE"):
         if counts.get(kind):
             print(f"  {kind:15s}: {counts[kind]}")
+            if kind == "PENDING" and pending_breakdown(pending_texts):
+                print(f"  {'':15s}  of which {pending_breakdown(pending_texts)}")
     n_disk_complete = sum(1 for _, _, s in records if s == "complete")
     print(f"  {'complete_disk':15s}: {n_disk_complete}")
 

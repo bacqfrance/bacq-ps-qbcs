@@ -2,7 +2,7 @@
 qpu_snapshot.py
 Save a real QPU's calibration to JSON and rebuild an offline backend + Aer noise
 model from it — used by the source/benchmark_scripts/real_qpu_scripts/*/qbcs_real_simulate_*.py scripts, source/core/runner_support/run_simulation.py,
-source/core/qpu/calibration_input.py, source/core/qpu/iqm_vlq.py, source/core/records/health_check_records.py, source/core/health_check.py, source/core/qbcs.py,
+source/core/qpu/calibration_input.py, source/core/qpu/iqm_vlq.py, source/core/qpu/iqm_star.py, source/core/records/health_check_records.py, source/core/health_check.py, source/core/qbcs.py,
 source/benchmark_scripts/real_qpu_scripts/IBM/qbcs_real_submit_ibm.py and source/benchmark_scripts/local_simulation_scripts/benchmark_fake_fez_lnn.py.
 
 A simulated run always works from the saved file (<run>/calibration_snapshot.json),

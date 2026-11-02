@@ -50,9 +50,9 @@ service, INSTANCE = connect_ibm(token, ibm_instance_for_runs(INSTANCE_ARG, [RUN_
 real_backend = service.backend(BACKEND_NAME)
 
 # ── Print calibration info ────────────────────────────────────────────────────
-props    = real_backend.properties()
-cz_gates = [g for g in props.gates if g.gate == "cz"]
-avg_cz   = statistics.median(g.parameters[0].value for g in cz_gates)
+props     = real_backend.properties()
+cz_gates  = [g for g in props.gates if g.gate == "cz"]
+median_cz = statistics.median(g.parameters[0].value for g in cz_gates)
 t1_vals, t2_vals = [], []
 for q in range(real_backend.num_qubits):
     try: t1_vals.append(props.qubit_property(q, "T1")[0])
@@ -63,7 +63,7 @@ t1_avg = sum(t1_vals) / len(t1_vals) if t1_vals else 0
 t2_avg = sum(t2_vals) / len(t2_vals) if t2_vals else 0
 
 print(f"\n[{BACKEND_NAME} — live calibration, whole device]")
-print(f"  CZ error (median): {avg_cz:.3e}")
+print(f"  CZ error (median): {median_cz:.3e}")
 print(f"  T1: {t1_avg*1e6:.1f}µs   T2: {t2_avg*1e6:.1f}µs")
 
 # ── Health checks: one IBM Batch per check, closed when it is done ────────────

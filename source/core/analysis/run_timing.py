@@ -629,7 +629,8 @@ def failed_attempts_breakdown(run_path, nchunks=None):
 def aggregate_run_timing(run_folder, n_samples=None, total_chunks=None, qiskit_v13_qpy=False, verbose=True):
     """CPU / QPU / queue time of a real-QPU (or local) run, health checks included —
     the numbers the run's summary.json reports. run_folder: a run folder name under datafiles/,
-    or an absolute path. n_samples: scope everything to the first n_samples collected chunks (chunk_scope)."""
+    or an absolute path. n_samples: scope everything to the first n_samples collected chunks (chunk_scope); it may also be a
+    HealthCheckScope (chunk_scope), which keeps the chunks passing the health-check filter."""
     run_path = Path(run_folder) if Path(run_folder).is_absolute() else PROJECT_ROOT / "datafiles" / run_folder
     info    = load_run_info(str(run_path))
     total   = total_chunks or info.sample_size
@@ -765,7 +766,8 @@ def derive_date_time_from_data(run_folder, n_samples=None, service=None):
     older simulated runs have none.
 
     n_samples: if given, scope the run window to the first n_samples
-    collected chunks (chunk_scope) instead of every collected chunk.
+    collected chunks (chunk_scope) instead of every collected chunk; it may also be a HealthCheckScope
+    (chunk_scope), which keeps the chunks passing the health-check filter.
     service: the run's service name (None for a simulation); PCSS (AQT, synchronous) uses the longer dead-time threshold.
 
     Returns (date_qc_start, date_qc_end, submission_to_results_s, without_dead_time_s): the run window as

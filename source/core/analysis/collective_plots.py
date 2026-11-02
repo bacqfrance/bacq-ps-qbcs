@@ -13,7 +13,7 @@ Plots comparing all runs analyzed by source/analysis_scripts/run_post_process.py
   effective_cost_EUR.png    effective cost in EUR per run (log scale; a dummy emulator's modelled cost is labelled "[estimated]")
   n_acc.png                 N_acc per run (linear scale)
   e_min_nmax.png            E_min at N_max per run (linear scale, with the threshold epsilon)
-and, in the same folder, <benchmark>_collective_<data types>[<filter suffix>][_latest-per-qpu|_best-nacc-per-qpu|_best-emin-at-nmax-per-qpu].csv (the suffixes only for a filtered set of runs): one row per run with
+and, in the same folder, <benchmark>_collective_<data types>[<filter suffix>][_latest-per-qpu|_best-nacc-per-qpu|_best-emin-at-nmax-per-qpu][_hc-gt-T].csv (the suffixes only for a filtered set of runs): one row per run with
   run, n_samples (the kept-chunk count of a health-check-filtered run), sample_size, N_acc, best_scheme_Nacc, N_max, E_min_Nmax, best_scheme_Nmax, QPU_time_s, QPU_time, effective_cost_EUR
   and a twelfth column, estimated ("estimated" for a dummy emulator), only when a dummy emulator is among the runs
 
