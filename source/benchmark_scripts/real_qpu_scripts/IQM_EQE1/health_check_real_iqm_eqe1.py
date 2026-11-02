@@ -1,9 +1,9 @@
 """
 health_check_real_iqm_eqe1.py
 Submit AND collect a QPU health check on real IQM EQE1 (via MQSS), in one script.
-Standalone — unrelated to any benchmark run (own RUN_FOLDER). RUN_FOLDER is wiped
-before every submission, so each run is fresh (same pattern as health_check_real_ibm.py /
-health_check_real_iqm_resonance.py). collect_health_check() blocks until the job
+Standalone — unrelated to any benchmark run (own RUN_FOLDER). Each run uses a new
+numbered RUN_FOLDER; the folder of a leftover unfinished attempt is cleared before it is reused.
+collect_health_check() blocks until the job
 reaches a final state.
 """
 
@@ -34,7 +34,7 @@ REPS         = STANDALONE_HEALTH_CHECK_REPS               # 1 repetition = 4 CNO
 QUBIT_SET    = None           # physical qubit indices for the 3-qubit health check, e.g. [2, 3, 4]; None = let the transpiler route
 RUN_FOLDER   = dated_run_folder(health_check_run_name("IQM_EQE1", BACKEND_NAME, REPS, NSHOTS))
 
-shutil.rmtree(f"datafiles/{RUN_FOLDER}", ignore_errors=True)   # fresh submission every run
+shutil.rmtree(f"datafiles/{RUN_FOLDER}", ignore_errors=True)   # clears only an unfinished earlier attempt; a finished check gets a new folder
 
 # ── Connect to EQE1 via MQSS ──────────────────────────────────────────────────
 print(f"\n[{BACKEND_NAME} — connection]")

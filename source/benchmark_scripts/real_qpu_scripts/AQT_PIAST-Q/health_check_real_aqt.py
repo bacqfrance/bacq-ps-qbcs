@@ -35,7 +35,7 @@ NSHOTS       = STANDALONE_HEALTH_CHECK_NSHOTS
 REPS         = STANDALONE_HEALTH_CHECK_REPS
 RUN_FOLDER   = dated_run_folder(health_check_run_name("AQT_PIAST-Q", BACKEND_NAME, REPS, NSHOTS))
 
-shutil.rmtree(f"datafiles/{RUN_FOLDER}", ignore_errors=True)
+shutil.rmtree(f"datafiles/{RUN_FOLDER}", ignore_errors=True)   # clears only an unfinished earlier attempt; a finished check gets a new folder
 
 # ── Connect to PIAST-Q ────────────────────────────────────────────────────────
 print(f"\n[{BACKEND_NAME} — connection]")

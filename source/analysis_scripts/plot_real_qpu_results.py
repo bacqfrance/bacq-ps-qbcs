@@ -20,18 +20,20 @@ from source.core.common import rel_path
 from source.core.records.run_info import resolve_run
 from source.core.records.run_names import parse_run_name, plots_dir as plots_dir_of, subset_suffix
 from source.core.records.circuit_check import load_run_verification, add_circuit_check_banner
-from source.core.records.chunk_scope import load_run_completeness, add_completeness_banner, completeness
+from source.core.records.chunk_scope import (load_run_completeness, add_completeness_banner, completeness,
+                                             scope_from_env, figure_filter_label)
 
 # ── Config (standalone use; source/analysis_scripts/run_post_process.py overrides it via env vars) ──
 RUN_FOLDER    = "old_runs_full/full_real-data_iqm-emerald_lnn-True_service-iqm-resonance_spam-True_layout-legacy_2026-09-07_#1"   # standalone: the run (datafiles/<RUN_FOLDER>)
 
-N_SAMPLES    = None # None = full run (unchanged behaviour); int = plot that subset's run_data+nsamples-N instead
+N_SAMPLES    = None # None = full run (unchanged behaviour); int = plot that subset's run_data+nsamples-N instead; scope_from_env() can replace it with a health-check scope (+hc-gt-T)
 
 # ── Optional overrides for source/analysis_scripts/run_post_process.py — standalone behaviour above is unchanged ──
 if "QPU_N_SAMPLES" in os.environ:
     _v = os.environ["QPU_N_SAMPLES"]
     N_SAMPLES = None if _v in ("", "None") else int(_v)
 RUN_FOLDER, INFO = resolve_run(RUN_FOLDER)   # QPU_RUN_FOLDER wins; the run's own settings win over the constants above
+N_SAMPLES    = scope_from_env(RUN_FOLDER, INFO.sample_size, N_SAMPLES)   # --filter-per-health-check: the chunks passing the extra checks
 NAME         = parse_run_name(RUN_FOLDER)
 NSHOTS, LNN, DO_SPAM = INFO.nshots, INFO.lnn, INFO.do_spam
 PATH       = f"datafiles/{RUN_FOLDER}/processed_results"
@@ -108,7 +110,7 @@ def plot_obs(run_data_path, title_suffix, fname_suffix):
                ncol=2, bbox_to_anchor=(1.0, 0.05))
     fig.suptitle(
         f"{NAME.figure_label_full} — {title_suffix}\n"
-        f"LNN={LNN}, shots={NSHOTS}, {ibm_results.get('nchunks', '?')} chunks",
+        f"LNN={LNN}, shots={NSHOTS}, {ibm_results.get('nchunks', '?')} chunks{figure_filter_label(N_SAMPLES)}",
         fontweight="bold", fontsize=11
     )
     plt.tight_layout()
@@ -170,7 +172,7 @@ handles, labels_leg = axes_flat[0].get_legend_handles_labels()
 fig.legend(handles, labels_leg, loc="lower right", fontsize=9,
            ncol=2, bbox_to_anchor=(1.0, 0.05))
 fig.suptitle(f"{NAME.figure_label_full} — max|obs-exact| per role\n"
-             f"LNN={LNN}, shots={NSHOTS}",
+             f"LNN={LNN}, shots={NSHOTS}{figure_filter_label(N_SAMPLES)}",
              fontweight="bold", fontsize=11)
 plt.tight_layout()
 fname_plot = f"{PLOTS_DIR}/max_error_lnn{LNN}_ns{NSHOTS}{SUFFIX}.png"

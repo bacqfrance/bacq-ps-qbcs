@@ -3,13 +3,13 @@ plot_health_checks.py
 Plot the health checks that accompanied a run, together with the QPU jobs.
 
   top panel:    P(011) of each collected health check vs. health check number
-                (pass threshold marked)
+                (pass threshold marked; a health-check-filtered analysis also marks its filter threshold T)
   bottom panel: UTC time bars of the health checks (orange, labelled H<n>) and of
                 the QPU jobs (blue, labelled J<n> + the chunk numbers they
                 contain), both labelled on the bottom axis, on a common x axis
                 ordered by submission time.
 
-Also writes processed_results/health_checks{SUFFIX}.json (SUFFIX is +nsamples-N for a subset analysis; all checks, all jobs with their
+Also writes processed_results/health_checks{SUFFIX}.json (SUFFIX is +nsamples-N for a subset analysis, +hc-gt-T for a health-check-filtered one; all checks, all jobs with their
 chunk lists and time windows).
 
 Inputs: datafiles/<run>/health_checks/*.json (new format only; old files are
@@ -48,7 +48,8 @@ from source.core.common import rel_path
 from source.core.records.run_info import resolve_run
 from source.core.records.run_names import parse_run_name, plots_dir as plots_dir_of, subset_suffix
 from source.core.records.circuit_check import load_run_verification, add_circuit_check_banner
-from source.core.records.chunk_scope import load_run_completeness, add_completeness_banner, completeness
+from source.core.records.chunk_scope import (load_run_completeness, add_completeness_banner, completeness,
+                                             scope_from_env, figure_filter_label)
 
 from source.core.records.health_check_records import (
     HEALTH_CHECK_THRESHOLD, load_health_checks, load_extra_health_checks, collect_chunk_jobs, parse_utc, format_chunk_range,
@@ -58,14 +59,15 @@ from source.core.records.health_check_records import (
 RUN_FOLDER    = "old_runs_full/full_real-data_iqm-emerald_lnn-True_service-iqm-resonance_spam-True_layout-legacy_2026-09-07_#1"   # standalone: the run (datafiles/<RUN_FOLDER>)
 ZOOM_X       = None    # e.g. (100, 160): show only items with index in this range on the x axis
 
-N_SAMPLES    = None    # None = full run; int = the analysis of that many chunks (file names +nsamples-N)
+N_SAMPLES    = None    # None = full run; int = the analysis of that many chunks (file names +nsamples-N); scope_from_env() can replace it with a health-check scope (+hc-gt-T)
 
 if "QPU_N_SAMPLES" in os.environ:
     _v = os.environ["QPU_N_SAMPLES"]
     N_SAMPLES = None if _v in ("", "None") else int(_v)
 RUN_FOLDER, INFO = resolve_run(RUN_FOLDER)   # QPU_RUN_FOLDER wins; the run's own settings win over the constants above
+N_SAMPLES    = scope_from_env(RUN_FOLDER, INFO.sample_size, N_SAMPLES)   # --filter-per-health-check: the chunks passing the extra checks
 NAME         = parse_run_name(RUN_FOLDER)
-RUN_PATH   = Path("datafiles") / RUN_FOLDER
+RUN_PATH  = Path("datafiles") / RUN_FOLDER
 PLOTS_DIR  = plots_dir_of(RUN_FOLDER)
 SUFFIX     = subset_suffix(N_SAMPLES)
 
@@ -183,6 +185,9 @@ def main():
                         "-", color=COLOR_EXTRA, lw=0.8, alpha=0.6, zorder=1)
     ax_top.axhline(HEALTH_CHECK_THRESHOLD, color="black", ls="--", lw=1, alpha=0.6,
                    label=f"threshold = {HEALTH_CHECK_THRESHOLD}")
+    if hasattr(N_SAMPLES, "threshold"):
+        ax_top.axhline(N_SAMPLES.threshold, color="tab:red", ls=":", lw=1.2,
+                       label=f"filter threshold T = {N_SAMPLES.threshold:g}")
     ax_top.set_ylim(0, 1.05)
     ax_top.set_ylabel("P(011)")
     n_failed  = sum(1 for it in hcs if it["rec"].get("status") == "failed")
@@ -193,7 +198,7 @@ def main():
         f"{n_failed} failed" if n_failed else None,
         f"{n_failed_jobs} failed QPU job(s)" if n_failed_jobs else None,
     ) if s) + ")" if (n_pending or n_failed or n_failed_jobs) else ""
-    ax_top.set_title(f"Health checks — {NAME.figure_label_full}" + title_suffix, fontweight="bold")
+    ax_top.set_title(f"Health checks — {NAME.figure_label_full}" + title_suffix + figure_filter_label(N_SAMPLES), fontweight="bold")
     ax_top.grid(True, alpha=0.3)
     ax_top.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), borderaxespad=0, fontsize=8)
     ck = _thin([it["x"] for it in hcs])
@@ -315,6 +320,7 @@ def main():
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({
         "threshold":     HEALTH_CHECK_THRESHOLD,
+        **({"filter_threshold": N_SAMPLES.threshold} if hasattr(N_SAMPLES, "threshold") else {}),
         "completeness":  block,
         "uncollected_health_checks": [c["number"] for c in checks if c.get("status") != "complete"],
         "failed_health_checks": [c["number"] for c in checks if c.get("status") == "failed"],

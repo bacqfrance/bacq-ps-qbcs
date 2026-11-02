@@ -1,8 +1,8 @@
 """
 health_check_real_ibm.py
 Submit AND collect a QPU health check on a real IBM QPU, in one script.
-RUN_FOLDER is wiped before every submission, so each run is fresh (same
-pattern as health_check_real_iqm_eqe1.py / health_check_real_iqm_resonance.py).
+Each run uses a new numbered RUN_FOLDER; the folder of a leftover unfinished
+attempt is cleared before it is reused.
 collect_health_check() blocks (polls every 30s internally) until the job
 reaches a final state.
 """
@@ -34,7 +34,7 @@ NSHOTS       = STANDALONE_HEALTH_CHECK_NSHOTS
 REPS         = STANDALONE_HEALTH_CHECK_REPS
 RUN_FOLDER   = dated_run_folder(health_check_run_name("IBM", BACKEND_NAME, REPS, NSHOTS))
 
-shutil.rmtree(f"datafiles/{RUN_FOLDER}", ignore_errors=True)   # fresh submission every run
+shutil.rmtree(f"datafiles/{RUN_FOLDER}", ignore_errors=True)   # clears only an unfinished earlier attempt; a finished check gets a new folder
 
 # ── Connect to IBM ────────────────────────────────────────────────────────────
 print(f"\n[{BACKEND_NAME} — connection]")

@@ -81,7 +81,7 @@ def load_merged_spam_calibration_counts(config, n_samples=None):
     Reads spam_calibration_counts_per_chunk.json (keyed by "chunk_0", "chunk_1", ...,
     merges the dictionaries for all chunks.
 
-    :param n_samples: if given, sum only the first n_samples collected chunks (in chunk
+    :param n_samples: if given, sum only the chunks of that set of chunk numbers, or the first n_samples collected chunks (in chunk
                        order; "chunk_0".."chunk_{n_samples-1}" for a run without gaps,
                        see source/core/records/chunk_scope.py) instead of every chunk present — for
                        analyzing a subset of a run without touching the raw per-chunk
@@ -91,7 +91,11 @@ def load_merged_spam_calibration_counts(config, n_samples=None):
     with open(path, "r", encoding="utf-8") as f:
         counts_per_chunk = json.load(f)
 
-    if n_samples is not None:
+    if n_samples is not None and not isinstance(n_samples, int):   # a set of chunk numbers (--filter-per-health-check)
+        counts_per_chunk = {k: v for k, v in counts_per_chunk.items()
+                            if k.startswith("chunk_") and int(k.split("_")[1]) in n_samples}
+        assert counts_per_chunk, "none of the requested chunks has SPAM calibration counts"
+    elif n_samples is not None:
         present = sorted((k for k in counts_per_chunk if k.startswith("chunk_")), key=lambda k: int(k.split("_")[1]))
         assert len(present) >= n_samples, (
             f"n_samples={n_samples}, but only {len(present)} chunks have SPAM calibration counts")
@@ -144,11 +148,13 @@ def compute_and_save_spam_confusion_matrix(config, n_samples=None):
                        touched. None, or equal to config["samples"], uses every
                        collected chunk and writes the unsuffixed files. The analysis
                        (mitigation.py) asks for a subset matrix only on an explicit
-                       spam_n_samples; by default it uses the unsuffixed one.
+                       spam_n_samples; by default it uses the unsuffixed one. A set of chunk numbers (the
+                       chunk_scope.HealthCheckScope of --filter-per-health-check) uses those chunks and
+                       saves to the +hc-gt-T files.
     :returns: (M, M_inv)
     """
     nqubits  = config["nsites"]
-    subset   = n_samples is not None and n_samples != config["samples"]
+    subset   = n_samples is not None and (not isinstance(n_samples, int) or n_samples != config["samples"])
     totals   = load_merged_spam_calibration_counts(config, n_samples=n_samples if subset else None)
 
     M     = build_confusion_matrix_from_counts(totals, nqubits)

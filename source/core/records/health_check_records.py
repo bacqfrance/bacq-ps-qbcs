@@ -175,6 +175,25 @@ def load_extra_health_checks(run_path):
     return sorted(out, key=lambda r: (min(r["chunks"]), r["position"] != "pre"))
 
 
+def chunks_passing_extra_health_checks(run_path, threshold=HEALTH_CHECK_THRESHOLD):
+    """The chunks whose extra health checks both came out above `threshold` (P011 > threshold, pre and post): a per-chunk
+    run's own check pair, a per-job run's check pair of the chunk's job. A chunk with a missing or uncompleted check does
+    not pass. None when the run has no extra health checks."""
+    records = load_extra_health_checks(run_path)
+    if not records:
+        return None
+    by_group = {}   # chunks of the check's job (or chunk) -> {position: P011}
+    for rec in records:
+        p011 = rec.get("P011")
+        by_group.setdefault(tuple(sorted(rec["chunks"])), {})[rec["position"]] = p011
+    passed = set()
+    for chunks, positions in by_group.items():
+        values = [positions.get("pre"), positions.get("post")]
+        if all(isinstance(v, (int, float)) and v > threshold for v in values):
+            passed.update(chunks)
+    return frozenset(passed)
+
+
 # ── Chunks / QPU jobs ─────────────────────────────────────────────────────────
 def _record_row(rec, nc, key, failed=False):
     submitted = parse_utc(rec.get("submitted_at"))

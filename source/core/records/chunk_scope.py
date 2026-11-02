@@ -15,9 +15,13 @@ Light module: no qat / qiskit imports.
 """
 
 import json
+import os
 from pathlib import Path
 
-from source.core.records.health_check_records import load_health_checks, format_chunk_range
+from source.core.records.run_names import hc_filter_label
+
+from source.core.records.health_check_records import (chunks_passing_extra_health_checks, load_health_checks,
+                                                      format_chunk_range)
 
 
 def collected_chunks(run_path):
@@ -37,9 +41,49 @@ def chunk_scope(run_path, n_samples):
     if n_samples is None:
         return None
     if not isinstance(n_samples, int):
-        return frozenset(n_samples)
+        return n_samples if isinstance(n_samples, frozenset) else frozenset(n_samples)
     done = collected_chunks(run_path)
     return frozenset(done[:n_samples]) if done else frozenset(range(n_samples))
+
+
+class HealthCheckScope(frozenset):
+    """The chunks an analysis restricted by --filter-per-health-check covers: a set of chunk numbers that also
+    carries the `threshold` (P011 > threshold, pre and post) and the `n_total` chunks of the run, so file names
+    (run_names.subset_suffix) and figure titles can say what was filtered."""
+
+    def __new__(cls, chunks, threshold, n_total):
+        obj = super().__new__(cls, chunks)
+        obj.threshold = threshold
+        obj.n_total = n_total
+        return obj
+
+
+def health_check_scope(run_path, threshold, sample_size):
+    """HealthCheckScope of the collected chunks passing the extra health checks above `threshold`; None when the run
+    has no extra health checks (the option is unavailable for it)."""
+    passing = chunks_passing_extra_health_checks(run_path, threshold)
+    if passing is None:
+        return None
+    return HealthCheckScope(passing & set(collected_chunks(run_path)), threshold, sample_size)
+
+
+def scope_from_env(run_folder, sample_size, n_samples=None):
+    """The N_SAMPLES of an analysis script launched by run_post_process.py: its QPU_N_SAMPLES value `n_samples`,
+    or, with --filter-per-health-check, the HealthCheckScope for QPU_HC_THRESHOLD."""
+    value = os.environ.get("QPU_HC_THRESHOLD", "")
+    if not value:
+        return n_samples
+    scope = health_check_scope(Path("datafiles") / run_folder, float(value), sample_size)
+    if scope is None:
+        raise SystemExit(f"❌ {run_folder} has no extra health checks — --filter-per-health-check does not apply")
+    return scope
+
+
+def figure_filter_label(n_samples):
+    """', health checks P011 > T (k of N chunks kept)' for the title of a figure of a health-check-filtered analysis, else ''."""
+    if not hasattr(n_samples, "threshold"):
+        return ""
+    return ", " + hc_filter_label(n_samples.threshold, len(n_samples), n_samples.n_total)
 
 
 def as_chunk_set(scope):
@@ -80,7 +124,7 @@ def completeness(run_path, sample_size, n_samples=None):
     scope  = as_chunk_set(chunk_scope(run_path, n_samples)) if n_samples is not None \
              else frozenset(done or range(sample_size))
     missing, missing_hc = uncollected_chunks(run_path, sample_size), uncollected_health_checks(run_path)
-    return {
+    block = {
         "n_chunks_total":            sample_size,
         "n_chunks_collected":        len(done),
         "n_chunks_analyzed":         len(scope),
@@ -90,6 +134,10 @@ def completeness(run_path, sample_size, n_samples=None):
         "uncollected_health_checks": missing_hc,
         "complete":                  not missing and not missing_hc,
     }
+    if hasattr(n_samples, "threshold"):   # --filter-per-health-check: chunks left out by the filter are not "uncollected"
+        block["health_check_filter"] = {"threshold": n_samples.threshold, "n_kept": len(scope),
+                                        "n_total": n_samples.n_total}
+    return block
 
 
 def completeness_warning(block):

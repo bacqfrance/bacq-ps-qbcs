@@ -31,7 +31,7 @@ REPS         = STANDALONE_HEALTH_CHECK_REPS
 QUBIT_SET    = None           # physical qubit indices (0 = QB1) for the 3-qubit health check, e.g. [0, 1, 2]; None = let the transpiler choose
 RUN_FOLDER   = dated_run_folder(health_check_run_name("IQM_VLQ", BACKEND_NAME, REPS, NSHOTS))
 
-shutil.rmtree(f"datafiles/{RUN_FOLDER}", ignore_errors=True)   # fresh submission every run
+shutil.rmtree(f"datafiles/{RUN_FOLDER}", ignore_errors=True)   # clears only an unfinished earlier attempt; a finished check gets a new folder
 
 # ── Connect to VLQ ────────────────────────────────────────────────────────────
 print(f"\n[{BACKEND_NAME} — connection]")

@@ -2,7 +2,7 @@
 test_27_submit_with_retries.py
 The loop of the qbcs_real_submit_<qpu>_with_retries.py scripts (source/core/runner_support/submit_with_retries.py):
 which job is the latest, when a launch is made, how the waits and the 48 h budget behave (and the EQE1 setting: no waits for jobs, the first retry at once, a 20 min budget; the VLQ setting: a retry at once only after a launch that submitted a chunk), the exit codes, and which
-run folder a --force-new-run launch works in (also across midnight). No provider, no sleeping: the status and the
+run folder a --force-new-run launch works in (also across midnight), and run_submission._seconds_since_last_submission (the age rule that lets the check before a submission be skipped). No provider, no sleeping: the status and the
 launch are fakes, the clock is a counter that sleep() advances. Works in a temporary folder, not in datafiles/.
 """
 

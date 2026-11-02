@@ -11,7 +11,8 @@ qpy, png, pdf, npz and the circuit cache are skipped) and asserts that none cont
   - a Windows drive path (drive letter + colon + slash) or a UNC path (two backslashes + server),
   - an absolute POSIX path under /home, /Users, /mnt, /tmp, /var, /root or /opt.
 A second test checks the extra_health_checks outputs (health_checks/extra_*.json, the job record's
-extra_hc_circuit_file, run_info.json) the same way.
+extra_hc_circuit_file, run_info.json) the same way. Two small tests check the patterns against example paths and URLs, and
+that saved_config() keeps JSON-writable values and drops paths and arrays.
 """
 
 import sys, os

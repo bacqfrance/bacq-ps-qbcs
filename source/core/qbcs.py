@@ -1241,7 +1241,7 @@ class bacq_ps_qbcs:
             if 0 < n_done < self.CONFIG["samples"]:
                 print(f"  ⚠️  Only {n_done} of {self.CONFIG['samples']} chunks are collected — analyzing those.")
                 n_samples = n_done
-        assert n_samples is None or 0 < n_samples <= self.CONFIG["samples"], (
+        assert n_samples is None or not isinstance(n_samples, int) or 0 < n_samples <= self.CONFIG["samples"], (
             f"n_samples must be in (0, {self.CONFIG['samples']}], got {n_samples}"
         )
         # ── Precondition check ────────────────────────────────────────────────

@@ -9,7 +9,7 @@ plot-folder and summary names are built and parsed:
     its layout field, and an older layout-none one);
   - the <benchmark> field of the presets and of custom benchmarks (n_depths, an explicit nt_list),
     as source/core/runner_support/benchmark_args.py produces it;
-  - subset analyses (+nsamples-N), the summary names (short in the run, full in analysis/plots+summaries/)
+  - subset analyses (+nsamples-N) and health-check-filtered ones (+hc-gt-T, hc_threshold), the summary names (short in the run, full in analysis/plots+summaries/)
     and the collective-plot folder names;
   - malformed names are refused, and an explicit layout has exactly three qubits;
   - the date field: dated names round-trip, undated ones still parse, a bad date is refused, the date and run
@@ -426,6 +426,14 @@ def test_dummy_run_table_marks_estimates(tmp_path):
     assert rows[0][-1] == "estimated" and rows[1][-1] == "estimated" and rows[2][-1] == ""
     CP._bar_plot([dict(base, estimated=True)], ["D"], "qpu_time_s", "t", "QPU time", str, tmp_path / "q.png", mark_estimated=True)
     assert (tmp_path / "q.png").stat().st_size > 0
+
+
+def test_health_check_filter_names():
+    from source.core.records.chunk_scope import HealthCheckScope
+    scope = HealthCheckScope({0}, 0.75, 48)
+    assert RN.run_summary_name(scope) == "summary+hc-gt-0.75.json"
+    assert "+hc-gt-0.75" in RN.summary_name("full_real-data_iqm-vlq_lnn-False_service-qaas-it4i_spam-True_layout-optimized_2026-11-02_#1", scope)
+    assert RN.collective_folder_name("full", ["real-data"], hc_threshold=0.5) == "full_collective_real-data_hc-gt-0.5"
 
 
 if __name__ == "__main__":

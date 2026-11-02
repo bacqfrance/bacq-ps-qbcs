@@ -25,7 +25,7 @@ from source.core.analysis.run_timing import aggregate_run_timing, derive_date_ti
 from source.core.analysis.dummy_estimates import model_run
 from source.core.records.job_timing import TIMING_NOTES, DUMMY_TIMING_NOTE, QPU_S_SOURCES, AQT_MAX_SHOTS, QPU_EXEC_S_SOURCES, QPU_EXECUTION_NOTE
 from source.core.records.circuit_check import load_run_verification, print_verification, verification_warning
-from source.core.records.chunk_scope import completeness, completeness_warning
+from source.core.records.chunk_scope import completeness, completeness_warning, scope_from_env
 
 
 # ── Config for extracting the runs ────────────────────────────────────────────────────────────────────
@@ -34,13 +34,15 @@ RUN_FOLDER    = "old_runs_full/full_real-data_iqm-emerald_lnn-True_service-iqm-r
 N_SAMPLES     = None # None = full run (unchanged behaviour); int = read that
                        # subset's run_data+nsamples-N.json instead and derive N_acc/AWAE
                        # from it — CPU/QPU/queue time and dates below are scoped to
-                       # that same subset (see aggregate_run_timing/derive_date_time_from_data)
+                       # that same subset (see aggregate_run_timing/derive_date_time_from_data);
+                       # scope_from_env() can replace it with a health-check scope (+hc-gt-T)
 
 # ── Optional overrides for source/analysis_scripts/run_post_process.py — standalone behaviour above is unchanged ──
 if "QPU_N_SAMPLES" in os.environ:
     _v = os.environ["QPU_N_SAMPLES"]
     N_SAMPLES = None if _v in ("", "None") else int(_v)
 RUN_FOLDER, INFO = resolve_run(RUN_FOLDER)   # QPU_RUN_FOLDER wins; the run's own settings win over the constants above
+N_SAMPLES    = scope_from_env(RUN_FOLDER, INFO.sample_size, N_SAMPLES)   # --filter-per-health-check: the chunks passing the extra checks
 NAME         = parse_run_name(RUN_FOLDER)
 BACKEND_NAME = NAME.device          # ibm-fez, iqm-emerald, iqm-vlq, iqm-eqe1, aqt-piast-q, local-aer
 IS_SIM       = NAME.is_simulation

@@ -32,7 +32,7 @@ REPS         = STANDALONE_HEALTH_CHECK_REPS
 QUBIT_SET    = None           # physical qubit indices for the 3-qubit health check, e.g. [0, 1, 2]; None = let the transpiler route
 RUN_FOLDER   = dated_run_folder(health_check_run_name("IQM_RESONANCE", BACKEND_NAME, REPS, NSHOTS))
 
-shutil.rmtree(f"datafiles/{RUN_FOLDER}", ignore_errors=True)   # fresh submission every run
+shutil.rmtree(f"datafiles/{RUN_FOLDER}", ignore_errors=True)   # clears only an unfinished earlier attempt; a finished check gets a new folder
 
 # ── Connect to IQM Resonance ─────────────────────────────────────────────────
 print(f"\n[{BACKEND_NAME} — connection]")

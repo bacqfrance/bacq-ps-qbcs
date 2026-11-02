@@ -57,6 +57,8 @@ Add --nsamples-comparison (full benchmark only) to also analyze each run on 8, 4
 correction always uses every collected chunk's calibration) and plot the best EMS of the largest analysis (all 480 samples,
 or the most collected) for each sample count, in analysis/plots+summaries/<run folder>/awae_best_ems_nsamples_comparison.png. It is per-run only:
 the collective plots are made as usual (from the full runs), and with --collective-only the flag is ignored.
+Add --filter-per-health-check[=T] to analyze only the chunks of runs with extra health checks (per-chunk or per-job)
+whose pre and post checks both returned P011 above T (default 0.5); it excludes --nsamples-comparison; see USAGE.
 
 """
 
@@ -186,7 +188,7 @@ RUN_THESE = {
 
 NSAMPLES_COMPARISON = [8, 48, 120, 240, 480]   # sample counts of --nsamples-comparison
 
-USAGE = f"usage: {LAUNCHER} " + """source/analysis_scripts/run_post_process.py SELECTION INCLUDE... [FILTER...] [--latest-per-qpu | --best-Nacc-per-qpu | --best-Emin-at-Nmax-per-qpu] [--individual-only | --collective-only] [--nsamples-comparison]
+USAGE = f"usage: {LAUNCHER} " + """source/analysis_scripts/run_post_process.py SELECTION INCLUDE... [FILTER...] [--latest-per-qpu | --best-Nacc-per-qpu | --best-Emin-at-Nmax-per-qpu] [--individual-only | --collective-only] [--nsamples-comparison] [--filter-per-health-check[=T]]
 
   Run the BACQ analysis pipeline (merge + analyze, summary, plots, collective plots) for a chosen set of runs,
   real-QPU and/or simulated. Nothing is analyzed unless at least one INCLUDE flag is given.
@@ -236,7 +238,14 @@ USAGE = f"usage: {LAUNCHER} " + """source/analysis_scripts/run_post_process.py S
                          the SPAM correction uses every collected chunk); 
                          only for individual analysis (collective plots are unaffected); ignored with --collective-only
 
-  --help                 print this message and exit"""
+  --filter-per-health-check[=T]
+                         for runs with extra health checks (extra_health_checks=per-chunk or per-job): analyze only the
+                         chunks whose pre and post extra checks both returned P011 above T (default 0.5; per-job: the chunks
+                         of the jobs whose checks passed); the SPAM matrix is built from the kept chunks only. Outputs carry
+                         +hc-gt-T, the figures name T and the chunks kept, the collective folder ends _hc-gt-T. A run without
+                         extra health checks is skipped with a warning. Excludes --nsamples-comparison
+
+  --help                print this message and exit"""
 
 
 INCLUDE_FLAGS = {
@@ -312,6 +321,31 @@ def parse_filters(argv):
     except ValueError as e:
         print(USAGE, file=sys.stderr)
         exit_with_error(str(e))
+
+
+def parse_hc_filter(argv):
+    """(remaining args, threshold or None) from --filter-per-health-check[=T] (T in [0, 1], default
+    HEALTH_CHECK_THRESHOLD). Prints the usage and exits with code 2 on a repeated option or a bad value."""
+    from source.core.records.health_check_records import HEALTH_CHECK_THRESHOLD
+
+    given = [a for a in argv if a == "--filter-per-health-check" or a.startswith("--filter-per-health-check=")]
+    rest = [a for a in argv if a not in given]
+    if not given:
+        return rest, None
+    if len(given) > 1:
+        print(USAGE, file=sys.stderr)
+        exit_with_error("--filter-per-health-check given twice.")
+    value = given[0].partition("=")[2]
+    if given[0] == "--filter-per-health-check":
+        return rest, HEALTH_CHECK_THRESHOLD
+    try:
+        threshold = float(value)
+        if not 0 <= threshold <= 1:
+            raise ValueError
+    except ValueError:
+        print(USAGE, file=sys.stderr)
+        exit_with_error(f"--filter-per-health-check needs a threshold between 0 and 1, got {value!r}.")
+    return rest, threshold
 
 
 def parse_scope(argv):
@@ -456,7 +490,10 @@ def merge_and_analyze(run_folder, n_samples_override=None):
         suffix = "" if n >= sample_size else subset_suffix(n)
         return (run_path / "processed_results" / f"run_data{suffix}.json").exists()
 
-    if n_samples_override is not None:
+    filtered = hasattr(n_samples_override, "threshold")   # a HealthCheckScope: the chunks passing the extra health checks
+    if filtered:
+        target_n = n_samples_override
+    elif n_samples_override is not None:
         if not (0 < n_samples_override <= n_collected):
             print(f"❌ {backend_name}: requested n_samples={n_samples_override}, but only "
                   f"{n_collected} chunks are collected — skipping", file=sys.stderr)
@@ -507,20 +544,42 @@ def merge_and_analyze(run_folder, n_samples_override=None):
         qbcs.merge_all_chunks()
 
     qbcs.analyze_results(n_samples=target_n)
+    if filtered:
+        print(f"✅ {backend_name}: analyzed {len(target_n)}/{sample_size} chunks → run_data{subset_suffix(target_n)}.json")
+        return True, target_n
     suffix = subset_suffix(target_n) if target_n < sample_size else ""
     print(f"✅ {backend_name}: analyzed {target_n}/{sample_size} chunks → run_data{suffix}.json")
     return True, (target_n if target_n < sample_size else None)
 
 
+def hc_scope_or_none(run_folder, threshold):
+    """The HealthCheckScope of a run for --filter-per-health-check=threshold, or None (with a warning on stderr) if
+    the run has no extra health checks, or none of its chunks passes them."""
+    from source.core.records.chunk_scope import health_check_scope
+
+    scope = health_check_scope(PROJECT_ROOT / "datafiles" / run_folder, threshold, load_run_info(run_folder).sample_size)
+    if scope is None:
+        print(f"⚠️  {run_folder}: --filter-per-health-check is unavailable for this run (no extra health checks) — skipped",
+              file=sys.stderr)
+    elif not scope:
+        print(f"⚠️  {run_folder}: no collected chunk has both extra health checks above {threshold:g} — skipped",
+              file=sys.stderr)
+        return None
+    return scope or None
+
+
 def analyzed_data(run_folder, n_samples_override=None):
     """(run_folder, n_samples) to plot for a run, as analyze_run() would return them (n_samples None = the
     full run's unsuffixed files), without analyzing anything — for --collective-only. Only checks that
-    raw_results/results_counts.json exists; run_folder None if it does not (no collected results)."""
+    raw_results/results_counts.json exists; run_folder None if it does not (no collected results).
+    n_samples_override may be a HealthCheckScope, returned as is."""
     backend_name = run_folder
     counts_path = PROJECT_ROOT / "datafiles" / run_folder / "raw_results" / "results_counts.json"
     if not counts_path.exists():
         print(f"⏭  {backend_name}: no collected results — left out of the collective plots")
         return None, None
+    if hasattr(n_samples_override, "threshold"):
+        return run_folder, n_samples_override
     n = n_samples_override or len(json.loads(counts_path.read_text(encoding="utf-8")))
     return run_folder, (n if n < load_run_info(run_folder).sample_size else None)
 
@@ -585,7 +644,11 @@ def run_script(script_name, run_folder, n_samples, extra_env=None):
     env = os.environ.copy()
     env.update(extra_env or {})
     env["QPU_RUN_FOLDER"] = run_folder   # the scripts read the run's own settings from it
-    env["QPU_N_SAMPLES"]  = "" if n_samples is None else str(n_samples)
+    filtered = hasattr(n_samples, "threshold")   # a HealthCheckScope: the script recomputes the chunks from the threshold
+    env["QPU_N_SAMPLES"]  = "" if n_samples is None or filtered else str(n_samples)
+    env.pop("QPU_HC_THRESHOLD", None)
+    if filtered:
+        env["QPU_HC_THRESHOLD"] = f"{n_samples.threshold:g}"
     result = subprocess.run(
         [venv_python("local_sim.venv", script_name), str(ANALYSIS_SCRIPTS / script_name)],
         cwd=PROJECT_ROOT, env=env, encoding="utf-8", errors="replace",
@@ -605,14 +668,20 @@ def copy_summary(run_folder, n_samples):
         shutil.copy2(src, dest / summary_name(run_folder, n_samples))
 
 
-def analyze_run(run_folder, n_samples_override=None):
+def analyze_run(run_folder, n_samples_override=None, hc_threshold=None):
     """Stages 1-5 for one run. Returns (ok, run_folder, n_samples): ok is True if every
     stage that ran succeeded; run_folder/n_samples identify the analyzed benchmark data
-    (run_folder None if there is none, e.g. a health-check-only run)."""
+    (run_folder None if there is none, e.g. a health-check-only run).
+    hc_threshold: --filter-per-health-check — analyze only the chunks whose extra health checks are above it
+    (n_samples is then a HealthCheckScope); a run without extra health checks is skipped with a warning."""
     from source.core.qpu.layout_selection import run_layout_warnings
     from source.core.records.health_check_records import load_health_checks
 
     backend_name = run_folder   # for the messages
+    if hc_threshold is not None:
+        n_samples_override = hc_scope_or_none(run_folder, hc_threshold)
+        if n_samples_override is None:
+            return False, None, None
     for msg in run_layout_warnings(PROJECT_ROOT / "datafiles" / run_folder):
         print(f"⚠️  {backend_name}: {msg}")
 
@@ -635,7 +704,7 @@ def analyze_run(run_folder, n_samples_override=None):
     # Already analyzed with every collected chunk (or the n_samples override): skip stages 1-5.
     # An invalid override (more chunks than collected) is left to merge_and_analyze() to reject.
     counts_path = run_path / "raw_results" / "results_counts.json"
-    if counts_path.exists() and (n_samples_override is None
+    if counts_path.exists() and (n_samples_override is None or hasattr(n_samples_override, "threshold")
                                  or 0 < n_samples_override <= len(json.loads(counts_path.read_text(encoding="utf-8")))):
         _, n_target = analyzed_data(run_folder, n_samples_override)
         if already_analyzed(run_folder, n_target):
@@ -692,7 +761,11 @@ def main():
     args, kinds = parse_include(sys.argv[1:])
     args, run_filter = parse_filters(args)
     args, do_individual, do_collective = parse_scope(args)
+    args, hc_threshold = parse_hc_filter(args)
     do_nsamples = "--nsamples-comparison" in args
+    if do_nsamples and hc_threshold is not None:
+        print(USAGE, file=sys.stderr)
+        exit_with_error("--nsamples-comparison and --filter-per-health-check exclude each other.")
     args = [a for a in args if a != "--nsamples-comparison"]
     per_qpu_flags = [a for a in args if a == "--latest-per-qpu" or a in BEST_FLAGS]
     if len(set(per_qpu_flags)) > 1:
@@ -739,13 +812,17 @@ def main():
     for run_folder in folders:
         n_override = cfg_of[run_folder].get("n_samples")
         if not do_individual and not best:   # a --best-* selection needs every candidate's summary, so it analyzes the missing ones
+            if hc_threshold is not None:
+                n_override = hc_scope_or_none(run_folder, hc_threshold)
+                if n_override is None:
+                    continue
             run_folder, n_samples = analyzed_data(run_folder, n_override)
             if run_folder is not None:
                 analyzed.append((run_folder, n_samples))
             continue
         section(run_folder)
         try:
-            _, done_folder, n_samples = analyze_run(run_folder, n_override)
+            _, done_folder, n_samples = analyze_run(run_folder, n_override, hc_threshold)
             if done_folder is not None:
                 analyzed.append((done_folder, n_samples))
                 if do_nsamples:
@@ -767,7 +844,7 @@ def main():
     data_types = [KIND_DATA_TYPES[k][0] for k in KIND_DATA_TYPES if k in kinds]
     try:
         collective_name = collective_folder_name(selection, data_types, run_filter, latest_per_qpu,
-                                                 per_qpu=best[0] if best else None)
+                                                 per_qpu=best[0] if best else None, hc_threshold=hc_threshold)
         make_collective_plots(analyzed, PROJECT_ROOT / collective_plots_dir(collective_name))
     except Exception as e:
         print(f"❌ collective plots failed — {e}", file=sys.stderr)

@@ -22,14 +22,16 @@ from source.core.analysis.derived_quantities import EPSILON, cumulative_awae, be
 from source.core.records.run_info import resolve_run
 from source.core.records.run_names import parse_run_name, run_summary_name, plots_dir as plots_dir_of, subset_suffix
 from source.core.records.circuit_check import load_run_verification, add_circuit_check_banner
-from source.core.records.chunk_scope import load_run_completeness, add_completeness_banner, completeness
+from source.core.records.chunk_scope import (load_run_completeness, add_completeness_banner, completeness,
+                                             scope_from_env, figure_filter_label)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 RUN_FOLDER    = "old_runs_full/full_real-data_iqm-emerald_lnn-True_service-iqm-resonance_spam-True_layout-legacy_2026-09-07_#1"   # standalone: the run (datafiles/<RUN_FOLDER>)
 ems_list     = BASE_EMS_LIST
 
 N_SAMPLES    = None # None = full run (unchanged behaviour); int = plot that
-                     # subset's run_data+nsamples-N and summary+nsamples-N instead
+                     # subset's run_data+nsamples-N and summary+nsamples-N instead;
+                     # scope_from_env() can replace it with a health-check scope (+hc-gt-T)
 
 # ── Optional overrides for source/analysis_scripts/run_post_process.py — standalone behaviour above is unchanged ──
 if "QPU_N_SAMPLES" in os.environ:
@@ -37,6 +39,7 @@ if "QPU_N_SAMPLES" in os.environ:
     N_SAMPLES = None if _v in ("", "None") else int(_v)
 
 RUN_FOLDER, INFO = resolve_run(RUN_FOLDER)   # QPU_RUN_FOLDER wins; the run's own settings win over the constants above
+N_SAMPLES    = scope_from_env(RUN_FOLDER, INFO.sample_size, N_SAMPLES)   # --filter-per-health-check: the chunks passing the extra checks
 NAME         = parse_run_name(RUN_FOLDER)
 NSHOTS, LNN, DO_SPAM = INFO.nshots, INFO.lnn, INFO.do_spam
 SUFFIX     = subset_suffix(N_SAMPLES)
@@ -64,7 +67,9 @@ COMPLETENESS = load_run_completeness(Path("datafiles") / RUN_FOLDER, SUFFIX) or 
 
 # ── Output suptitle suffix ────────────────────────────────────────────────────
 suffix = f"{NAME.figure_label_full}, LNN={LNN}, shots={NSHOTS}"
-if N_SAMPLES is not None:
+if hasattr(N_SAMPLES, "threshold"):
+    suffix += figure_filter_label(N_SAMPLES)
+elif N_SAMPLES is not None:
     suffix += f", n_samples={N_SAMPLES}"
 
 

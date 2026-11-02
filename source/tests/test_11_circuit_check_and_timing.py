@@ -31,7 +31,9 @@ Unit tests (no simulator, no QPU, no network) for
   - layout selection (source/core/qpu/layout_selection.py): the native single-qubit gates are counted on
     the circuit transpiled onto one SWAP-free probe placement (the same on every placement);
   - extra_health_checks (health-check circuits inside the jobs): the workload counts their circuits, and the
-    health_checks/extra_*.json files are named by mode, written once per job and loaded back.
+    health_checks/extra_*.json files are named by mode, written once per job and loaded back;
+  - the health checks' transpile and submit time is counted once per run, not per record;
+  - the UTC helpers are shared (health_check_records re-exports job_timing's parse_utc, now_utc_iso and iso_utc).
 """
 
 import sys, os

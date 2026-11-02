@@ -5,6 +5,7 @@ Does not wait and changes nothing. Without layout= and date=, every run of the b
 something left to collect is reported in turn.
 
   backend=NAME            required, one of the backends in backends.json
+  instance=NAME           optional: the IBM Quantum Platform instance (default: the Open Plan one); a run's recorded instance is always used
   health_check            check the standalone health check of that backend instead of a benchmark run
   layout=... / date=...   optional: that one run; without them, every run of the benchmark with something left to collect (all layouts and dates)
 

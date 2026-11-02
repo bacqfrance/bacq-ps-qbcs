@@ -14,7 +14,7 @@ Plots comparing all runs analyzed by source/analysis_scripts/run_post_process.py
   n_acc.png                 N_acc per run (linear scale)
   e_min_nmax.png            E_min at N_max per run (linear scale, with the threshold epsilon)
 and, in the same folder, <benchmark>_collective_<data types>[<filter suffix>][_latest-per-qpu|_best-nacc-per-qpu|_best-emin-at-nmax-per-qpu].csv (the suffixes only for a filtered set of runs): one row per run with
-  run, n_samples, sample_size, N_acc, best_scheme_Nacc, N_max, E_min_Nmax, best_scheme_Nmax, QPU_time_s, QPU_time, effective_cost_EUR
+  run, n_samples (the kept-chunk count of a health-check-filtered run), sample_size, N_acc, best_scheme_Nacc, N_max, E_min_Nmax, best_scheme_Nmax, QPU_time_s, QPU_time, effective_cost_EUR
   and a twelfth column, estimated ("estimated" for a dummy emulator), only when a dummy emulator is among the runs
 
 Reads each run's processed_results/summary.json (a subset: summary+nsamples-N.json) and
@@ -90,7 +90,8 @@ def _load_run(run_folder, n_samples):
         run_folder = run_folder,
         name       = summary.get("device_label") or summary.get("computer_name") or backend,   # computer_name: summaries saved before the rename
         shots      = summary.get("shots_per_circuit"),
-        n_samples  = n_samples,
+        n_samples  = n_samples,   # None, a chunk count, or a chunk_scope.HealthCheckScope (--filter-per-health-check)
+        n_chunks   = n_samples if n_samples is None or isinstance(n_samples, int) else len(n_samples),
         sample_size = load_run_info(run_folder).sample_size,   # the chunks of a complete run
         layout     = layout_label(run_folder),   # the layout field, or optimized_by_gates / optimized_per_chunk_by_2q_gates_IQM
         date       = parse_run_name(run_folder).date,         # YYYY-MM-DD (None: an undated test run)
@@ -119,10 +120,12 @@ def run_order(run):
 
 def _labels(runs):
     """QPU name, layout and date (DD/MM/YYYY #N) per run, with "(n/N chunks)" on every incomplete run (fewer chunks
-    analyzed than the run's sample size), extended by shots only where it tells runs with the same label apart
+    analyzed than the run's sample size; a health-check-filtered run reads "(P011 > T: k/N chunks kept)"), extended by shots only where it tells runs with the same label apart
     (a field the duplicates share is not appended)."""
     labels = [f"{r['name']}, layout {r['layout']}, {r['date_label']}"
-              + (f" ({r['n_samples']}/{r['sample_size']} chunks)" if r["n_samples"] is not None else "") for r in runs]
+              + (f" (P011 > {r['n_samples'].threshold:g}: {r.get('n_chunks', r['n_samples'])}/{r['sample_size']} chunks kept)"
+                 if hasattr(r["n_samples"], "threshold")
+                 else f" ({r.get('n_chunks', r['n_samples'])}/{r['sample_size']} chunks)" if r["n_samples"] is not None else "") for r in runs]
     for extra in (lambda r: f"{r['shots']} shots" if r["shots"] is not None else None,
                   lambda r: r["run_folder"]):
         dups = {l for l in labels if labels.count(l) > 1}
@@ -254,7 +257,7 @@ def _write_run_table(runs, labels, path):
     for l, r in zip(labels, runs):
         q = r["qpu_time_s"]
         q_ok = isinstance(q, (int, float)) and not math.isnan(q)
-        rows.append([l, "" if r["n_samples"] is None else str(r["n_samples"]), str(r["sample_size"]),
+        rows.append([l, "" if r["n_samples"] is None else str(r.get("n_chunks", r["n_samples"])), str(r["sample_size"]),
                      num(r.get("n_acc"), "{:.0f}"), text(r.get("best_ems_nacc")), num(r.get("n_max"), "{:.0f}"),
                      num(r.get("emin_nmax"), "{:.4g}"), text(r.get("best_ems_nmax")),
                      num(q, "{:.0f}"), _duration_fmt(round(q)) if q_ok else "",

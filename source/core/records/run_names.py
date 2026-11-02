@@ -9,7 +9,8 @@ parameters of <benchmark>:
 
     <benchmark>   full | mini | full+nshots-10 | custom+ndepths-3+nsamples-8+nshots-50
                   | custom+nt-1-5-9+nsamples-8+nshots-50 | health-check+reps-1+nshots-100
-                  (a subset analysis of N samples appends +nsamples-N, or replaces it)
+                  (a subset analysis of N samples appends +nsamples-N, or replaces it; a health-check-filtered
+                  analysis appends +hc-gt-T the same way, via with_samples())
     <data type>   real-data | sim-noiseless | sim-coherent | sim-dummy | sim-fake-fez | sim-qpu-noise
     <provider>-<backend>   ibm-fez, iqm-emerald, iqm-vlq, iqm-eqe1, aqt-piast-q; local-aer for
                   simulations without a QPU's noise. A sim-qpu-noise run names the QPU it simulates, a sim-dummy
@@ -26,10 +27,11 @@ The builders below (qpu_run_name(), local_run_name(), health_check_run_name()) g
 dated_run_folder() adds it and the number: it reuses the latest folder of those settings while it is unfinished, else
 makes a new one dated today with the next number. Names without a date (test runs) still parse, with date None.
 Collective plots: <benchmark>_collective_<data type>[+<data type>...][_dates-…|_date-… for a single day][_backends-…][_services-…][_layouts-…][_latest-per-qpu|_best-nacc-per-qpu|_best-emin-at-nmax-per-qpu]
-(the optional parts name run_post_process.py's filters, RunFilter.suffix(), and --latest-per-qpu / --best-Nacc-per-qpu / --best-Emin-at-Nmax-per-qpu); summaries: processed_results/summary.json
+[_hc-gt-T for --filter-per-health-check=T]
+(the optional parts name run_post_process.py's filters, RunFilter.suffix(), and --latest-per-qpu / --best-Nacc-per-qpu / --best-Emin-at-Nmax-per-qpu; collective_folder_name(hc_threshold=T) adds the last); summaries: processed_results/summary.json
 (summary+nsamples-N.json) in the run, copied to analysis/plots+summaries/<run folder>/summary_<run name>.json.
 Every other subset-analysis output in processed_results/ carries the same subset_suffix(N) = +nsamples-N
-(run_data+nsamples-N.json, run_data_spam+nsamples-N.json, health_checks+nsamples-N.json, spam_confusion_matrix+nsamples-N.npy, plots).
+(+hc-gt-T for a health-check-filtered analysis; run_data+nsamples-N.json, run_data_spam+nsamples-N.json, health_checks+nsamples-N.json, spam_confusion_matrix+nsamples-N.npy, plots).
 The test suite's runs live in datafiles/tests/ (run folder tests/<run name>); their plots and summaries
 go to analysis/tests/plots+summaries/ (plots_dir()).
 A new QPU provider or data type needs its value added here (QPUS / DATA_TYPES) and in test_20; a data type also needs its figure_label,
@@ -179,7 +181,8 @@ class RunName:
         if n is None:
             return self
         parts = [p for p in self.benchmark.split("+") if not p.startswith("nsamples-")]
-        return replace(self, benchmark="+".join(parts + [f"nsamples-{n}"]))
+        tail = hc_suffix(n.threshold)[1:] if hasattr(n, "threshold") else f"nsamples-{n}"
+        return replace(self, benchmark="+".join(parts + [tail]))
 
 
 def benchmark_field(preset=None, nshots=None, n_samples=None, n_depths=None, nt_list=None):
@@ -510,9 +513,25 @@ def is_run_name(name):
         return False
 
 
+def hc_suffix(threshold):
+    """+hc-gt-T, the suffix of an analysis restricted to the chunks whose extra health checks (pre and post) came out above T
+    (run_post_process.py --filter-per-health-check=T)."""
+    return f"+hc-gt-{threshold:g}"
+
+
 def subset_suffix(n_samples=None):
-    """+nsamples-N, the suffix of every subset-analysis output (run_data+nsamples-N.json, ...); "" for the full run (None)."""
-    return "" if n_samples is None else f"+nsamples-{n_samples}"
+    """+nsamples-N, the suffix of every subset-analysis output (run_data+nsamples-N.json, ...); "" for the full run (None).
+    A health-check-filtered scope (chunk_scope.HealthCheckScope, anything with a `threshold`) gives hc_suffix(threshold)."""
+    if n_samples is None:
+        return ""
+    if hasattr(n_samples, "threshold"):
+        return hc_suffix(n_samples.threshold)
+    return f"+nsamples-{n_samples}"
+
+
+def hc_filter_label(threshold, n_kept, n_total):
+    """How figures name a health-check-filtered analysis: 'health checks P011 > 0.5 (38 of 48 chunks kept)'."""
+    return f"health checks P011 > {threshold:g} ({n_kept} of {n_total} chunks kept)"
 
 
 def run_summary_name(n_samples=None):
@@ -559,10 +578,11 @@ def collective_plots_dir(name, test=False):
 PER_QPU_SUFFIXES = {"latest": "_latest-per-qpu", "best-nacc": "_best-nacc-per-qpu", "best-emin-at-nmax": "_best-emin-at-nmax-per-qpu"}
 
 
-def collective_folder_name(benchmark, data_types, run_filter=None, latest_per_qpu=False, per_qpu=None):
+def collective_folder_name(benchmark, data_types, run_filter=None, latest_per_qpu=False, per_qpu=None, hc_threshold=None):
     """<benchmark>_collective_<data type>[+<data type>...][<RunFilter.suffix()>][_latest-per-qpu | _best-nacc-per-qpu |
-    _best-emin-at-nmax-per-qpu] for the plots comparing several runs. `per_qpu` is a key of PER_QPU_SUFFIXES
-    (latest_per_qpu=True is per_qpu="latest")."""
+    _best-emin-at-nmax-per-qpu][_hc-gt-T] for the plots comparing several runs. `per_qpu` is a key of PER_QPU_SUFFIXES
+    (latest_per_qpu=True is per_qpu="latest"); `hc_threshold` is --filter-per-health-check's threshold."""
     per_qpu = per_qpu or ("latest" if latest_per_qpu else None)
     return (f"{benchmark}_collective_{'+'.join(data_types)}{run_filter.suffix() if run_filter else ''}"
-            f"{PER_QPU_SUFFIXES[per_qpu] if per_qpu else ''}")
+            f"{PER_QPU_SUFFIXES[per_qpu] if per_qpu else ''}"
+            f"{'_' + hc_suffix(hc_threshold)[1:] if hc_threshold is not None else ''}")

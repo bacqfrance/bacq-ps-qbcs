@@ -84,13 +84,20 @@ class analyze_measurement_outcomes:
         self.rc_circuits_per_job = self.measurement_data.shape[1]
         assert nqubits is not None,"nqubits cannot be None!!"
         self.nqubits = nqubits
+        # A merged circuit key ends with its chunk number (merge_chunks), in the order of the array's samples
+        self.chunk_numbers = [int(k.rsplit("_", 1)[1]) for k in next(iter(dict_measurement_counts.values()))]
+
+    def positions_of(self, rc_samples):
+        """The positions of the samples to average: None / an int n -> the first n; a collection of chunk numbers
+        (a chunk-filtered analysis) -> the samples of those chunks."""
+        if rc_samples is None or isinstance(rc_samples, (int, np.integer)):
+            return slice(None, rc_samples)
+        return [i for i, c in enumerate(self.chunk_numbers) if c in rc_samples]
 
     def compute_expectation_values_per_job(self, job_index=0, rc_samples=None):
-        if rc_samples is None: 
-            rc_samples = self.rc_circuits_per_job # Full average
-        
-        mean_ = self.measurement_data[job_index, :rc_samples, :].mean(axis=0)       # (7)
-        std_  = self.measurement_data[job_index, :rc_samples, :].std(axis=0)        # (7)
+        data  = self.measurement_data[job_index, self.positions_of(rc_samples), :]
+        mean_ = data.mean(axis=0)       # (7)
+        std_  = data.std(axis=0)        # (7)
 
         return mean_, std_
 
@@ -105,13 +112,17 @@ class analyze_measurement_outcomes:
             assert is_dict_shaped == expect_counts, \
                 f"{job_id}: got {'dict' if is_dict_shaped else 'list'}-shaped entry, but expect_counts={expect_counts}"
 
+        by_chunk = rc_samples is not None and not isinstance(rc_samples, (int, np.integer))   # a chunk-filtered analysis
         if rc_samples is None:
             rc_samples = len(entry) if is_dict_shaped else self.rc_circuits_per_job  # Full average
 
         if is_dict_shaped:
             assert classical_nec_map is not None and n_input_states is not None, \
                 "classical_nec_map and n_input_states must be provided when fidelity_nec_dict entries are counts-based"
-            rc_items = list(entry.items())[0:rc_samples]
+            if by_chunk:
+                rc_items = [(k, v) for k, v in entry.items() if int(k.rsplit("_", 1)[1]) in rc_samples]
+            else:
+                rc_items = list(entry.items())[0:rc_samples]
             vals = []
             for rc_key, counts in rc_items:
                 total = sum(counts.values())
@@ -120,7 +131,10 @@ class analyze_measurement_outcomes:
             vals = np.array(vals, dtype=float)
 
         else:
-            vals = np.array(entry[0:rc_samples], dtype=complex)
+            if by_chunk:   # one value per collected chunk, in the order of the counts
+                vals = np.array([entry[i] for i in self.positions_of(rc_samples) if i < len(entry)], dtype=complex)
+            else:
+                vals = np.array(entry[0:rc_samples], dtype=complex)
 
         return vals.mean(), vals.std()
 
@@ -177,11 +191,13 @@ def compute_mitigated_expectation_values(config, rc_samples=None, roles=None, sp
 
     Args:
         config (dict):      CONFIG dict with T_list, dt, folder_path, etc.
-        rc_samples (int):   Number of RC circuits to average over (None = all).
+        rc_samples (int):   Number of RC circuits to average over (None = all); may also be a set of
+                             chunk numbers (a chunk-filtered analysis).
         spam_samples (int): Number of SPAM calibration chunks for the SPAM correction.
                              None (default) = the maximum, every collected chunk:
                              the run's own spam_confusion_matrix_inv.npy, whatever
-                             rc_samples is. Only a value below the number of
+                             an integer rc_samples is; when rc_samples is a chunk set, None
+                             means the matrix of those kept chunks. Only a value below the number of
                              collected chunks loads (building it if missing) the
                              subset matrix spam_confusion_matrix_inv+nsamples-{spam_samples}.npy.
 
@@ -194,10 +210,13 @@ def compute_mitigated_expectation_values(config, rc_samples=None, roles=None, sp
     fidelity_nec_dict  = load_json(get_run_subfolder(config, "raw_results", "results_fidelity_merged.json"))["chunk_0"]
 
     if config.get("SPAM_correction", False):
-        subset   = spam_samples is not None and spam_samples < count_spam_calibration_chunks(config)
+        if spam_samples is None and not isinstance(rc_samples, (int, type(None))):
+            spam_samples = rc_samples   # a chunk-filtered analysis: the SPAM matrix of the kept chunks only
+        by_chunks = spam_samples is not None and not isinstance(spam_samples, int)
+        subset   = by_chunks or (spam_samples is not None and spam_samples < count_spam_calibration_chunks(config))
         suffix   = subset_suffix(spam_samples) if subset else ""
         M_inv_path = get_run_subfolder(config, "processed_results", f"spam_confusion_matrix_inv{suffix}.npy")
-        if not os.path.exists(M_inv_path):
+        if by_chunks or not os.path.exists(M_inv_path):   # the matrix of a chunk set is rebuilt every time
             # Full-run matrix is normally built once during collect_results();
             # regenerate it here if e.g. processed_results/ was cleared, since
             # the calibration counts it's built from live in raw_results/.
@@ -332,7 +351,8 @@ def post_processing_and_saving(CONFIG, roles=None, use_circuit_LNN=False, filena
     '''Post processing to save some results after the runs.
 
     n_samples: analyze only the first n_samples chunks instead of the full
-    CONFIG["samples"]. None (default) reproduces the original full-run
+    CONFIG["samples"], or only the chunks of a chunk_scope.HealthCheckScope (the ones whose extra
+    health checks passed; the file names then carry "+hc-gt-{threshold}"). None (default) reproduces the original full-run
     behaviour and filenames exactly. A genuine subset (co-existing with the
     full run's own processed_results, never overwriting them) suffixes the
     output filename with "+nsamples-{n_samples}".
@@ -340,7 +360,8 @@ def post_processing_and_saving(CONFIG, roles=None, use_circuit_LNN=False, filena
     spam_n_samples: SPAM calibration chunks for the SPAM correction. None
     (default) = the maximum, every collected chunk (the run's own SPAM
     confusion matrix), also for a subset analysis: the subset varies only the
-    RC samples. Only a value below the collected chunks builds a
+    RC samples; for a chunk-filtered analysis (n_samples a HealthCheckScope) it is
+    the matrix of the kept chunks. Only a value below the collected chunks builds a
     "+nsamples-{spam_n_samples}" SPAM matrix. run_data_spam*.json records the
     chunks used as "spam_calibration_samples".
 
@@ -362,13 +383,19 @@ def post_processing_and_saving(CONFIG, roles=None, use_circuit_LNN=False, filena
     spam_used = None
     if CONFIG.get("SPAM_correction", False):
         n_spam_available = count_spam_calibration_chunks(CONFIG)
-        spam_used = spam_n_samples if spam_n_samples is not None and spam_n_samples < n_spam_available else n_spam_available
-        if spam_used < n_spam_available:
-            compute_and_save_spam_confusion_matrix(CONFIG, n_samples=spam_used)
+        if spam_n_samples is None and not isinstance(effective_n, int):
+            spam_n_samples = effective_n   # a chunk-filtered analysis: the SPAM matrix of the kept chunks only
+        if spam_n_samples is not None and not isinstance(spam_n_samples, int):
+            spam_used = len(spam_n_samples)
+            compute_and_save_spam_confusion_matrix(CONFIG, n_samples=spam_n_samples)
+        else:
+            spam_used = spam_n_samples if spam_n_samples is not None and spam_n_samples < n_spam_available else n_spam_available
+            if spam_used < n_spam_available:
+                compute_and_save_spam_confusion_matrix(CONFIG, n_samples=spam_used)
 
     mitigated_results          = compute_mitigated_expectation_values(CONFIG, rc_samples=effective_n, roles=roles,
                                                                       spam_samples=spam_n_samples)
-    nchunks = effective_n
+    nchunks = effective_n if isinstance(effective_n, int) else len(effective_n)   # a chunk-filtered scope is a set
 
     # CPU / QPU / queue time (health checks included) — the same aggregate_run_timing()
     # summary.json uses, so both report and print the same numbers — and the
@@ -396,7 +423,7 @@ def post_processing_and_saving(CONFIG, roles=None, use_circuit_LNN=False, filena
     run_data["circuit_verification"] = summarize_circuit_checks(run_path, n_samples=effective_n if subset else None)
     print_verification(run_data["circuit_verification"])
     run_data["nchunks"]            = nchunks
-    run_data["n_samples_analyzed"] = effective_n
+    run_data["n_samples_analyzed"] = nchunks
     if spam_used is not None:
         run_data["spam_calibration_samples"] = spam_used
     # What was analyzed and what the run still misses (uncollected chunks / health checks)

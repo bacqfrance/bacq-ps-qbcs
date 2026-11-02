@@ -37,7 +37,10 @@ layouts in source/core/qpu/iqm_vlq.py):
     a rerun converting recorded calibration_qubits / qubit_names to today's indices, AQT's ion-count guard, and the star
     machines' qubit_index_map (Sirius's 16 numbered qubits) compared with the live backend's;
   - the extra_health_checks= argument: parse_extra_health_checks_arg, resolve_extra_health_checks (the mode a run recorded) and
-    the usage text of the scripts that take it.
+    the usage text of the scripts that take it;
+  - the layout score's machinery: the provider stage plugins following the snapshot's provider, circuit_timing against
+    qiskit's own ALAP schedule, score_transpiled and transpile_like_submission, unusable_in_target / REQUIRED_FIELDS per
+    provider, and resolve_layout_or_exit (the one-line exit for an unusable layout).
 """
 
 import sys, os

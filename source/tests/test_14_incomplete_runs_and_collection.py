@@ -16,6 +16,8 @@ Unit tests (no simulator, no QPU, no network) for
     included), required by every accompanying health check, which records them as `chunks`
     (older records: `jobs` / `prior_chunks`, still read);
   - best_ems skips NaN and is None when no scheme beats 1; one reading of the job status texts (state and report);
+    the per-EMS times divide by the six base schemes; remote_job_state raises on an unknown service or a missing backend name;
+  - collecting an aborted run ends with one line, not a traceback;
   - the health check plot of an incomplete run: +nsamples-N file names, the uncollected health
     checks and chunk jobs listed;
   - the run banner of a collection (RUN COMPLETE, or RUN INCOMPLETE with its pending, failed and unsubmitted

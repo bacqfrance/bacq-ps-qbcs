@@ -23,7 +23,10 @@ health-check circuits packed into the submitted jobs):
     without circuit_check (an older run) is left out;
   - a repeated collection of a per-job job leaves the records and results as they were;
   - plot_health_checks.py on a run with a degraded, a half-missing (pre without post) and a failed-job record: the json
-    summary's incomplete_extra_health_checks names the missing post, and is empty for a complete run.
+    summary's incomplete_extra_health_checks names the missing post, and is empty for a complete run; a filtered analysis
+    (QPU_HC_THRESHOLD) records filter_threshold in its summary, an unfiltered one does not;
+  - the filter: chunks_passing_extra_health_checks (per-chunk and per-job pairs, a missing post, P011 equal to the threshold),
+    HealthCheckScope / figure_filter_label (file names and figure labels), load_merged_spam_calibration_counts with a chunk set.
 """
 
 import sys, os
@@ -522,8 +525,9 @@ def test_repeated_per_job_collection_leaves_records_and_results_as_they_were(tmp
 
 # ── 8. plot_health_checks.py with degraded, half-missing and failed-job records ──
 
-def _plot_extras(name, specs, failed_chunk=True):
-    """Run plot_health_checks.py on a run whose extra records are specs = [(chunk, position, counts, index)]; returns (summary, stdout)."""
+def _plot_extras(name, specs, failed_chunk=True, hc_threshold=None):
+    """Run plot_health_checks.py on a run whose extra records are specs = [(chunk, position, counts, index)]; returns (summary, stdout).
+    With hc_threshold=T the analysis is filtered (QPU_HC_THRESHOLD) and the summary read is health_checks+hc-gt-T.json."""
     folder = run_name_for_test(name)
     run_path = PROJECT_ROOT / "datafiles" / folder
     plots = PROJECT_ROOT / run_plots_dir(folder)
@@ -549,12 +553,15 @@ def _plot_extras(name, specs, failed_chunk=True):
         write_run_info(config=dict(shots=100, samples=3, T_list=[0.2], dt=0.2, SPAM_correction=True, chunk_size=1),
                        run_folder_path=run_path, lnn=True)
         env = {**os.environ, "QPU_RUN_FOLDER": folder, "QPU_N_SAMPLES": ""}
+        if hc_threshold is not None:
+            env["QPU_HC_THRESHOLD"] = str(hc_threshold)
         r = subprocess.run([venv_python("local_sim.venv", "test_31 (plot_health_checks.py)"),
                             str(PROJECT_ROOT / "source" / "analysis_scripts" / "plot_health_checks.py")],
                            cwd=PROJECT_ROOT, env=env, capture_output=True, encoding="utf-8", errors="replace")
         assert r.returncode == 0, r.stdout + r.stderr
-        assert (PROJECT_ROOT / plots / "health_checks.png").exists()
-        return _read(run_path, "processed_results", "health_checks.json"), r.stdout
+        suffix = "" if hc_threshold is None else f"+hc-gt-{hc_threshold}"
+        assert (PROJECT_ROOT / plots / f"health_checks{suffix}.png").exists()
+        return _read(run_path, "processed_results", f"health_checks{suffix}.json"), r.stdout
     finally:
         shutil.rmtree(run_path, ignore_errors=True)
         shutil.rmtree(plots, ignore_errors=True)
@@ -578,3 +585,51 @@ def test_plot_health_checks_reports_no_incomplete_extra_records_for_a_complete_r
                                failed_chunk=False)
     assert out["incomplete_extra_health_checks"] == []
     assert "without their pre or post" not in stdout
+    assert "filter_threshold" not in out   # an unfiltered analysis records no threshold
+    filtered, _ = _plot_extras("test31-extra-plot-ok", [(0, "pre", good, 0), (0, "post", good, 9), (1, "pre", good, 0), (1, "post", good, 9)],
+                               failed_chunk=False, hc_threshold=0.5)
+    assert filtered["filter_threshold"] == 0.5
+
+
+def _extra(position, chunks, p011):
+    return {"schema": HR.EXTRA_HEALTH_CHECK_SCHEMA, "position": position, "chunks": chunks, "P011": p011}
+
+
+def test_chunks_passing_extra_health_checks_per_chunk_per_job_and_edge(tmp_path):
+    d = tmp_path / "health_checks"
+    d.mkdir()
+    recs = [_extra("pre", [0], 0.9), _extra("post", [0], 0.8),    # passes
+            _extra("pre", [1], 0.9), _extra("post", [1], 0.5),    # P011 == threshold: not above
+            _extra("pre", [2], 0.9),                              # no post
+            _extra("pre", [3, 4], 0.7), _extra("post", [3, 4], 0.6),   # a per-job pair: both chunks pass
+            _extra("pre", [5, 6], 0.7), _extra("post", [5, 6], 0.2)]   # a per-job pair failing: both chunks out
+    for i, r in enumerate(recs):
+        (d / f"extra_{i}.json").write_text(json.dumps(r), encoding="utf-8")
+    assert HR.chunks_passing_extra_health_checks(tmp_path, 0.5) == frozenset({0, 3, 4})
+    assert HR.chunks_passing_extra_health_checks(tmp_path, 0.75) == frozenset({0})
+
+
+def test_chunks_passing_extra_health_checks_is_none_without_extra_checks(tmp_path):
+    assert HR.chunks_passing_extra_health_checks(tmp_path, 0.5) is None
+
+
+def test_health_check_scope_names_files_and_figures():
+    from source.core.records.chunk_scope import HealthCheckScope, figure_filter_label
+    from source.core.records.run_names import subset_suffix
+    scope = HealthCheckScope({0, 3}, 0.5, 48)
+    assert subset_suffix(scope) == "+hc-gt-0.5"
+    assert figure_filter_label(scope) == ", health checks P011 > 0.5 (2 of 48 chunks kept)"
+    assert figure_filter_label(None) == "" and figure_filter_label(8) == ""
+
+
+def test_spam_calibration_counts_of_a_chunk_set(tmp_path):
+    from source.core.circuits.SPAM_functions import load_merged_spam_calibration_counts
+    run = tmp_path / "run"
+    (run / "raw_results").mkdir(parents=True)
+    per_chunk = {f"chunk_{c}": {"0": {"0": 10 * (c + 1)}} for c in range(3)}
+    (run / "raw_results" / "spam_calibration_counts_per_chunk.json").write_text(json.dumps(per_chunk), encoding="utf-8")
+    config = {"folder_path": str(run)}
+    assert load_merged_spam_calibration_counts(config, n_samples=frozenset({0, 2})) == {"0": {"0": 40}}
+    assert load_merged_spam_calibration_counts(config, n_samples=2) == {"0": {"0": 30}}
+    with pytest.raises(AssertionError):
+        load_merged_spam_calibration_counts(config, n_samples=frozenset({7}))
