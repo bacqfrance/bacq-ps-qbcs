@@ -6,18 +6,21 @@
 
 # No myQLM here: build() runs in local_sim.venv and caches every circuit as
 # Qiskit QPY (plus the exact reference values); this venv only reads those
-# files (USER_MANUAL §3.1). all_to_all circuits are cached at QPY version 13, which
-# this venv's Qiskit 2.1 can read. Do NOT install qiskit-iqm: it conflicts with qaas.
+# files (USER_MANUAL §3.1). Do NOT install qiskit-iqm: it is a different SDK from qaas's.
 
 # IT4I VLQ access (LEXIS/HEAppE)
-qaas==0.5.4            # IT4I's QaaS client (extra index above); pins qiskit<2.2 and the iqm-* packages below
+qaas==1.0.0            # IT4I's QaaS client (extra index above); the package to import is qheappe_client
+                       # Do NOT install qaas's [iqm_qiskit] extra: it pins qiskit<2.2 (a declared bound; qaas 1.0.0
+                       # works with the Qiskit below, as the IQM Resonance environment does). Its Qiskit and IQM
+                       # packages are listed here instead (same versions as requirements_iqm_resonance.txt).
 py4lexis==7.1.1        # LEXIS login (MyAccessID); the refresh token is saved to <project root>/tokens/iqm_vlq_token
 
 # Qiskit simulation
-qiskit==2.1.2
+qiskit==2.5.2          # same as local_sim.venv's
 qiskit-aer==0.17.2
 qiskit-qasm3-import==0.6.0
-iqm-client==34.0.4     # pulled by qaas; listed so a rebuild gets the same version
+iqm-client==36.0.0     # the IQM stack qaas 1.0.0 drives (QBackendIQM36); pulls in iqm-pulse 15, iqm-pulla 15,
+                       # iqm-station-control-client 14, iqm-exa-common 29, iqm-data-definitions 3.1.0
 
 # Scientific Python
 numpy==2.5.3

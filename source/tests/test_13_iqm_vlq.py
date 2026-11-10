@@ -19,13 +19,15 @@ Unit tests (no simulator run, no QPU, no network) for IT4I's VLQ (IQM Star 24) s
   - layout_selection.drop_identity_final_layout drops an identity final layout keyed on the input qubits (iqm-client 34,
     VLQ) or on the circuit's own qubits (iqm-client 36, Sirius) and keeps a real permutation;
   - layout_selection.count_2q_ops ignores MOVEs;
-  - iqm_vlq.vlq_collect_timing on a real job (source/tests/iqm_vlq_check_data/iqm_vlq_job_timing_fixture.json: the mini
-    benchmark's IQM timeline and qaas runtimes, 2026-09-29) — reproduces what collection recorded:
-    Resonance-equivalent billed time, execution time from remote_hw_runtime, queue split into
-    IT4I's and IQM's parts;
+  - iqm_vlq.vlq_collect_timing on a real qaas 1.0.0 job (source/tests/iqm_vlq_check_data/iqm_vlq_job_timing_fixture.json:
+    HEAppE's job info and the task result with IQM's server timeline, 2026-11-09): Resonance-equivalent billed time,
+    execution time from the execution interval, queue split into IT4I's and IQM's parts;
   - iqm_vlq.call: every network call to IT4I / HEAppE is logged (OK / FAIL / TIMEOUT with its
     duration) to the terminal and the run's iqm_vlq_connection.log, and abandoned after its time
     limit with the place it was waiting in (a HEAppE request that is never answered);
+  - iqm_vlq.lexis_backend names the qaas backend after its machine (fake qheappe_client); retrieve_job / job_status / cancel_job /
+    run / wait_for_result talk to HEAppE through the backend's QClient (qaas 1.0.0's QJob.status() and QJob.cancel() do not);
+  - the VLQ circuit check is not_available (qaas 1.0 returns no executed circuits);
   - iqm_vlq.use_run_calibration: a calibration_file= that is a run's calibration_snapshot.json is accepted only with
     that run's vlq_calibration.json beside it (the raw file is copied, the snapshot rebuilt); alone it exits with code 2.
 The QPU execution time of every backend is tested in test_11_circuit_check_and_timing.py.
@@ -307,36 +309,59 @@ def test_move_is_not_a_two_qubit_gate():
     assert count_2q_ops(qc) == 1
 
 
-# A real VLQ job (the mini benchmark's, 2026-09-29): its IQM timeline, qaas runtimes and the
-# values collection recorded from them.
+# A real VLQ job (qaas 1.0.0, 2026-11-09): HEAppE's job info and the task result with IQM's timeline.
 JOB = json.loads((DATA / "iqm_vlq_job_timing_fixture.json").read_text(encoding="utf-8"))
 
 
-def _qjob(saved):
-    """A stand-in for a finished qaas QJob, rebuilt from the saved job (a QJob can't be pickled)."""
-    timeline = [SimpleNamespace(source=t["source"], status=t["status"],
-                                timestamp=datetime.fromisoformat(t["timestamp"].replace("Z", "+00:00")))
-                for t in saved["timeline"]]
-    remote = SimpleNamespace(_iqm_job=SimpleNamespace(data=SimpleNamespace(timeline=timeline, compilation=None)),
-                             job_id=lambda: saved["iqm_job_id"])
-    return SimpleNamespace(remote_job=remote, remote_hw_runtime=saved["remote_hw_runtime"],
-                           consumpted_resources=saved["consumpted_resources"],
-                           allocation_amount=saved["allocation_amount"], events={})
+class FakeQClient:
+    """What qaas' QClient answers for the saved job; records the cancel requests. Its coroutines run through _run()."""
+    active_backend = "VLQ"
+
+    def __init__(self, state=None):
+        self.cancelled, self.info = [], dict(JOB["job_info"], **({"State": state} if state is not None else {}))
+
+    def get_job_info(self, job_id):
+        return self.info
+
+    async def get_task_result(self, task_id):
+        assert task_id == self.info["Tasks"][0]["Id"]
+        return JOB["task_result"]
+
+    async def cancel_job(self, job_id):
+        self.cancelled.append(job_id)
+        return True
+
+    def _run(self, coro):
+        import asyncio
+        return asyncio.run(coro)
+
+
+def _qjob(qclient=None, job_id=361):
+    """A stand-in for a qaas QJob: a job id and the QClient (all the pipeline reads)."""
+    return SimpleNamespace(job_id=job_id, _qclient=qclient or FakeQClient())
 
 
 def test_vlq_timing_of_a_real_job():
-    t   = V.vlq_collect_timing(_qjob(JOB["job"]), JOB["upload_end_at"])
-    exp = JOB["expected"]
-    for k in ("qpu_s", "qpu_s_source", "qpu_exec_s", "qpu_exec_s_source", "created_at", "execution_start", "execution_end"):
-        assert t[k] == exp[k], k
-    for k in ("compilation_seconds", "execution_seconds", "queue_s", "it4i_wait_s", "iqm_queue_s"):
-        assert t[k] == pytest.approx(exp[k]), k
+    t  = V.vlq_collect_timing(_qjob(), JOB["upload_end_at"])
+    tl = {e["status"]: e["timestamp"] for e in t["timeline"]}
+    assert len(t["timeline"]) == 12
+    assert t["created_at"] == tl["created"] and t["execution_start"] == tl["execution_started"] and t["execution_end"] == tl["execution_ended"]
+    assert t["compilation_seconds"] == pytest.approx(0.052061, abs=1e-5) and t["execution_seconds"] == pytest.approx(1.195901, abs=1e-5)
     # billed like IQM Resonance: ceil(compilation + execution); the queue is IT4I's wait + IQM's
-    assert t["qpu_s"] == math.ceil(t["compilation_seconds"] + t["execution_seconds"])
+    assert t["qpu_s"] == math.ceil(t["compilation_seconds"] + t["execution_seconds"]) == 2 and t["qpu_s_source"] == "iqm_equivalent_billed"
     assert t["queue_s"] == pytest.approx(t["it4i_wait_s"] + t["iqm_queue_s"])
-    # qaas' remote_hw_runtime is IQM's execution_started -> execution_ended
+    # the QPU execution is IQM's execution_started -> execution_ended
     assert t["qpu_exec_s"] == pytest.approx(t["execution_seconds"])
-    assert JT.qpu_execution_s(t, "QAAS_IT4I") == (t["qpu_exec_s"], "remote_hw_runtime")
+    assert JT.qpu_execution_s(t, "QAAS_IT4I") == (t["qpu_exec_s"], "execution_interval")
+    assert t["iqm_job_id"] == JOB["task_result"]["id"] and t["calibration_set_id"] == JOB["task_result"]["compilation"]["calibration_set_id"]
+
+
+def test_vlq_timing_never_raises_without_a_task_result():
+    class Broken(FakeQClient):
+        def get_job_info(self, job_id):
+            raise RuntimeError("HEAppE does not answer")
+    t = V.vlq_collect_timing(_qjob(Broken()), JOB["upload_end_at"])
+    assert t["timeline"] == [] and t["qpu_s"] is None and t["queue_s"] is None and t["qpu_exec_s_source"] == "unavailable"
 
 
 def test_connection_calls_are_logged_and_time_limited(tmp_path):
@@ -381,3 +406,63 @@ def test_calibration_file_snapshot_alone_exits_with_code_2(tmp_path):
     with pytest.raises(SystemExit) as e:
         V.use_run_calibration(tmp_path / "sim_run", calibration_file=lone)
     assert e.value.code == 2
+
+
+def test_job_status_and_cancel_ask_heappe_through_the_qclient():
+    # qaas 1.0.0's QJob.status() returns the state it last saw and QJob.cancel() never sends the request, so the pipeline asks
+    # the QClient: HEAppE's job state codes become JobStatus names, and cancel_job() is the QClient's own answer.
+    for code, name in ((2, "QUEUED"), (8, "RUNNING"), (16, "DONE"), (32, "ERROR"), (64, "CANCELLED")):
+        assert V.job_status(_qjob(FakeQClient(code)), "361") == name
+    from source.core.qpu.providers import job_state_of_status
+    assert [job_state_of_status(V.job_status(_qjob(FakeQClient(c)))) for c in (4, 16, 32, 64)] == ["pending", "done", "failed", "failed"]
+    q = FakeQClient()
+    assert V.cancel_job(_qjob(q, 361), "361") is True and q.cancelled == [361]
+    V.set_connection_log(None); V._pending_events.clear()
+
+
+def test_lexis_backend_is_named_after_its_machine_and_retrieve_job_uses_qjob(monkeypatch):
+    import sys
+    from types import ModuleType
+    seen = {}
+
+    class Backend:
+        name = "QBackendIQM"
+        _qclient = FakeQClient()
+
+    class QProvider:
+        def __init__(self, project, token): seen["init"] = (project, token)
+        def get_backend(self, resource): seen["resource"] = resource; return Backend()
+
+    class QJob:
+        def __init__(self, backend, job_id): self.backend, self.job_id = backend, job_id
+
+    module = ModuleType("qheappe_client"); module.QProvider, module.QJob = QProvider, QJob
+    monkeypatch.setitem(sys.modules, "qheappe_client", module)
+    monkeypatch.setattr(V, "lexis_session", lambda token_file, allow_browser, log_file: SimpleNamespace(get_access_token=lambda: "tok"))
+    try:
+        backend = V.lexis_backend(project="EU-1", resource="VLQ-EU")
+        assert seen == {"init": ("EU-1", "tok"), "resource": "VLQ-EU"}
+        assert backend.name == backend.backend_name == "VLQ" and V.is_vlq_backend(backend)
+        job = V.retrieve_job(backend, "123")             # the id is an integer for HEAppE, whatever the record stores
+        assert job.job_id == 123 and job.backend is backend
+    finally:
+        V.set_connection_log(None); V._pending_events.clear()
+
+
+def test_run_passes_the_walltime_under_qaas_1_name_and_result_is_legacy():
+    got = {}
+    class Backend:
+        def run(self, circuits, **kw): got["kw"] = kw; return "job"
+    class Job:
+        def result(self, **kw): got["result"] = kw; return "result"
+    assert V.run(Backend(), ["qc"], "health check", shots=100, walltime_limit=7200) == "job"
+    assert got["kw"] == {"shots": 100, "walltime_limit_secs": 7200}
+    assert V.wait_for_result(Job(), "361") == "result" and got["result"] == {"qiskit_legacy": True, "key_order_left_to_right": True}
+    V.set_connection_log(None); V._pending_events.clear()
+
+
+def test_vlq_circuit_check_is_not_available():
+    # HEAppE keeps no payload and qaas 1.0 has no executed-circuits call: the check says so instead of comparing.
+    from source.core.qbcs import bacq_ps_qbcs
+    check = bacq_ps_qbcs._check_executed_iqm_vlq(None, None, None, None, 1)
+    assert check["status"] == "not_available" and check["reason"] == V.NO_EXECUTED_CIRCUITS

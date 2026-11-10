@@ -144,7 +144,7 @@ def run_with_retries(undated, status_of, launch, args, *, wait_after_failed_s, p
             return None
         series = clock() if series is None else series
         if clock() - series >= limit_hours * 3600:
-            return _give_up(folder, last_label, last_status, limit_hours)
+            return _give_up(folder, last_label, last_status, limit_hours, root)
         print(f"  Latest job: {last_label} — {status}. Next check in {pause_s // 60} min "
               f"({time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(clock() + pause_s))}); "
               f"giving up {limit_hours} h after {time.strftime('%Y-%m-%d %H:%M', time.localtime(series))}.", flush=True)
@@ -214,7 +214,7 @@ def run_with_retries(undated, status_of, launch, args, *, wait_after_failed_s, p
         failures += 1
         series = clock() if series is None else series
         if clock() - series >= limit_hours * 3600:
-            return _give_up(folder_after, last_label, last_status, limit_hours)
+            return _give_up(folder_after, last_label, last_status, limit_hours, root)
         at_once = (first_retry_at_once and failures == 1) or (retry_at_once_after_progress and progressed)
         if wait_after_failed_s and not at_once:
             print(f"  Retrying in {_minutes(wait_after_failed_s)}.", flush=True)
@@ -258,8 +258,8 @@ def _duration(hours):
     return f"{hours:g} h" if hours >= 1 else f"{round(hours * 60)} min"
 
 
-def _give_up(run_folder, last_label, last_status, limit_hours):
-    where = rel_path(Path("datafiles") / run_folder) if run_folder else "no run folder (the first launch never created one)"
+def _give_up(run_folder, last_label, last_status, limit_hours, root="datafiles"):
+    where = rel_path(Path(root) / run_folder) if run_folder else "no run folder (the first launch never created one)"
     print(f"❌ GIVING UP: {_duration(limit_hours)} without progress on {where}.\n"
           f"   Last job: {last_label or 'none'}, status {last_status or 'unknown'}. "
           f"Check the provider, then run this script again.", file=sys.stderr)

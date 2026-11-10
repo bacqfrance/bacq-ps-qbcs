@@ -46,12 +46,10 @@ warnings.filterwarnings("ignore", category=UserWarning,
 # as fit under this limit. Resonance: 100 circuits per job is accepted, 101 is not.
 # EQE1: 70 circuits per job is the limit communicated directly by the EQE1 staff.
 IQM_MAX_CIRCUITS_PER_JOB = {IQM_RESONANCE: 100, MQSS_LRZ: 70}
-# IQM VLQ (IT4I, via qaas): qaas uploads every circuit as its own HTTP request (~0.3 s each).
-# Jobs of 1,000 circuits run; jobs of 3,264 circuits (48 full-benchmark chunks) upload, but then
-# fail on IT4I's side when HEAppE forwards them to IQM ("The write operation timed out",
-# 2026-09-29), and each keeps one upload open for ~16–18 min, where a network drop loses the
-# whole job. A job therefore holds VLQ_CHUNKS_PER_JOB whole chunks (or
-# submit(chunks_per_qpu_job_batch=...)): 12 full-benchmark chunks are 816 circuits, ~4 min to upload.
+# IQM VLQ (IT4I, via qaas): jobs of 1,000 circuits run; jobs of 3,264 circuits (48 full-benchmark chunks)
+# upload, but then fail on IT4I's side when HEAppE forwards them to IQM ("The write operation timed out",
+# 2026-09-29; qaas 0.5). A job therefore holds
+# VLQ_CHUNKS_PER_JOB whole chunks (or submit(chunks_per_qpu_job_batch=...)): 12 full-benchmark chunks are 816 circuits.
 VLQ_CHUNKS_PER_JOB = 12
 # IBM Batch jobs hold this many whole chunks: the full benchmark's 480 chunks go out as 10 jobs.
 IBM_CHUNKS_PER_JOB = 48
@@ -422,7 +420,7 @@ class bacq_ps_qbcs:
         """Dump each interleaved chunk to Qiskit QPY. Saves chunk_{nc}_qiskit.qpy
         at Qiskit's default QPY version for LNN, or chunk_{nc}_qiskit_v13.qpy at QPY
         version 13 for all_to_all (self._qiskit_v13_qpy, set by build()) — the
-        version the older Qiskit of aqt.venv and iqm_vlq.venv can read. Independent
+        version the older Qiskit of aqt.venv can read. Independent
         of, and cached separately from, interleave_job_batches()'s myQLM stage."""
         assert hasattr(self, "chunk_paths"), (
             "interleave_job_batches() must be called before convert_chunks_to_qiskit()."
@@ -1288,8 +1286,8 @@ class bacq_ps_qbcs:
         The chunk format follows the topology. LNN circuits are saved as
         chunks_qiskit/chunk_{nc}_qiskit.qpy at Qiskit's default QPY version.
         all_to_all circuits are saved as chunks_qiskit_v13_qpy/chunk_{nc}_qiskit_v13.qpy
-        at QPY version 13, which the older Qiskit of aqt.venv (1.4.6) and
-        iqm_vlq.venv (2.1) can read; every newer Qiskit reads it too. The raw SPAM
+        at QPY version 13, which the older Qiskit of aqt.venv (1.4.6)
+        can read; every newer Qiskit reads it too. The raw SPAM
         circuits are saved beside the chunks in the same format (spam_qiskit_v13.qpy).
         Timestamps of an all_to_all build go to timestamps_qiskit_v13_qpy_local_time.csv
         (and its _utc companion).
@@ -1569,16 +1567,9 @@ class bacq_ps_qbcs:
             return CC.check_failed("IQM GET jobs/{id}/payload vs submitted ISA circuits", e)
 
     def _check_executed_iqm_vlq(self, job, record, run_path, nc):
-        """Compare qaas's copy of the job's circuits (job.get_transpiled_circuits()) with the
-        submitted ones. Never raises."""
-        method = "VLQ job.get_transpiled_circuits() vs submitted ISA circuits"
-        try:
-            start = record.get("spam_start", 0)
-            end   = record.get("circ_end", start + record["n_spam"] + record["n_circuits"])
-            return CC.check_vlq(self._submitted_circuits(run_path, record, nc),
-                                VLQ.transpiled_circuits(job, record["job_id"])[start:end], method)
-        except Exception as e:
-            return CC.check_failed(method, e)
+        """VLQ (qaas 1.0) returns neither the job's circuits nor its payload, so there is nothing to compare with the
+        submitted ones: not_available. (Runs made with qaas 0.5 keep the check they recorded.)"""
+        return CC.not_available(VLQ.NO_EXECUTED_CIRCUITS)
 
     def collect_results(self, exp_results_folder_path, service=None, lang="qiskit", poll_interval=30, service_name=None,
                         wait=False, backend_name=None):
@@ -1979,7 +1970,7 @@ class bacq_ps_qbcs:
         EQE1 (MQSS) gets no_modify=True so the server keeps our transpilation. IQM
         Resonance's IQMBackend.run() has no such option (iqm-client drops unknown options
         with a warning) and sends the circuits as they are. VLQ's qaas backend uploads the
-        circuits as OpenQASM 3 (one HTTP request each) and runs them as they are; its job id
+        circuits as OpenQASM 3 (one HTTP request each, 10 in parallel) and runs them as they are; its job id
         is the HEAppE job id (an int).
         """
         from qiskit.qpy import load
@@ -2032,7 +2023,7 @@ class bacq_ps_qbcs:
         if service_name == MQSS_LRZ:
             run = lambda: backend.run(all_circuits, shots=self.CONFIG["shots"], no_modify=True)
         elif service_name == QAAS_IT4I:
-            print(f"  [IQM_VLQ] Uploading {n_in_job} circuits (~{0.3 * n_in_job / 60:.0f} min at ~0.3 s each)...", flush=True)
+            print(f"  [{service_name}] Uploading {n_in_job} circuits...", flush=True)
             run = lambda: VLQ.run(backend, all_circuits, f"{label}, {n_in_job} circuits",
                                   shots=self.CONFIG["shots"], walltime_limit=VLQ.WALLTIME_LIMIT_S)
         else:
@@ -3122,12 +3113,7 @@ class bacq_ps_qbcs:
         _warn_circuit_check(f"Chunk {nc}", check)
         if record.get("hc_pre_idx") is not None:   # extra_health_checks: the job's health-check circuits (before the record says "complete")
             if vlq:
-                hc_method = "VLQ job.get_transpiled_circuits() vs the health-check ISA circuit"
-                hc_exe    = []   # fetched once for both slots
-                def hc_cmp(sub, idx):
-                    if not hc_exe:
-                        hc_exe.extend(VLQ.transpiled_circuits(cache[job_id]["job"], job_id))
-                    return CC.check_vlq(sub, [hc_exe[i] for i in idx], hc_method)
+                hc_check = self._extra_hc_not_available(check)
             else:
                 hc_method = "IQM GET jobs/{id}/payload vs the health-check ISA circuit"
                 def hc_cmp(sub, idx):
@@ -3135,7 +3121,7 @@ class bacq_ps_qbcs:
                     body    = payload.get("payload", payload)
                     return CC.check_iqm(sub, {**body, "circuits": [body["circuits"][i] for i in idx]},
                                         backend.index_to_qubit_name, record["nshots"])
-            hc_check = self._check_extra_hc(exp_results_folder_path, record, hc_cmp, hc_method)
+                hc_check = self._check_extra_hc(exp_results_folder_path, record, hc_cmp, hc_method)
             self._save_extra_health_checks(exp_results_folder_path, record, nc, lambda i: all_results[i],
                                            t.get("execution_start"), t.get("execution_end"), hc_check)
 

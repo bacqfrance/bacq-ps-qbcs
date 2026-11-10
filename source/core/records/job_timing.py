@@ -113,8 +113,8 @@ TIMING_NOTES = {
                 f"both converted from Europe/Berlin local time to UTC."),
     QAAS_IT4I: ("QPU time is the IQM Resonance equivalent of VLQ's jobs — ceil(compilation + execution) "
                 "per job, from IQM's server timeline — so it aligns with the other QPUs. VLQ itself "
-                "charges the project allocation (consumpted_resources, kept in each job record) by the "
-                "QPU execution time only (qaas' remote_hw_runtime), which is QPU_execution_time_s. "
+                "charges the project allocation by the QPU execution time only, which is QPU_execution_time_s "
+                "(IQM execution_started -> execution_ended). "
                 "Queue time runs from the end of our upload to IQM's compilation start: the wait in "
                 "IT4I's HEAppE job system (it4i_wait_s, upload end -> IQM 'created') plus IQM's own "
                 "queue (iqm_queue_s)."),
@@ -131,16 +131,16 @@ TIMING_NOTES = {
 # QPU_execution_time_s: the time the QPU spent executing the circuits, without compilation,
 # set-up or billing rounding — where the provider reports it.
 QPU_EXEC_S_SOURCES = {
-    "remote_hw_runtime":         "IQM VLQ: qaas remote_hw_runtime (IQM execution_started -> execution_ended)",
+    "remote_hw_runtime":         "IQM VLQ (qaas 0.5 runs): qaas remote_hw_runtime (IQM execution_started -> execution_ended)",
     "iqm_execution_seconds":     "IQM Resonance: metrics.execution_seconds of the raw job",
     "execution_interval":        "IQM: execution_started -> execution_ended of the server timeline",
     "ibm_circuits_execution":    "IBM: metrics circuits_execution_time_ns of the job",
     "unavailable":               "not reported by the provider",
 }
 QPU_EXECUTION_NOTE = ("QPU_execution_time_s is the QPU's execution time alone (no compilation, set-up or "
-                      "billing rounding), where the provider reports it: IQM VLQ remote_hw_runtime, IQM "
-                      "Resonance metrics.execution_seconds (older records: the execution_started -> "
-                      "execution_ended interval), IBM circuits_execution_time_ns. IQM EQE1, AQT PIAST-Q, "
+                      "billing rounding), where the provider reports it: IQM VLQ the execution_started -> "
+                      "execution_ended interval of the server timeline (runs made with qaas 0.5: remote_hw_runtime), IQM "
+                      "Resonance metrics.execution_seconds (older records: the same interval), IBM circuits_execution_time_ns. IQM EQE1, AQT PIAST-Q, "
                       "legacy IBM records and simulations report none: then it is 'N/A', as it is when any "
                       "job of the run lacks it.")
 

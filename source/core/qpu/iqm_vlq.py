@@ -1,10 +1,11 @@
 """
 iqm_vlq.py
 IT4Innovations' VLQ (IQM "star24": 24 qubits QB1..QB24 around one computational
-resonator COMPR1), reached through LEXIS/HEAppE with the `qaas` client. Everything
+resonator COMPR1), reached through LEXIS/HEAppE with IT4I's `qaas` client (package qheappe_client). Everything
 VLQ-specific the pipeline needs, kept out of qbcs.py:
 
   lexis_backend()          the qaas backend, logging in with the saved LEXIS refresh token
+  retrieve_job(), job_status(), cancel_job(), wait_for_result()   an existing job, through the backend's QClient
   fetch_calibration()      a calibration set + its quality metrics from IT4I's public API
   qubit_metrics(), representative_roles(), select_vlq_qubits(), snapshot_from_calibration()   from iqm_star.py
   vlq_collect_timing()     QPU / queue time of a finished job (source/core/records/job_timing.py terms)
@@ -13,7 +14,7 @@ Qubit selection, the scoring and the effective all-to-all snapshot are shared wi
 source/core/qpu/iqm_star.py (select_vlq_qubits() is an alias of iqm_star.select_star_qubits(); choose_vlq_layout() and snapshot_from_calibration()
 are wrappers that pass the "VLQ" label).
 
-Imports qaas / py4lexis only inside lexis_backend() and lexis_session(), so the module loads in every venv
+Imports qheappe_client (qaas) / py4lexis only inside lexis_backend(), retrieve_job() and lexis_session(), so the module loads in every venv
 (the local simulation uses the calibration functions from local_sim.venv or iqm_vlq.venv).
 """
 
@@ -43,7 +44,7 @@ BACKEND_NAME      = "iqm_vlq"               # kept for reference; nothing uses i
 WALLTIME_LIMIT_S  = 7200                    # HEAppE walltime of one job: the most IT4I accepts (6 h was refused)
 CONNECTION_LOG_NAME = "iqm_vlq_connection.log"   # every network call to IT4I / HEAppE, in the run folder
 
-# Time limits (s) of the network calls. The qaas client sets none: a HEAppE request that is never
+# Time limits (s) of the network calls. The qaas client sets only per-request ones: a HEAppE request that is never
 # answered (seen 2026-09-29: JobManagement/CurrentInfoForJob) otherwise waits forever.
 TIMEOUTS = {
     "public status":        30,
@@ -51,13 +52,12 @@ TIMEOUTS = {
     "LEXIS login":          120,    # silent login with the saved refresh token
     "LEXIS login (browser)": 1800,  # the user approves it in a browser page
     "access token":         60,
-    "get_backend":          300,    # submits HEAppE's backend_init job (30 s walltime) and polls it
+    "get_backend":          300,    # QClient login + machine info (1-6 s measured with qaas 1.0.0)
     "retrieve_job":         120,
     "job status":           120,
     "job cancel":           120,
     "result download":      900,    # the job has finished; fetching a 12-chunk job's counts
-    "executed circuits":    600,    # job.get_transpiled_circuits() for the circuit check
-    "job submission":       3600,   # upload of up to 816 circuits. After a timeout the upload may still
+    "job submission":       3600,   # upload of up to 816 circuits (one payload). After a timeout the upload may still
                                     # complete: check check_real_qpu_job_status_iqm_vlq.py / LEXIS for a job
                                     # that has no record before submitting again
 }
@@ -192,38 +192,13 @@ def lexis_session(token_file=TOKEN_FILE, allow_browser=True, log_file=None):
     return session
 
 
-_UNRAISABLE_HOOK_SET = False
-
-
-def _silence_heappe_shutdown_errors():
-    """py4heappe's ApiClient.__del__ (and the multiprocessing Pool.__del__ it triggers) raise
-    AttributeError ('NoneType' has no attribute 'debug' / 'dumps') when the interpreter exits,
-    because the logger and pickle are already torn down. On Windows ApiClient.__del__ can also raise
-    OSError ([WinError 6] The handle is invalid) from self.pool.close(), because the pool's pipe
-    is already closed by then. The work is done by then and nothing is lost, but every VLQ script
-    ended with these tracebacks ("Exception ignored in ..."). Drop exactly those three; any other
-    unraisable exception still goes to the normal handler."""
-    global _UNRAISABLE_HOOK_SET
-    if _UNRAISABLE_HOOK_SET:
-        return
-    _UNRAISABLE_HOOK_SET = True
-    previous = sys.unraisablehook
-
-    def hook(unraisable):
-        name = getattr(unraisable.object, "__qualname__", "")
-        if unraisable.exc_type is AttributeError and name in ("ApiClient.__del__", "Pool.__del__"):
-            return
-        if unraisable.exc_type is OSError and name == "ApiClient.__del__":   # Windows: the pool's pipe is already closed
-            return
-        previous(unraisable)
-
-    sys.unraisablehook = hook
-
-
 def lexis_backend(project=None, resource=None, token_file=TOKEN_FILE, allow_browser=True, log_file=None):
-    """The qaas VLQ backend (QBackendIQM). project/resource default to tokens/iqm_vlq_project_info."""
-    _silence_heappe_shutdown_errors()
-    from qaas.client import QProvider
+    """The qaas VLQ backend (QBackendIQM, qheappe_client), needed to transpile for VLQ, to submit, and to handle existing
+    jobs (retrieve_job() below). project/resource default to tokens/iqm_vlq_project_info.
+
+    qaas names its backend "QBackendIQM" and gives it no backend_name; the pipeline's records, logs and
+    is_vlq_backend() expect the machine name (VLQ), so both are set to the name of the QClient's backend."""
+    from qheappe_client import QProvider
     info     = read_project_info() if project is None or resource is None else {}
     project  = project or info["PROJECT"]
     resource = resource or info["RESOURCE"]
@@ -231,32 +206,46 @@ def lexis_backend(project=None, resource=None, token_file=TOKEN_FILE, allow_brow
     token    = call("access token", session.get_access_token)
     provider = QProvider(project, token)
     backend  = call("get_backend", lambda: provider.get_backend(resource), resource)
+    backend.name = backend.backend_name = str(backend._qclient.active_backend or resource)
     return backend
 
 
 def retrieve_job(backend, job_id):
-    """backend.retrieve_job(), logged and time-limited."""
-    return call("retrieve_job", lambda: backend.retrieve_job(int(job_id)), f"HEAppE job {job_id}")
+    """The qaas QJob of an existing HEAppE job, logged and time-limited. It holds only the job id and the backend's
+    QClient: status and timing are asked through that client (job_status(), vlq_collect_timing())."""
+    from qheappe_client import QJob
+    return call("retrieve_job", lambda: QJob(backend, int(job_id)), f"HEAppE job {job_id}")
+
+
+# HEAppE job states (QClient.get_job_info()["State"]) as the qiskit JobStatus names the pipeline maps (providers.job_state_of_status)
+_HEAPPE_STATES = {1: "INITIALIZING", 2: "QUEUED", 4: "QUEUED", 8: "RUNNING", 16: "DONE", 32: "ERROR", 64: "CANCELLED",
+                  128: "QUEUED"}
 
 
 def job_status(job, job_id=""):
-    """job.status() (qiskit JobStatus), logged and time-limited."""
-    return call("job status", job.status, f"HEAppE job {job_id}")
+    """The job's state from HEAppE, as a JobStatus name (DONE, RUNNING, QUEUED, ERROR, CANCELLED, ...), logged and
+    time-limited. qaas' QJob.status() only returns the state it last saw, so HEAppE is asked directly."""
+    def ask():
+        state = job._qclient.get_job_info(int(job.job_id))["State"]
+        return _HEAPPE_STATES.get(state, f"UNKNOWN({state})")
+    return call("job status", ask, f"HEAppE job {job_id}")
 
 
 def cancel_job(job, job_id=""):
-    """job.cancel() (HEAppE only accepts the request; True when it did), logged and time-limited."""
-    return call("job cancel", job.cancel, f"HEAppE job {job_id}")
+    """Ask HEAppE to cancel the job (True when it accepted the request), logged and time-limited. QJob.cancel() is not
+    used: in qaas 1.0.0 it never sends the request (it does not await the client's coroutine)."""
+    qclient = job._qclient
+    return call("job cancel", lambda: qclient._run(qclient.cancel_job(int(job.job_id))), f"HEAppE job {job_id}")
 
 
-def run(backend, circuits, detail="", **kw):
-    """backend.run() — the upload of a job to HEAppE —, logged and time-limited."""
+def run(backend, circuits, detail="", walltime_limit=None, **kw):
+    """backend.run() - the upload of a job to HEAppE -, logged and time-limited. walltime_limit: HEAppE walltime in s."""
+    if walltime_limit is not None:
+        kw["walltime_limit_secs"] = walltime_limit
     return call("job submission", lambda: backend.run(circuits, **kw), detail)
 
 
-def transpiled_circuits(job, job_id=""):
-    """job.get_transpiled_circuits() (what VLQ ran, for the circuit check), logged and time-limited."""
-    return call("executed circuits", job.get_transpiled_circuits, f"HEAppE job {job_id}")
+NO_EXECUTED_CIRCUITS = "IQM VLQ (qaas 1.0) does not return the executed circuits"   # circuit_check text: HEAppE keeps no payloads
 
 
 def attach_calibration(backend, calibration_set_id=None):
@@ -403,13 +392,29 @@ def use_run_calibration(run_dir, calibration_file=None, calibration_set="default
 
 
 # ── Timing of a finished job ──────────────────────────────────────────────────
+def _task_result(job):
+    """The HEAppE task result of the job's (single) task, with IQM's server timeline: {status, runtime_ms,
+    compilation, timeline: [{source, status, timestamp}], ...}. Asked once per job object; {} when unavailable."""
+    cached = getattr(job, "_vlq_task_result", None)
+    if cached is not None:
+        return cached
+    qclient = job._qclient
+    try:
+        task_id = qclient.get_job_info(int(job.job_id))["Tasks"][0]["Id"]
+        res     = qclient._run(qclient.get_task_result(task_id))
+        res     = res if isinstance(res, dict) else {}
+    except Exception:
+        return {}
+    job._vlq_task_result = res
+    return res
+
+
 def _iqm_timeline(job):
     """IQM's server timeline of a finished qaas job: [{source, status, timestamp}], or []."""
     from source.core.records.job_timing import iso_utc, parse_utc
     try:
-        data = job.remote_job._iqm_job.data
-        return [{"source": t.source, "status": t.status, "timestamp": iso_utc(parse_utc(t.timestamp))}
-                for t in data.timeline]
+        return [{"source": t["source"], "status": t["status"], "timestamp": iso_utc(parse_utc(t["timestamp"]))}
+                for t in _task_result(job).get("timeline", [])]
     except Exception:
         return []
 
@@ -419,8 +424,7 @@ def vlq_collect_timing(job, upload_end_at):
 
     qpu_s        IQM Resonance-equivalent billed time: ceil(compilation + execution) of the job,
                  from IQM's server timeline (source 'iqm_equivalent_billed')
-    qpu_exec_s   QPU execution only: qaas' remote_hw_runtime (= IQM execution_started ->
-                 execution_ended), which is what the project's consumpted_resources grew by
+    qpu_exec_s   QPU execution only: IQM execution_started -> execution_ended
     queue_s      end of our upload -> IQM compilation_started: IT4I's HEAppE job system
                  (it4i_wait_s, upload end -> IQM 'created') plus IQM's own queue
                  (iqm_queue_s, 'created' -> 'compilation_started')."""
@@ -437,32 +441,13 @@ def vlq_collect_timing(job, upload_end_at):
     if comp_s is not None and exec_s is not None:
         out["qpu_s"], out["qpu_s_source"] = float(math.ceil(comp_s + exec_s)), "iqm_equivalent_billed"
 
-    hw = getattr(job, "remote_hw_runtime", None)
-    if hw is not None and hw >= 0:
-        out["qpu_exec_s"], out["qpu_exec_s_source"] = float(hw), "remote_hw_runtime"
-    elif exec_s is not None:
+    if exec_s is not None:
         out["qpu_exec_s"], out["qpu_exec_s_source"] = exec_s, "execution_interval"
 
-    for k in ("consumpted_resources", "allocation_amount", "qaas_runtime", "qaas_fetching_runtime",
-              "remote_backend_runtime", "remote_iqm_client_results_fetching_runtime",
-              "remote_backend_run_postprocessing_runtime"):
-        v = getattr(job, k, None)
-        out[k] = v if isinstance(v, (int, float)) else None
-    try:
-        out["qaas_events"] = {k: (iso_utc(datetime.fromtimestamp(v, timezone.utc)) if isinstance(v, (int, float)) else None)
-                              for k, v in (job.events or {}).items()}
-    except Exception:
-        pass
-    try:
-        out["iqm_job_id"] = str(job.remote_job.job_id())
-    except Exception:
-        out["iqm_job_id"] = None
-    try:
-        comp = getattr(job.remote_job._iqm_job.data, "compilation", None)
-        cal  = getattr(comp, "calibration_set_id", None) if comp is not None else None
-        out["calibration_set_id"] = str(cal) if cal else None
-    except Exception:
-        out["calibration_set_id"] = None
+    res  = _task_result(job)
+    out["iqm_job_id"]         = str(res["id"]) if res.get("id") else None
+    cal  = (res.get("compilation") or {}).get("calibration_set_id")
+    out["calibration_set_id"] = str(cal) if cal else None
 
     out["upload_end_at"]   = iso_utc(parse_utc(upload_end_at))
     out["created_at"]      = first.get("created")
@@ -480,9 +465,11 @@ def vlq_collect_timing(job, upload_end_at):
 
 
 def wait_for_result(job, job_id="", timeout_s=None):
-    """job.result() of a finished job, logged and time-limited (TIMEOUTS['result download'])."""
+    """job.result() of a finished job as a qiskit Result (counts per circuit in submission order), logged and
+    time-limited (TIMEOUTS['result download']). Bit strings are in the order qaas 0.5 returned (key_order_left_to_right), which
+    the pipeline's reversal of the counts expects."""
     timeout_s = timeout_s or TIMEOUTS["result download"]
-    return call("result download", lambda: job.result(timeout_secs=timeout_s), f"HEAppE job {job_id}",
+    return call("result download", lambda: job.result(qiskit_legacy=True, key_order_left_to_right=True), f"HEAppE job {job_id}",
                 timeout_s=timeout_s + 30)
 
 

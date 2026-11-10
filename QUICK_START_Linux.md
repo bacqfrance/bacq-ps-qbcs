@@ -129,7 +129,7 @@ source venvs/iqm_resonance.venv/bin/activate
 pip install -r source/benchmark_scripts/real_qpu_scripts/IQM_RESONANCE/requirements_iqm_resonance.txt
 deactivate
 
-python3 -m venv venvs/iqm_vlq.venv           # qiskit 2.1 — pinned by IT4I's qaas client
+python3 -m venv venvs/iqm_vlq.venv           # qiskit 2.5, qaas 1.0 (IT4I's client)
 source venvs/iqm_vlq.venv/bin/activate
 pip install -r source/benchmark_scripts/real_qpu_scripts/IQM_VLQ/requirements_iqm_vlq.txt --extra-index-url https://opencode.it4i.eu/api/v4/projects/107/packages/pypi/simple
 deactivate
@@ -415,7 +415,7 @@ GB free per topology and per QPU you run.
 
 | # | Script | Needed for | CPU time: build / simulation |
 |---|---|---|---|
-| 1 | `benchmark_noiseless_all_to_all.py full` | AQT PIAST-Q, IQM VLQ, IQM Resonance Sirius (saved at QPY version 13, which the older Qiskit of AQT and VLQ reads) | ~60 min / ~15 min |
+| 1 | `benchmark_noiseless_all_to_all.py full` | AQT PIAST-Q, IQM VLQ, IQM Resonance Sirius (saved at QPY version 13, which the older Qiskit of AQT reads) | ~60 min / ~15 min |
 | 2 | `benchmark_noiseless_lnn.py full` | IBM, IQM EQE1, IQM Resonance Emerald / Garnet | ~60 min / ~20 min |
 | 3 | *(optional)* `benchmark_fake_fez_lnn.py full` in `ibm.venv` — noisy reference under FakeFez | — | — (needs #2's circuits) / ~4 h (default `scheduling_simulation=true`), ~65 min with `false` |
 
@@ -458,7 +458,7 @@ few chunks first. Expect ~1½–2 h CPU time on your side for loading and transp
 | IBM (Fez, Kingston, Marrakesh) | 10 (48 chunks each) + 2 health checks | 32,640 + 2 | 326,400 + 200 | **~2 min** (12 s billed per 48-chunk job) | ~1 h to ~1 day |
 | IQM EQE1 | 480 (1 chunk each) + 2 | 32,640 + 2 | 326,400 + 200 | **~8 h** (0.9 s per circuit) | ~9 h |
 | IQM Resonance (Emerald) | 480 (1 chunk each) + 2 | 32,640 + 2 | 326,400 + 200 | **~7 min** (~0.85 s billed per job) | ~1 h |
-| IQM VLQ | 40 (12 chunks each; 48-chunk jobs failed at IT4I) + 2 | 32,640 + 2 | 326,400 + 200 | ~3½ min estimated (execution ≈ 3 ms per circuit + 0.3 ms per shot) | submission ~4.2 h (~2.7 h uploading + ~1.5 h transpiling), plus queue |
+| IQM VLQ | 40 (12 chunks each; 48-chunk jobs failed at IT4I) + 2 | 32,640 + 2 | 326,400 + 200 | ~3½ min estimated (execution ≈ 3 ms per circuit + 0.3 ms per shot) | submission ~1.5 h (transpiling; uploading takes seconds per job), plus queue |
 | AQT PIAST-Q | 480 chunks, one after another + 481 health checks (1 PRE + 1 after each chunk) | 32,640 + 481 | 326,400 + 48,100 | **~28 h** (3 s per circuit ≈ 27 h, health checks ~1 h at ~9 s each) | weeks: the first 206 chunks took ~17½ days (~2 h per chunk, 96 % of it queue) |
 
 For the AQT full run, keep the session alive for the duration: start the loop script inside `tmux` or

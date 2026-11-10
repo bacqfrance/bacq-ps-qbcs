@@ -18,8 +18,7 @@ Separate virtual environment: **aqt.venv** (created at `venvs/aqt.venv` in the p
 **`qiskit-aqt-provider`'s own package metadata pins `qiskit>=1,<2`** — a hard
 upper bound below Qiskit 2.0. That's why `aqt.venv` runs **`qiskit==1.4.6`**,
 a full major version behind every other environment in this project
-(base `local_sim.venv`, `ibm.venv`, `iqm_eqe1.venv` and `iqm_resonance.venv` are on `qiskit 2.5.x`;
-`iqm_vlq.venv` is on `qiskit 2.1.2`, pinned by IT4I's qaas client).
+(base `local_sim.venv`, `ibm.venv`, `iqm_eqe1.venv`, `iqm_resonance.venv` and `iqm_vlq.venv` are on `qiskit 2.5.x`).
 This is the one place in the whole project where code written against a
 current Qiskit API could silently break — double check anything
 qiskit-version-sensitive before relying on it here.

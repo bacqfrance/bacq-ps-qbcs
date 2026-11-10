@@ -16,12 +16,22 @@ sys.stderr.reconfigure(encoding="utf-8")
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))   # the project root, for the source.* imports
 os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))   # datafiles/ paths are relative to the project root
 
+import pytest
+
+from source.core.records import run_names as RN
 from source.core.records.run_names import today_utc
 from source.core.runner_support import submit_with_retries as SWR
 
 UNDATED = "full_real-data_iqm-eqe1_lnn-True_service-mqss-lrz_spam-True_layout-optimized"   # the settings of a run, without its date
 TODAY   = today_utc()   # the date the loop gives a new run's folder (a fixed date made two tests fail once UTC passed it)
 FOLDER  = f"{UNDATED}_{TODAY}_#1"
+
+
+@pytest.fixture(autouse=True)
+def _pin_the_date(monkeypatch):
+    """The loop dates a new run's folder with today_utc() when it runs, TODAY is read at import: a session that crosses
+    00:00 UTC in between would make them differ. Pin the loop's date to TODAY."""
+    monkeypatch.setattr(RN, "today_utc", lambda: TODAY)
 
 
 class Clock:

@@ -445,8 +445,7 @@ def _check_executed_health_check(run_path, record, service_name, job=None, backe
             payload = iqm_raw_job(backend, record["job_id"], "/payload")
             return CC.check_iqm(submitted, payload, backend.index_to_qubit_name, record["nshots"])
         if service_name == QAAS_IT4I:
-            return CC.check_vlq(submitted, VLQ.transpiled_circuits(job, record["job_id"]),
-                                "VLQ job.get_transpiled_circuits() vs submitted ISA circuit")
+            return CC.not_available(VLQ.NO_EXECUTED_CIRCUITS)
     except Exception as e:
         return CC.check_failed(f"{service_name} health check", e)
     return CC.not_available("simulated backend: there is no server copy of the circuit")

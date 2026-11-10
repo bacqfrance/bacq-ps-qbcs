@@ -15,25 +15,21 @@ Separate virtual environment: **iqm_vlq.venv** (created at `venvs/iqm_vlq.venv` 
 
 | Package | Version (this project's `iqm_vlq.venv`) | Provides |
 |---|---|---|
-| `qaas` | 0.5.4 | IT4I's QaaS client: LEXIS authentication and submission to VLQ (`source/core/qpu/iqm_vlq.py`) |
+| `qaas` | 1.0.0 | IT4I's QaaS client (package `qheappe_client`): submission to VLQ through HEAppE (`source/core/qpu/iqm_vlq.py`) |
+| `iqm-client` | 36.0.0 | IQM's client: the offline target and the IQM job timeline |
 | `py4lexis` | 7.1.1 | LEXIS login (MyAccessID) used by `lexis_backend()`; its refresh token is saved to `tokens/iqm_vlq_token` |
 | `qiskit-qasm3-import` | 0.6.0 | OpenQASM 3 import, not imported by this project's code; listed so a rebuild gets the same version |
 | `dill` | 0.4.1 | object serialisation, not imported by this project's code; listed so a rebuild gets the same version |
 
-`qaas` pins `qiskit<2.2` (the venv runs `qiskit==2.1.2`) and its own `iqm-client`, so it
-cannot share a venv with IQM Resonance (`iqm-client` 36, Qiskit 2.5) or AQT (Qiskit 1.4).
-**Do not `pip install qiskit-iqm`** — it conflicts with `qaas`.
+The venv runs `qiskit==2.5.2` and `qiskit-aer==0.17.2`, the same as `local_sim.venv` and the IQM Resonance venv (`iqm-client` 36); AQT needs its own (Qiskit 1.4).
+**Do not install `qaas`'s `[iqm_qiskit]` extra** (it declares `qiskit<2.2`) **or `qiskit-iqm`** — both conflict with the pins.
 `requirements_iqm_vlq.txt` is the source of truth; see "Creating the environment" below.
 
 **No myQLM in this venv.** The circuits are built in `local_sim.venv` — run
 `source/benchmark_scripts/local_simulation_scripts/benchmark_noiseless_all_to_all.py` there first (main
 USER_MANUAL §4.3). An all_to_all build caches its circuits at QPY format version 13
-(`datafiles/circuits/all_to_all_Nt<depths>/chunks_qiskit_v13_qpy/`), which Qiskit 2.1 reads.
+(`datafiles/circuits/all_to_all_Nt<depths>/chunks_qiskit_v13_qpy/`), which this venv's Qiskit reads.
 A script that finds the cache incomplete stops with a message saying so.
-Qiskit 2.1 would warn on every load that the file was written by a newer Qiskit (2.5.x).
-It checks the writer's Qiskit version recorded in the header, not the QPY format version.
-Since the files are meant to be read this way, `source/core/qbcs.py` silences that one
-warning. A file that really can't be read still fails on load.
 
 **Build it in one pass**: fresh venv, then a single pinned
 `pip install -r requirements_iqm_vlq.txt` (with IT4I's package index) covering the base packages and
@@ -48,11 +44,13 @@ to use them instead.
 
 ```python
 from source.core.qpu import iqm_vlq as VLQ
-real_backend = VLQ.lexis_backend()        # qaas QBackendIQM
+real_backend = VLQ.lexis_backend()        # qaas QBackendIQM (named VLQ): transpile, submit, and retrieve, status, cancel, collect
 ```
 
-`lexis_backend()` logs in to LEXIS with the refresh token saved in `<project root>/tokens/iqm_vlq_token`
-(the `tokens/` folder is git-ignored). Only when there is no saved token, or LEXIS rejects it, does it print
+It logs in to LEXIS with the refresh token saved in `<project root>/tokens/iqm_vlq_token`
+(the `tokens/` folder is git-ignored) and calls `get_backend()`, which takes a few seconds. Every script uses the
+backend: the submit and health-check scripts to transpile and submit, the status, cancel and collect scripts (and the status gate of the retrying submit script)
+through its `QClient` (job state from HEAppE, timing from the IQM timeline of the task result). Only when there is no saved token, or LEXIS rejects it, does it print
 **"LEXIS login needed"** and open the MyAccessID login page in the browser — that is when your
 approval is needed. The saved token then keeps working for some time (it is renewed on every use),
 so later runs log in without the browser until LEXIS asks again.
@@ -64,12 +62,12 @@ token logins it is empty. It never contains the tokens.
 ### Connection log
 
 Every call to IT4I / HEAppE (public status, LEXIS login, `get_backend`, job submission, job status,
-result and executed-circuit downloads, calibration downloads) is logged with its UTC time and duration —
+result downloads, calibration downloads) is logged with its UTC time and duration —
 `START`, then `OK`, `FAIL` (with the error) or `TIMEOUT` — in the terminal and in
-`datafiles/<run>/iqm_vlq_connection.log` (the project root when the script has no run folder, as the status script without one). The qaas client sets no time limits, and a HEAppE request can go
+`datafiles/<run>/iqm_vlq_connection.log` (the project root when the script has no run folder, as the status script without one). The qaas client sets a 60 s limit per request but none on a whole call, and a HEAppE request can go
 unanswered (seen for `JobManagement/CurrentInfoForJob` while the public status page showed VLQ up),
 so each call has a limit (`TIMEOUTS` in `source/core/qpu/iqm_vlq.py`, e.g. 300 s for
-`get_backend`, which itself submits and polls a short HEAppE `backend_init` job); after it the script stops
+`get_backend`); after it the script stops
 with "IT4I / HEAppE not responding", and the log shows where the call was waiting. During a collection, a
 job whose status query times out is left pending and collected next time. A job upload that times out may
 still complete on IT4I's side: check the job status before submitting again.
@@ -83,7 +81,7 @@ still complete on IT4I's side: check the job status before submitting again.
 | `LNN` | taken from the backend's `"lnn"` entry in `backends.json`: `false` — the star is all-to-all through the resonator |
 | `DO_SPAM` | also run SPAM calibration |
 | `CHUNKS_TO_SUBMIT` | submit only the first N chunks |
-| `CHUNKS_PER_JOB` | whole chunks (each with its 8 SPAM circuits) per VLQ job. Mini: all 8 chunks in one job (8 × 20 = 160 circuits). Full: 12 (12 × 68 = 816 circuits, ~4 min to upload). Larger jobs (e.g. 48 chunks, 3,264 circuits) fail when IT4I forwards them to IQM, and each would keep one upload open for ~16–18 min, where any network drop loses the whole job; with 12 chunks a failure costs one short job, and rerunning the submit script resubmits only the chunks without records |
+| `CHUNKS_PER_JOB` | whole chunks (each with its 8 SPAM circuits) per VLQ job. Mini: all 8 chunks in one job (8 × 20 = 160 circuits). Full: 12 (12 × 68 = 816 circuits). Jobs of 48 chunks (3,264 circuits) failed when IT4I forwarded them to IQM; with 12 chunks a failure costs one short job, and rerunning the submit script resubmits only the chunks without records |
 
 ### Benchmark size and run folders (command-line arguments)
 
@@ -120,9 +118,7 @@ qbcs_real_submit_iqm_vlq.py            qbcs_real_collect_iqm_vlq.py
   An aborted run stays on record — `run_info.json` is written before the PRE check
   (`qbcs.resolve_physical_qubits(run_folder=…)`) — so `source/analysis_scripts/run_post_process.py` reports it as
   a degraded QPU with the benchmark not run, and plots its health checks only.
-  Uploading is the slow part: qaas sends every circuit as its own HTTP request, ~0.3 s each
-  (1,000 circuits ≈ 5 min). Parallel uploads do not help — IT4I's server rejects them
-  ("Failed to upload quantum job backend!!!"). An upload that could not reach IT4I is retried, 3 more
+  A job is one HEAppE job whose circuits are uploaded as separate OpenQASM 3 files, 10 at a time, so its upload takes seconds; transpiling the chunks is the slow part. An upload that could not reach IT4I is retried, 3 more
   tries 30 / 60 / 120 s apart; one that still fails, or fails any other way, leaves `failed` records
   marked `"submission failed"` and stops the script. An upload that timed out (`VLQTimeout`) or lost its
   connection is not retried and is marked `may_exist_on_provider: true`: the job may still have been
@@ -135,7 +131,7 @@ qbcs_real_submit_iqm_vlq.py            qbcs_real_collect_iqm_vlq.py
   order, without waiting for the others (run it again later for those; failed jobs are marked
   failed, with the timing IQM still reports; rerunning the submit script resubmits them and first
   copies their records to `job_records/failed_attempts/`, counted under `failed_attempts` in the
-  summary — main USER_MANUAL §7): saves the counts, checks the executed circuits (§5), merges and calls
+  summary — main USER_MANUAL §7): saves the counts, checks the circuits (§5), merges and calls
   `analyze_results()` — an incomplete run as `+nsamples-<collected>` files listing what is missing. It
   collects every finished, uncollected health check of the run (warn-only if none exist).
 - **`qbcs_real_submit_iqm_vlq_with_retries.py`** — the same submission, kept going unattended (the full benchmark takes hours). It runs `qbcs_real_submit_iqm_vlq.py` with the same arguments. Before each launch it waits until the latest job submitted to the run (a chunk or a health check) has finished on HEAppE, checking every 10 min: `DONE`, `ERROR` and `CANCELLED` are final, any other status (such as `QUEUED` or `RUNNING`) or a status query that fails waits. After a failed launch that submitted at least one chunk it retries at once; after one that submitted none (for example a provider upload error at connect) it waits 10 min first. Either way the status gate above applies before the next launch. When every chunk is submitted and only the health check after them could not be submitted, it launches `qbcs_real_submit_iqm_vlq.py` with `--retry-health-check` (resubmits only that health check for the run's latest folder; a plain launch would start a new run), at most 3 times, each once the latest job is final and 10 min after the previous try, and then ends with that exit code. It logs in like the submit script: with the saved LEXIS token, else through the browser page (§2), so start it from a session where you can approve that login. Exit codes: `0` every chunk submitted, `2` unusable arguments, `10` a health check found the QPU degraded (the run is aborted, not retried), `11` / `12` a health check was not collected / not submitted (retried as above), `14` 48 h without progress (a launch that submits a chunk starts the 48 h again), `130` Ctrl-C. Start it, resume it and keep its session open as for the EQE1 one (`readme_iqm_eqe1.md` §4).
@@ -214,19 +210,19 @@ qubits, under the same noise model, so it shows what the health circuit scores
 with this calibration; a "degraded" score is reported but doesn't stop the
 run. It keeps the submit script's records too: a job record per chunk in `job_records/` (`service_name: "local"`) and a `submit.log` entry with the snapshot's calibration summary, the run qubits and both health-check verdicts.
 
-The submit and simulate scripts also take the optional `extra_health_checks=per-chunk|per-job|false`, which packs the 3-qubit health-check circuit into the submitted jobs themselves, so it runs with the chunks (`per-chunk`: before and after every chunk; `per-job`: before and after each job; not stated: the run's recorded value, `false` for a new run; a different value for an existing run folder exits with code 2). Collection writes `health_checks/extra_chunk_<nc>_{pre,post}.json` or `health_checks/extra_job_<first chunk>_{pre,post}.json`, which `plot_health_checks.py` plots beside the standalone checks (main USER_MANUAL §7); each record's `circuit_check` compares its slot with `job.get_transpiled_circuits()`.
+The submit and simulate scripts also take the optional `extra_health_checks=per-chunk|per-job|false`, which packs the 3-qubit health-check circuit into the submitted jobs themselves, so it runs with the chunks (`per-chunk`: before and after every chunk; `per-job`: before and after each job; not stated: the run's recorded value, `false` for a new run; a different value for an existing run folder exits with code 2). Collection writes `health_checks/extra_chunk_<nc>_{pre,post}.json` or `health_checks/extra_job_<first chunk>_{pre,post}.json`, which `plot_health_checks.py` plots beside the standalone checks (main USER_MANUAL §7); each record's `circuit_check` is described in §5.
 
 ## 5. Timing, billing and circuit check
 
 Every chunk and health-check record gets a `timing` block and a `circuit_check` (see `source/core/records/job_timing.py`, `TIMING_NOTES["QAAS_IT4I"]`):
 
 - **QPU time** (`qpu_s`): IQM Resonance-equivalent billed time, `ceil(compilation + execution)` of the job, from IQM's server timeline — the benchmark's QPU time, comparable with the other QPUs. A failed job that reached IT4I (it has a `job_id`) counts in full in the summary's QPU time and cost (all its chunks' circuits × `nshots`, priced as tasks like the complete jobs); a submission failure without a `job_id`, and a job never collected, are not counted and are named in the cost text (main USER_MANUAL §7).
-- **QPU execution** (`qpu_exec_s`): QPU execution only, qaas' `remote_hw_runtime` (IQM `execution_started` → `execution_ended`); summed into the summary's `QPU_execution_time_s`.
+- **QPU execution** (`qpu_exec_s`): QPU execution only: the execution interval of IQM's timeline (`execution_started` → `execution_ended`; runs made with qaas 0.5 recorded its `remote_hw_runtime`); summed into the summary's `QPU_execution_time_s`.
 - **Queue time** (`queue_s`): end of our upload → IQM `compilation_started`: the wait in IT4I's HEAppE job system (`it4i_wait_s`, upload end → IQM `created`) plus IQM's queue (`iqm_queue_s`).
-- **Consumed resources** (`consumpted_resources`, sic, qaas's field name): the LEXIS project's cumulative consumption counter after the job; in every job we checked it grew by exactly `remote_hw_runtime`.
-- **Timelines** (`timeline`, `qaas_events`): IQM's server timeline and qaas' client/remote events, UTC.
-- **Circuit check**: qaas returns its copy of the job's circuits (`job.get_transpiled_circuits()`, with the physical qubits);
-  the collect script compares them gate by gate with the submitted ones (`circuit_check` in each record).
+- **Timeline** (`timeline`): IQM's server timeline, UTC.
+- **Circuit check**: qaas 1.0 returns neither the job's circuits nor its payload (HEAppE keeps none), so `circuit_check` is
+  `not_available` ("IQM VLQ (qaas 1.0) does not return the executed circuits") and the analysis falls back to the weaker check that all
+  transpiled circuits sit on the run's physical qubits. Runs made with qaas 0.5 keep the gate-by-gate `match` check they recorded.
 
 IT4I documents a charge of at least 0.9 s per job; the counter we observed charges the execution
 time only (≈ 0.2 s per job + 0.3 ms per shot + 3 ms per circuit). The summary's cost is a
@@ -275,13 +271,17 @@ through the `QPU_*` environment variables; each also works standalone (main USER
 
 ## 7. Known issues
 
-- **Upload time.** A 12-chunk job takes ~4 min to upload, so the full run's 40 jobs take ~2.7 h
-  (plus ~1.5 h to transpile the chunks the first time). Rerunning the submit script resubmits the chunks of
-  an upload marked `"submission failed"`; an upload marked `may_exist_on_provider: true` (timed out or
-  lost its connection) may have created a job, so check it first (section 4).
+- **Cancelling.** `cancel_job` sends HEAppE's CancelJob request itself (qaas's `QJob.cancel()` does not). A job whose
+  cancellation HEAppE accepted reads state ERROR (Failed) afterwards, not CANCELLED. Right after submission (HEAppE state
+  "Submitted") IT4I's QScheduler can answer with HTTP 502 ("Cannot parse `<n>:task:<m>` to a `u64`"): the script then
+  reports that HEAppE did not accept the cancellation, and the job keeps running; cancel it again a little later. A job
+  may also have finished already (the mini benchmark's job finishes within seconds). qaas logs a refused request at ERROR
+  ("Failed to cancel job …"), so such a line in the terminal output is expected.
+- **Upload failures.** Rerunning the submit script resubmits the chunks of an upload marked `"submission failed"`; an
+  upload marked `may_exist_on_provider: true` (timed out or lost its connection) may have created a job, so check it
+  first (section 4).
 - **Walltime.** IT4I accepts at most 7,200 s of HEAppE walltime per job (`iqm_vlq.WALLTIME_LIMIT_S`).
 - **Job ids** are HEAppE job ids (integers); IQM's own job id is in each record's `timing.iqm_job_id`.
-- **Errors at exit.** The HEAppE client (`py4heappe`) raises harmless errors in its destructor when Python exits (`AttributeError` on the already torn-down logger and `pickle`, and on Windows `OSError: [WinError 6] The handle is invalid` from its worker pool). The work is done and saved by then, so the scripts hide exactly these errors (`iqm_vlq._silence_heappe_shutdown_errors()`); any other error still prints.
 
 ## Creating the environment
 

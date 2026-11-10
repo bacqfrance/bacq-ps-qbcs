@@ -14,7 +14,7 @@ Separate virtual environment: **ibm.venv** (created at `venvs/ibm.venv` in the p
 
 `qiskit-aer==0.17.2` is also in this venv (same version as base) — used by
 the main USER_MANUAL's §4.2 NoiseModel example, *not* by hardware submission
-itself. Unlike IQM VLQ and AQT, `qiskit-ibm-runtime` does not force a Qiskit
+itself. Unlike AQT, `qiskit-ibm-runtime` does not force a Qiskit
 downgrade — `ibm.venv` runs `qiskit==2.5.2`, same as base.
 
 **No myQLM in this venv.** The circuits are built in `local_sim.venv` — run

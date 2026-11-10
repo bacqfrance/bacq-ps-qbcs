@@ -8,8 +8,7 @@ arguments) to retrieve the results.
 Chunks go out in jobs of up to 12 chunks (each chunk with its SPAM circuits; 816 circuits per
 job in the full run, so its 480 chunks are 40 jobs; the mini run's 8 chunks are one job). Jobs
 of 48 chunks (3,264 circuits) were uploaded but then failed when IT4I forwarded them to IQM.
-qaas uploads every circuit as its own HTTP request (~0.3 s each): the full submission takes
-about 2.7 h, plus transpilation. Login: the LEXIS refresh token saved in <project root>/tokens/iqm_vlq_token
+A job's circuits are uploaded as separate OpenQASM 3 files, 10 at a time, in seconds; transpilation takes most of the submission time. Login: the LEXIS refresh token saved in <project root>/tokens/iqm_vlq_token
 is reused; a browser login is asked for only when there is none or it was rejected.
 
 Benchmark size (required — there is no default), from the command line (source/core/runner_support/benchmark_args.py; readme: "Benchmark size and run folders"):
@@ -47,7 +46,7 @@ DO_SPAM          = True
 UNDATED          = qpu_run_name("IQM_VLQ", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag)
 RUN_FOLDER       = health_check_retry_folder(UNDATED) if RETRY_HC else dated_run_folder(UNDATED, new_run=FORCE_NEW_RUN)
 CHUNKS_TO_SUBMIT = SAMPLE_SIZE   # the whole run; lower it to submit only the first N chunks
-CHUNKS_PER_JOB   = min(VLQ_CHUNKS_PER_JOB, SAMPLE_SIZE)   # full: 816 circuits, ~4 min upload each (48-chunk jobs failed at IT4I → IQM; see readme §3)
+CHUNKS_PER_JOB   = min(VLQ_CHUNKS_PER_JOB, SAMPLE_SIZE)   # full: 816 circuits (48-chunk jobs failed at IT4I → IQM; see readme §3)
 
 # ── Connect to VLQ ────────────────────────────────────────────────────────────
 print(f"\n[{BACKEND_NAME} — connection]")
@@ -61,7 +60,7 @@ print(f"  Qubits:          {real_backend.num_qubits} + resonator {VLQ.resonator_
 print(f"  Calibration set: {cal['calibration_set_id']}")
 
 # ── Config print, health checks, build, submit and log: shared by every async submit script ──
-# (build() loads the cached all_to_all circuits, QPY version 13 — iqm_vlq.venv's Qiskit 2.1 reads it)
+# (build() loads the cached all_to_all circuits, QPY version 13 for aqt.venv's older Qiskit; iqm_vlq.venv's Qiskit 2.5 reads it)
 submit_async_run(
     run_folder = RUN_FOLDER, backend_name = BACKEND_NAME, service_name = SERVICE_NAME,
     real_backend = real_backend, collect_service = real_backend,   # qaas backend — used for retrieve_job()

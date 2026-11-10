@@ -128,7 +128,7 @@ benchmark records. The code of steps 4–8 is built on these findings.
    IQM; AQT: at most 200 shots per circuit, at most 50 circuits per job, a limit of the `qiskit-aqt-provider` client library, which rejects larger jobs before sending) and which were given
    by the provider's staff (EQE1: 70 circuits per job).
 6. If the service is reached through a flaky layer (an HPC scheduler, a gateway), plan for calls
-   that never return: the SDK may set no network timeouts at all (qaas does not).
+   that never return: the SDK may set no overall time limit (qaas sets only 60 s per request).
 
 ### 3. Scripts
 
@@ -241,7 +241,7 @@ A run with gaps is then analyzed from the collected chunks (`+nsamples-<collecte
 
 After collecting, compare the provider's copy of the job's circuits, including the physical qubits, with the ones submitted
 (`source/core/records/circuit_check.py`): `check_ibm` (IBM `job.inputs["pubs"]`), `check_iqm` (IQM job
-payload), `check_vlq` (qaas transpiled circuits). If the provider cannot return them, record
+payload), `check_vlq` (qaas 0.5 transpiled circuits, for old VLQ records; qaas 1.0 returns none). If the provider cannot return them, record
 `CC.not_available("<why>")`; the analysis then falls back to checking that all circuits used the same physical
 qubits. The check never raises: wrap it and return `CC.check_failed(method, error)`. With `extra_health_checks` the two health-check slots of a job are compared one by one
 (`_check_extra_hc()` in `qbcs.py` returns a check per slot, `pre` and `post`); a provider without executed circuits

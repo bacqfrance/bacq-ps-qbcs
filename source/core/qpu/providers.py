@@ -32,9 +32,8 @@ def job_state_of_status(status):
     CANCELLED observed live (a job runs PENDING, then WAITING, then COMPLETED; a PENDING job cancelled with cancel_job()
     then reads CANCELLED; the Qiskit adapter reads PENDING as INITIALIZING and WAITING as QUEUED), FAILED from the client's
     enum only (not observed). VLQ (qiskit JobStatus via
-    HEAppE): DONE, RUNNING, ERROR observed live (a HEAppE "Failed" job reads ERROR). A job cancelled with cancel() reads
-    ERROR when queried through a fresh backend object: qaas reports CANCELLED only through the object that issued the cancel
-    (qaas/client/backend.py). QUEUED, INITIALIZING and VALIDATING not observed."""
+    HEAppE; iqm_vlq.job_status() maps HEAppE's job state): DONE, RUNNING, QUEUED, ERROR observed live (a HEAppE "Failed" job reads
+    ERROR, also a job whose cancellation HEAppE accepted: qaas 1.0.0, 2026-11-10). INITIALIZING and CANCELLED not observed."""
     s = str(status).upper()
     if "DONE" in s or "COMPLETED" in s:
         return "done"

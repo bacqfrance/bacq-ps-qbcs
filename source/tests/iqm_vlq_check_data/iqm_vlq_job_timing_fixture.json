@@ -1,86 +1,137 @@
 {
- "source": "datafiles/bacq_real_iqm_vlq_lnnFalse_spamTrue_mini/job_records/job_record_chunk_0.json \u2014 the VLQ mini benchmark's job (HEAppE 79735, 8 chunks, 160 circuits, 600 shots), collected 2026-09-29",
- "job": {
+ "_comment": "A real VLQ job through qaas 1.0.0 (tiny Bell circuit, 100 shots, 2026-11-09): HEAppE's CurrentInfoForJob and the task result (IQM server timeline) as qaas' QClient returned them.",
+ "job_info": {
+  "Id": 361,
+  "Name": "qiskit_qasm_job",
+  "State": 16,
+  "StateSource": 1,
+  "StateUpdatedAt": "2026-11-09T23:03:54.6658375",
+  "CreationTime": "2026-11-09T23:03:52.5477679",
+  "SubmitTime": "2026-11-09T23:03:52.6112171",
+  "StartTime": "2026-11-09T23:03:52.840726",
+  "EndTime": "2026-11-09T23:03:54.035726",
+  "TotalAllocatedTime": 0,
+  "SubProject": null,
+  "Tasks": [
+   {
+    "Id": 361,
+    "Name": "qheappe_task_0",
+    "State": 16,
+    "StateSource": 1,
+    "StateUpdatedAt": "2026-11-09T23:03:54.6658348",
+    "Priority": 4,
+    "AllocatedTime": null,
+    "AllocatedCoreIds": [],
+    "StartTime": "2026-11-09T23:03:52.840726",
+    "EndTime": "2026-11-09T23:03:54.035726",
+    "NodeType": {
+     "Id": 1,
+     "Name": "VLQ",
+     "Description": "QScheduler machine VLQ",
+     "Project": {
+      "Id": 1,
+      "Name": "VLQ-EU",
+      "Description": "EuroJU allocation",
+      "AccountingString": "VLQ-EU",
+      "CommandTemplate": null
+     }
+    },
+    "ErrorMessage": null,
+    "CpuHyperThreading": null,
+    "Reason": null,
+    "QualityOfService": null
+   }
+  ]
+ },
+ "task_result": {
+  "id": "01a1c28d-c218-7630-9055-32b69cec13f9",
+  "type": "circuit",
+  "qc": {
+   "id": "01966208-f3ec-73b7-890d-100000000000"
+  },
+  "status": "completed",
+  "compilation": {
+   "execution_runtime_estimate_ms": 1630,
+   "calibration_set_id": "29dd622d-d9f1-47dc-a14a-8d8492bcbc44"
+  },
+  "execution": {
+   "progress": {}
+  },
+  "runtime_ms": 1247,
   "timeline": [
    {
     "source": "iqm-server",
     "status": "created",
-    "timestamp": "2026-09-28T22:21:06.462231Z"
+    "timestamp": "2026-11-09T23:03:52.611889Z"
    },
    {
     "source": "iqm-station-control",
     "status": "received",
-    "timestamp": "2026-09-28T22:21:06.571867Z"
+    "timestamp": "2026-11-09T23:03:52.653927Z"
    },
    {
     "source": "iqm-station-control",
     "status": "validation_started",
-    "timestamp": "2026-09-28T22:21:06.603184Z"
+    "timestamp": "2026-11-09T23:03:52.678128Z"
    },
    {
     "source": "iqm-station-control",
     "status": "validation_ended",
-    "timestamp": "2026-09-28T22:21:06.687562Z"
+    "timestamp": "2026-11-09T23:03:52.680817Z"
    },
    {
     "source": "iqm-station-control",
     "status": "compilation_started",
-    "timestamp": "2026-09-28T22:21:06.705264Z"
+    "timestamp": "2026-11-09T23:03:52.696413Z"
    },
    {
     "source": "iqm-station-control",
     "status": "compilation_ended",
-    "timestamp": "2026-09-28T22:21:07.391774Z"
+    "timestamp": "2026-11-09T23:03:52.748474Z"
    },
    {
     "source": "iqm-station-control",
     "status": "execution_started",
-    "timestamp": "2026-09-28T22:21:07.703496Z"
+    "timestamp": "2026-11-09T23:03:52.839825Z"
    },
    {
     "source": "iqm-station-control",
     "status": "execution_ended",
-    "timestamp": "2026-09-28T22:21:38.845409Z"
+    "timestamp": "2026-11-09T23:03:54.035726Z"
    },
    {
     "source": "iqm-station-control",
     "status": "post_processing_started",
-    "timestamp": "2026-09-28T22:21:38.848180Z"
+    "timestamp": "2026-11-09T23:03:54.037304Z"
    },
    {
     "source": "iqm-station-control",
     "status": "post_processing_ended",
-    "timestamp": "2026-09-28T22:21:38.929195Z"
+    "timestamp": "2026-11-09T23:03:54.046091Z"
    },
    {
     "source": "iqm-station-control",
     "status": "ready",
-    "timestamp": "2026-09-28T22:21:38.932355Z"
+    "timestamp": "2026-11-09T23:03:54.049537Z"
    },
    {
     "source": "iqm-server",
     "status": "completed",
-    "timestamp": "2026-09-28T22:21:38.957565Z"
+    "timestamp": "2026-11-09T23:03:54.100024Z"
    }
   ],
-  "remote_hw_runtime": 31.141913,
-  "consumpted_resources": 4456.828939999997,
-  "allocation_amount": 12614400,
-  "iqm_job_id": "01a0ea1b-81e3-7b03-abeb-5a6332183b50"
+  "artifacts": [
+   {
+    "type": "runtime_estimates"
+   },
+   {
+    "type": "measurements"
+   },
+   {
+    "type": "measurement_counts"
+   }
+  ],
+  "messages": []
  },
- "upload_end_at": "2026-09-28T22:21:03.136204Z",
- "expected": {
-  "qpu_s": 32.0,
-  "qpu_s_source": "iqm_equivalent_billed",
-  "qpu_exec_s": 31.141913,
-  "qpu_exec_s_source": "remote_hw_runtime",
-  "compilation_seconds": 0.68651,
-  "execution_seconds": 31.141913,
-  "queue_s": 3.56906,
-  "it4i_wait_s": 3.326027,
-  "iqm_queue_s": 0.243033,
-  "created_at": "2026-09-28T22:21:06.462231Z",
-  "execution_start": "2026-09-28T22:21:07.703496Z",
-  "execution_end": "2026-09-28T22:21:38.845409Z"
- }
+ "upload_end_at": "2026-11-09T23:03:52.1Z"
 }

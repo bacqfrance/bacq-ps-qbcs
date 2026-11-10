@@ -16,8 +16,10 @@ health-check circuits packed into the submitted jobs):
     every circuit comes back from the position it was packed at (each position of the stand-in job has its own counts);
   - bacq_ps_qbcs._check_extra_hc: one comparison per slot (pre, post), so an altered post marks only the post record;
     match, mismatch, and check_failed (no raise) for a missing QPY file or a comparison that raises;
-  - the circuit_check of the extra records: compared per slot on IQM Resonance and VLQ (a mismatch is printed at collection),
-    not_available on IBM without a service (simulated), EQE1 and the local simulator (AQT: aqt_venv_test_12_shot_split.py);
+  - the circuit_check of the extra records: compared per slot on IQM Resonance (a mismatch is printed at collection),
+    not_available on VLQ (qaas 1.0 returns no executed circuits), IBM without a service (simulated), EQE1 and the local
+    simulator (AQT: aqt_venv_test_12_shot_split.py); circuit_check.check_vlq() is still tested directly, with a
+    get_transpiled_circuits() stand-in;
   - circuit_check.summarize_circuit_checks: an extra record's mismatch shows in the "health_checks" summary and the banner
     text under "extra chunk N post", a not_available one is checked for its recorded qubits once, and an extra record
     without circuit_check (an older run) is left out;
@@ -161,7 +163,6 @@ def _patch_vlq(monkeypatch, obj):
     monkeypatch.setattr(Q.VLQ, "wait_for_result", lambda job, job_id="", timeout_s=None: job.result())
     monkeypatch.setattr(Q.VLQ, "vlq_collect_timing",
                         lambda job, upload_end_at: {"execution_start": T_START, "execution_end": T_END, "completed_at": T_END})
-    monkeypatch.setattr(Q.VLQ, "transpiled_circuits", lambda job, job_id="": job.get_transpiled_circuits())
     obj._check_executed_iqm_vlq = lambda job, record, run_path, nc: CC.not_available("stand-in")
 
 
@@ -323,24 +324,18 @@ def test_iqm_resonance_collection_saves_the_health_checks_with_their_circuit_che
     assert _read(tmp_path, "health_checks", "extra_job_3_pre.json")["scheduled_at"] == T_START
 
 
-def test_vlq_collection_saves_the_health_checks_with_their_circuit_check(tmp_path, monkeypatch, capsys):
+def test_vlq_collection_saves_the_health_checks_with_circuit_check_not_available(tmp_path, monkeypatch, capsys):
+    # qaas 1.0 returns no executed circuits: both slots of every chunk carry the chunk's not_available check
     chunk_nums = [3, 4]
     obj, circuits, _ = _make_run(tmp_path, "per-chunk", chunk_nums, QAAS_IT4I)
-    executed = [_hc_circuit() if c == HC else _hc_circuit(extra_x=True) for c in circuits]
-    _, post4 = _hc_positions(circuits, "per-chunk", 4)
-    executed[post4] = _hc_circuit(extra_x=True)                   # chunk 4's closing health check ran another circuit
     _patch_vlq(monkeypatch, obj)
-    backend = _Backend(_job_counts(circuits), transpiled=executed)
+    backend = _Backend(_job_counts(circuits))
     for nc in chunk_nums:
         obj.get_results_by_chunk_iqm_resonance(tmp_path, nc, backend, lang="qiskit")
-    out = capsys.readouterr().out
     _assert_collected(tmp_path, circuits, "per-chunk", chunk_nums)
     status = {p.name: _read(tmp_path, "health_checks", p.name)["circuit_check"]["status"]
               for p in (tmp_path / "health_checks").glob("extra_*.json")}
-    assert status == {"extra_chunk_3_pre.json": CC.MATCH, "extra_chunk_3_post.json": CC.MATCH,
-                      "extra_chunk_4_pre.json": CC.MATCH, "extra_chunk_4_post.json": CC.MISMATCH}   # each slot on its own
-    assert "[Extra health check (chunk 4, post)] THE PROVIDER'S CIRCUITS DIFFER" in out   # the mismatch is printed at collection
-    assert "[Extra health check (chunk 4, pre)] The provider's circuits match" in out
+    assert status == {f"extra_chunk_{nc}_{slot}.json": CC.NOT_AVAILABLE for nc in chunk_nums for slot in ("pre", "post")}
     assert backend.retrieved == ["job-A"]
 
 

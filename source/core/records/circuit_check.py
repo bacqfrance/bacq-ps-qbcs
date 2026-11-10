@@ -6,9 +6,9 @@ summarise those checks for the analysis. No myQLM; qiskit is imported inside fun
 At collect time (source/core/qbcs.py, and source/core/health_check.py for health checks; the same per slot for the extra health checks):
     IBM            the server's copy of the job's circuits, job.inputs["pubs"]
     IQM Resonance  the server's copy of the job's circuits, raw GET jobs/{id}/payload
-    IQM VLQ        its copy of the job's circuits, qaas job.get_transpiled_circuits()
-    All three copies carry the physical qubits, so gates and qubits are compared.
-    IQM EQE1, AQT  not available — the services do not return the circuits
+    Both copies carry the physical qubits, so gates and qubits are compared.
+    IQM VLQ, IQM EQE1, AQT  not available — the services do not return the circuits
+                   (qaas 1.0 returns no executed circuits for VLQ)
 Each chunk / health check record gets
     circuit_check = {status, method, n_submitted, n_executed, n_differences, differences, checked_at}
 (match / mismatch); not_available has {status, method (None), reason, checked_at} and
@@ -224,7 +224,8 @@ def check_iqm(submitted_circuits, payload, qubit_name, shots, circuit_slice=None
 
 def check_vlq(submitted_circuits, executed_circuits, method):
     """submitted_circuits: the ISA circuits we sent; executed_circuits: the circuits VLQ's
-    server ran (qaas job.get_transpiled_circuits(), same order). Never raises."""
+    server ran (qaas 0.5 job.get_transpiled_circuits(), same order). Kept for when VLQ
+    returns executed circuits again; the pipeline does not call it now. Never raises."""
     try:
         return compare_canonical([canonical_qiskit(c) for c in submitted_circuits],
                                  [canonical_qiskit(c) for c in executed_circuits], method=method)

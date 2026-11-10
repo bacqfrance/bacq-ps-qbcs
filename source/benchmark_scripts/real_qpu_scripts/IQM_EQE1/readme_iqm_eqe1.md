@@ -13,7 +13,7 @@ Separate virtual environment: **iqm_eqe1.venv** (created at `venvs/iqm_eqe1.venv
 |---|---|---|
 | `mqss-qiskit` | 0.2.0 | `mqss.qiskit_adapter.MQSSQiskitAdapter` |
 
-Installing it pulls `mqss-client==0.2.1` as a dependency. Unlike IQM VLQ and AQT, this
+Installing it pulls `mqss-client==0.2.1` as a dependency. Unlike AQT, this
 does **not** force a Qiskit downgrade — `iqm_eqe1.venv` runs `qiskit==2.5.2`,
 the same as the base env. Every other package in
 this venv (`qiskit-aer`, `numpy`, `scipy`, …) is the same family as the

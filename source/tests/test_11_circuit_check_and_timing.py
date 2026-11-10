@@ -22,7 +22,7 @@ Unit tests (no simulator, no QPU, no network) for
   - old runs: the analysis refuses AQT records without a timing block; old IBM, IQM Resonance and
     IQM EQE1 records are read as legacy runs, and so is a record whose QPU time comes from its old fields;
   - QPU execution time (QPU_execution_time_s): its source per backend (IQM VLQ
-    remote_hw_runtime, IQM Resonance execution_seconds or the execution interval, IBM
+    the execution interval (qaas 0.5 runs: remote_hw_runtime), IQM Resonance execution_seconds or the execution interval, IBM
     circuits_execution_seconds, none for AQT), summed over the run's jobs by
     qpu_queue_breakdown and None ("N/A") when any job lacks it; qpu_workload's chunks per job;
   - IQM Resonance timing on a fake backend with only the iqm-client 36 attributes: the raw job through
