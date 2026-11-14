@@ -48,9 +48,12 @@ warnings.filterwarnings("ignore", category=UserWarning,
 IQM_MAX_CIRCUITS_PER_JOB = {IQM_RESONANCE: 100, MQSS_LRZ: 70}
 # IQM VLQ (IT4I, via qaas): jobs of 1,000 circuits run; jobs of 3,264 circuits (48 full-benchmark chunks)
 # upload, but then fail on IT4I's side when HEAppE forwards them to IQM ("The write operation timed out",
-# 2026-09-29; qaas 0.5). A job therefore holds
-# VLQ_CHUNKS_PER_JOB whole chunks (or submit(chunks_per_qpu_job_batch=...)): 12 full-benchmark chunks are 816 circuits.
-VLQ_CHUNKS_PER_JOB = 12
+# 2026-09-29; qaas 0.5). Since 2026-11-12 the gateway also rejects the upload of a job of 12 full-benchmark chunks
+# with per-chunk health checks (840 circuits) with HTTP 502 "Failed to buffer the request body: length limit exceeded";
+# 11 chunks (770 circuits) still went through. A job therefore holds
+# VLQ_CHUNKS_PER_JOB whole chunks (or submit(chunks_per_qpu_job_batch=...)): 10 full-benchmark chunks are 680 circuits
+# (700 with per-chunk health checks).
+VLQ_CHUNKS_PER_JOB = 10
 # IBM Batch jobs hold this many whole chunks: the full benchmark's 480 chunks go out as 10 jobs.
 IBM_CHUNKS_PER_JOB = 48
 

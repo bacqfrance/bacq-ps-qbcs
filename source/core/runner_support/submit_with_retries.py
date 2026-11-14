@@ -25,7 +25,7 @@ from source.core.records.run_names import dated_run_folder, dated_run_folders
 from source.core.runner_support.benchmark_args import RETRY_HEALTH_CHECK_WORD
 
 PAUSE_S           = 600     # between two status checks of the latest job
-RETRY_LIMIT_HOURS = 48      # give up after this long without progress
+RETRY_LIMIT_HOURS = 12      # give up after this long without progress
 EXIT_GAVE_UP      = 14      # the same code run_aqt_loop_with_retries.sbatch ends with after repeated failures
 EXIT_ARGUMENTS    = 2       # the submit script's code for unusable arguments: a rerun cannot help
 EXIT_DEGRADED     = EXIT_HC_DEGRADED   # a health check found the QPU degraded: the run is aborted, not retried
@@ -254,7 +254,7 @@ def _minutes(seconds):
 
 
 def _duration(hours):
-    """A budget in hours as '48 h' or, below an hour, '20 min'."""
+    """A budget in hours as '12 h' or, below an hour, '20 min'."""
     return f"{hours:g} h" if hours >= 1 else f"{round(hours * 60)} min"
 
 

@@ -1,7 +1,7 @@
 """
 test_27_submit_with_retries.py
 The loop of the qbcs_real_submit_<qpu>_with_retries.py scripts (source/core/runner_support/submit_with_retries.py):
-which job is the latest, when a launch is made, how the waits and the 48 h budget behave (and the EQE1 setting: no waits for jobs, the first retry at once, a 20 min budget; the VLQ setting: a retry at once only after a launch that submitted a chunk), the exit codes, and which
+which job is the latest, when a launch is made, how the waits and the 12 h budget behave (and the EQE1 setting: no waits for jobs, the first retry at once, a 20 min budget; the VLQ setting: a retry at once only after a launch that submitted a chunk), the exit codes, and which
 run folder a --force-new-run launch works in (also across midnight), and run_submission._seconds_since_last_submission (the age rule that lets the check before a submission be skipped). No provider, no sleeping: the status and the
 launch are fakes, the clock is a counter that sleep() advances. Works in a temporary folder, not in datafiles/.
 """
@@ -217,7 +217,7 @@ def test_gives_up_after_repeated_failed_launches_without_progress(tmp_path):
 
 def test_a_folder_that_never_appears_gives_up(tmp_path):
     # the launch fails before creating anything (e.g. the provider is unreachable at connect): no progress, so the
-    # 48 h budget must still end the loop with exit code 14 instead of retrying forever
+    # 12 h budget must still end the loop with exit code 14 instead of retrying forever
     clock, launch = Clock(), _launcher(1)
     assert _run(launch, _status_sequence("COMPLETED"), tmp_path, clock, limit_hours=1) == SWR.EXIT_GAVE_UP
     assert len(launch.calls) >= 2

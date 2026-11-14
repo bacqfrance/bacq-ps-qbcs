@@ -5,7 +5,7 @@ the Python counterpart of PCSS_Quantum_UI/run_aqt_loop_with_retries.sbatch (VLQ 
 qbcs_real_submit_iqm_vlq.py it waits until the latest job submitted to the run (chunk or health check) has finished
 on HEAppE, checking every 10 min. After a failed launch that submitted a chunk it retries at once (the status gate still applies); after one that
 submitted none it waits 10 min first. It gives up
-after 48 h without progress (exit code 14). Same arguments as qbcs_real_submit_iqm_vlq.py (backend=…, mini/full, layout=, …).
+after 12 h without progress (exit code 14). Same arguments as qbcs_real_submit_iqm_vlq.py (backend=…, mini/full, layout=, …).
 
 Logs in like the submit script: with the saved LEXIS token, else through the browser page, so start it from a session
 where you can approve that login (see readme_iqm_vlq.md §2). If every chunk is submitted and only the health check after
@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../..")))   # datafiles/ paths are relative to the project root
 from source.core.runner_support.benchmark_args import make_usage, usage_if_requested   # light (numpy only): the usage is printed before anything else loads
 from source.core.records.run_names import latest_run_folder, qpu_run_name
-usage_if_requested(sys.argv[1:], make_usage(__file__, "Submit a BACQ benchmark run to IQM VLQ (LEXIS/HEAppE), retrying until every chunk is submitted: waits for the latest job to finish before each launch of qbcs_real_submit_iqm_vlq.py, gives up after 48 h without progress.", layout="submit_live"))   # no arguments or --help: print the usage and do nothing
+usage_if_requested(sys.argv[1:], make_usage(__file__, "Submit a BACQ benchmark run to IQM VLQ (LEXIS/HEAppE), retrying until every chunk is submitted: waits for the latest job to finish before each launch of qbcs_real_submit_iqm_vlq.py, gives up after 12 h without progress.", layout="submit_live"))   # no arguments or --help: print the usage and do nothing
 
 from pathlib import Path
 from source.core.qpu import iqm_vlq as VLQ
@@ -62,7 +62,7 @@ def launch(args):
     return launch_submit_script("iqm_vlq.venv", SUBMIT_SCRIPT, args, "qbcs_real_submit_iqm_vlq_with_retries.py")
 
 print(f"\n[{BACKEND_NAME} — connection]")
-print(f"  Checking the latest job every {PAUSE_S // 60} min; gives up after 48 h without progress.", flush=True)
+print(f"  Checking the latest job every {PAUSE_S // 60} min; gives up after 12 h without progress.", flush=True)
 try:
     rc = run_with_retries(UNDATED, status_of, launch, ARGV, wait_after_failed_s=WAIT_AFTER_FAILED_SUBMIT_S,
                           new_run=FORCE_NEW_RUN, retry_at_once_after_progress=True)

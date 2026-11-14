@@ -267,7 +267,7 @@ else:
         model = (f"Paying at Scaleway's price for the AQT IBEX-Q1 QPU, €{SCALEWAY_AQT_CIRCUIT_EUR:.2f} per circuit + "
                  f"€{SCALEWAY_AQT_SHOT_EUR} per shot ({SCALEWAY_PRICING_URL}), for this run's {counted}")
     elif PRICING == "aws_vlq":                         # synthetic: Braket's scheme, Emerald's shot price scaled
-        # A VLQ job holds up to 12 chunks (VLQ_CHUNKS_PER_JOB), more than one program set: it counts as the tasks its whole
+        # A VLQ job holds up to 10 chunks (VLQ_CHUNKS_PER_JOB), more than one program set: it counts as the tasks its whole
         # chunks would fill (floor(100 / circuits per chunk) chunks per task); a health check is one task.
         per_task = AWS_MAX_CIRCUITS_PER_TASK // WORKLOAD["circuits_per_chunk"]
         # The failed jobs count the same way: their chunks, and each failed health check as one task.

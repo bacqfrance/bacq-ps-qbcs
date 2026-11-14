@@ -5,9 +5,9 @@ IT4Innovations' VLQ (IQM Star 24) through LEXIS/HEAppE (qaas). Async — returns
 chunk is uploaded and submitted. Run qbcs_real_collect_iqm_vlq.py separately (with the same
 arguments) to retrieve the results.
 
-Chunks go out in jobs of up to 12 chunks (each chunk with its SPAM circuits; 816 circuits per
-job in the full run, so its 480 chunks are 40 jobs; the mini run's 8 chunks are one job). Jobs
-of 48 chunks (3,264 circuits) were uploaded but then failed when IT4I forwarded them to IQM.
+Chunks go out in jobs of up to 10 chunks (each chunk with its SPAM circuits; 680 circuits per
+job in the full run, 700 with per-chunk health checks, so its 480 chunks are 48 jobs; the mini run's 8 chunks are one job). Jobs
+of 48 chunks (3,264 circuits) were uploaded but then failed when IT4I forwarded them to IQM; jobs of 12 chunks with per-chunk health checks (840 circuits) are refused at the upload (HTTP 502, request body too large).
 A job's circuits are uploaded as separate OpenQASM 3 files, 10 at a time, in seconds; transpilation takes most of the submission time. Login: the LEXIS refresh token saved in <project root>/tokens/iqm_vlq_token
 is reused; a browser login is asked for only when there is none or it was rejected.
 
@@ -46,7 +46,7 @@ DO_SPAM          = True
 UNDATED          = qpu_run_name("IQM_VLQ", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM, LAYOUT.tag)
 RUN_FOLDER       = health_check_retry_folder(UNDATED) if RETRY_HC else dated_run_folder(UNDATED, new_run=FORCE_NEW_RUN)
 CHUNKS_TO_SUBMIT = SAMPLE_SIZE   # the whole run; lower it to submit only the first N chunks
-CHUNKS_PER_JOB   = min(VLQ_CHUNKS_PER_JOB, SAMPLE_SIZE)   # full: 816 circuits (48-chunk jobs failed at IT4I → IQM; see readme §3)
+CHUNKS_PER_JOB   = min(VLQ_CHUNKS_PER_JOB, SAMPLE_SIZE)   # full: 680 circuits, 700 with per-chunk health checks (48-chunk jobs failed at IT4I → IQM, 12-chunk ones are refused at the upload; see readme §3)
 
 # ── Connect to VLQ ────────────────────────────────────────────────────────────
 print(f"\n[{BACKEND_NAME} — connection]")
