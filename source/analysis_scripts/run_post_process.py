@@ -457,15 +457,14 @@ def merge_and_analyze(run_folder, n_samples_override=None):
 
     n_samples_override: if given, force-analyze exactly this many chunks —
     must be <= chunks actually collected/merged — even if more are available.
-    This bypasses the "skip if already full" auto-detect behaviour below.
 
-    Local-simulator runs take the same path as real ones: merged +
-    analyzed here unless the run's own outputs already exist (the local-simulation
-    scripts analyze as they go, so usually they do).
+    Always analyzes: the "already analyzed" skip is analyze_run()'s (data_current(), which compares the outputs'
+    mtimes with raw_results/results_counts.json); a skip here on file existence alone left stale outputs stale.
+    Local-simulator runs take the same path as real ones.
 
     Returns (ok, n_samples) — ok=False means skipped (no data yet, or an
     invalid override); n_samples=None means the full run's own unsuffixed
-    files apply (either just analyzed, or already analyzed)."""
+    files apply."""
     import numpy as np
     from source.core.qbcs import bacq_ps_qbcs
     from source.core.records.chunk_scope import uncollected_chunks
@@ -487,10 +486,6 @@ def merge_and_analyze(run_folder, n_samples_override=None):
     n_collected = len(json.loads(counts_path.read_text(encoding="utf-8")))
     sample_size = info.sample_size
 
-    def _analyzed(n):
-        suffix = "" if n >= sample_size else subset_suffix(n)
-        return (run_path / "processed_results" / f"run_data{suffix}.json").exists()
-
     filtered = hasattr(n_samples_override, "threshold")   # a HealthCheckScope: the chunks passing the extra health checks
     if filtered:
         target_n = n_samples_override
@@ -501,10 +496,7 @@ def merge_and_analyze(run_folder, n_samples_override=None):
             return False, None
         target_n = n_samples_override
     else:
-        target_n = n_collected
-        if n_collected >= sample_size and _analyzed(n_collected):
-            print(f"⚠️  {backend_name}: all {sample_size} chunks collected and already analyzed — skipping merge/analyze.")
-            return True, None
+        target_n = n_collected   # analyze_run() has already skipped runs whose data_current(); here the data is stale or absent
 
     noise = coherent_noise_of_run(run_path) or {}   # a coherent-noise run's circuits live in its own cache
     qbcs = bacq_ps_qbcs(

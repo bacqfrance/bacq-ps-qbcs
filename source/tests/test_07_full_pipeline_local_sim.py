@@ -127,9 +127,9 @@ def _assert_post_process_outputs(backend_name, run_path, nshots, do_spam=True):
     assert (info.nshots, info.sample_size, info.lnn, info.do_spam) == (nshots, SAMPLE_SIZE, False, do_spam), info
     assert np.allclose(info.list_times, LIST_TIMES) and info.dt == DT and info.chunk_size == len(LIST_TIMES) * 6
 
-    # Already analyzed by the run itself -> recognized as done, nothing to redo
+    # merge_and_analyze() always (re)analyzes; the skip of an up-to-date run is analyze_run()'s
     ok, n_samples = merge_and_analyze(backend_name)
-    assert ok, f"{backend_name}: merge_and_analyze() did not recognize the local run as already analyzed"
+    assert ok, f"{backend_name}: merge_and_analyze() failed"
     assert n_samples is None, f"{backend_name}: unexpected n_samples override {n_samples!r}"
 
     # Drop everything derived, keep only the raw per-chunk counts: the merge + analyze branch must rebuild it
