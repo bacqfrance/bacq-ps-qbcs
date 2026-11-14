@@ -53,7 +53,7 @@ Based on:
 └── README.md                        # this file
 ```
 
-Provider API tokens are never committed: each one is a file `tokens/<provider>_token`, as listed in
+Provider API tokens are never committed: each one is a file `tokens/<backend>_token`, as listed in
 [tokens/README.md](tokens/README.md).
 
 ## About the BACQ project

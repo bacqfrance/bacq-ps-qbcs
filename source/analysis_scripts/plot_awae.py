@@ -20,7 +20,7 @@ from source.core.common import rel_path
 from source.core.analysis.mitigation import BASE_EMS_LIST
 from source.core.analysis.derived_quantities import EPSILON, cumulative_awae, best_schemes as summary_best_schemes
 from source.core.records.run_info import resolve_run
-from source.core.records.run_names import parse_run_name, run_summary_name, plots_dir as plots_dir_of, subset_suffix
+from source.core.records.run_names import parse_run_name, run_summary_name, plots_dir as plots_dir_of, subset_suffix, plot_names
 from source.core.records.circuit_check import load_run_verification, add_circuit_check_banner
 from source.core.records.chunk_scope import (load_run_completeness, add_completeness_banner, completeness,
                                              scope_from_env, figure_filter_label)
@@ -43,6 +43,7 @@ N_SAMPLES    = scope_from_env(RUN_FOLDER, INFO.sample_size, N_SAMPLES)   # --fil
 NAME         = parse_run_name(RUN_FOLDER)
 NSHOTS, LNN, DO_SPAM = INFO.nshots, INFO.lnn, INFO.do_spam
 SUFFIX     = subset_suffix(N_SAMPLES)
+PLOT_NAMES = plot_names(LNN, NSHOTS, N_SAMPLES)   # the figure names run_post_process.py looks for
 
 # Determine actual depths from this run's own data, not the hardcoded
 # standard 10-depth real-QPU sweep —
@@ -169,7 +170,7 @@ if DO_SPAM:
     fig1.suptitle(f"AWAE with SPAM correction\n{suffix}", fontweight="bold", fontsize=11)
     plt.tight_layout()
     add_circuit_check_banner(fig1, VERIFICATION); add_completeness_banner(fig1, COMPLETENESS)
-    fname1 = plots_dir / f"awae_spam{SUFFIX}.png"
+    fname1 = plots_dir / PLOT_NAMES["awae_spam"]
     plt.savefig(fname1, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"✅ Saved → {rel_path(fname1)}")
@@ -187,7 +188,7 @@ ax2b.legend(fontsize=7, ncol=2)
 fig2.suptitle(f"AWAE without SPAM correction\n{suffix}", fontweight="bold", fontsize=11)
 plt.tight_layout()
 add_circuit_check_banner(fig2, VERIFICATION); add_completeness_banner(fig2, COMPLETENESS)
-fname2 = plots_dir / f"awae_no_spam{SUFFIX}.png"
+fname2 = plots_dir / PLOT_NAMES["awae_no_spam"]
 plt.savefig(fname2, dpi=150, bbox_inches="tight")
 plt.close()
 print(f"✅ Saved → {rel_path(fname2)}")
@@ -224,7 +225,7 @@ if DO_SPAM:
                   fontweight="bold", fontsize=11)
     plt.tight_layout()
     add_circuit_check_banner(fig3, VERIFICATION); add_completeness_banner(fig3, COMPLETENESS)
-    fname3 = plots_dir / f"awae_best_ems_spam_no_spam_comparison{SUFFIX}.png"
+    fname3 = plots_dir / PLOT_NAMES["awae_best_ems"]
     plt.savefig(fname3, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"✅ Saved → {rel_path(fname3)}")

@@ -46,7 +46,7 @@ os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))   # 
 
 from source.core.common import rel_path
 from source.core.records.run_info import resolve_run
-from source.core.records.run_names import parse_run_name, plots_dir as plots_dir_of, subset_suffix
+from source.core.records.run_names import parse_run_name, plots_dir as plots_dir_of, subset_suffix, plot_names
 from source.core.records.circuit_check import load_run_verification, add_circuit_check_banner
 from source.core.records.chunk_scope import (load_run_completeness, add_completeness_banner, completeness,
                                              scope_from_env, figure_filter_label)
@@ -306,7 +306,7 @@ def main():
     add_completeness_banner(fig, block)
 
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
-    fname = PLOTS_DIR / f"health_checks{SUFFIX}.png"
+    fname = PLOTS_DIR / plot_names(INFO.lnn, INFO.nshots, N_SAMPLES)["health_checks"]
     fig.savefig(fname, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"✅ Saved → {rel_path(fname)}")

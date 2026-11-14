@@ -374,8 +374,8 @@ py source\analysis_scripts\run_post_process.py mini --include-real-data
 ```
 
 Plots land in `analysis/plots+summaries/<run_folder>/`, the summary (timings, cost estimate) in
-`datafiles/<run_folder>/processed_results/summary.json`. A run already analyzed, with no chunks collected since, is skipped
-with a warning; delete its `datafiles/<run_folder>/processed_results/` to analyze it anew.
+`datafiles/<run_folder>/processed_results/summary.json`. A run already analyzed, with no chunks collected since and its plots in place, is skipped
+with a warning (one whose plots alone are missing gets only the plots redrawn); delete its `datafiles/<run_folder>/processed_results/` to analyze it anew.
 
 Plots comparing all the runs — AWAE and cumulative AWAE of each run's best EMS vs $N_t$,
 QPU time and effective cost per QPU — land in `analysis/plots+summaries/mini_collective_real-data/` (the folder name says which kinds of runs it compares). Add

@@ -57,7 +57,7 @@ TIMEOUTS = {
     "job status":           120,
     "job cancel":           120,
     "result download":      900,    # the job has finished; fetching a 10-chunk job's counts
-    "job submission":       3600,   # upload of up to 700 circuits (one payload). After a timeout the upload may still
+    "job submission":       3600,   # upload of up to 700 circuits (one submit call). After a timeout the upload may still
                                     # complete: check check_real_qpu_job_status_iqm_vlq.py / LEXIS for a job
                                     # that has no record before submitting again
 }

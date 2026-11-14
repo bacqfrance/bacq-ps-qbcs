@@ -77,7 +77,7 @@ def may_proceed(status):
     """True when the provider's status text of a job is final: completed/done, or failed/cancelled/errored (the submit
     script resubmits failed chunks itself). Anything else (queued, waiting, running, an unknown text, an unavailable
     query) is not final and the loop waits."""
-    # a failed query is reported as "UNAVAILABLE — <error>", which job_state_of_status() would read as failed (ERROR/FAIL)
+    # a failed query is reported as "UNAVAILABLE — <error>", which job_state_of_status() may read as failed when the error text contains ERROR/FAIL
     return job_state_of_status(status) in ("done", "failed") and not str(status).upper().startswith("UNAVAILABLE")
 
 

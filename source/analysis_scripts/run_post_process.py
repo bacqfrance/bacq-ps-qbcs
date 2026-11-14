@@ -80,7 +80,7 @@ from source.core.runner_support.benchmark_args import parse_benchmark_args, usag
 # The pipeline, plotting and provider modules (myQLM, matplotlib, …) are imported inside the functions that use
 # them, so a wrong argument prints the usage before those heavy imports.
 from source.core.records.run_names import (collective_folder_name, collective_plots_dir, entry_data_type, is_run_name, make_run_filter,
-                                   parse_run_name, run_summary_name, subset_suffix, summary_name, plots_dir)
+                                   parse_run_name, run_summary_name, subset_suffix, summary_name, plots_dir, expected_plot_names)
 
 ANALYSIS_SCRIPTS = PROJECT_ROOT / "source" / "analysis_scripts"   # the post-processing scripts run_script() launches
 
@@ -104,7 +104,8 @@ ANALYSIS_SCRIPTS = PROJECT_ROOT / "source" / "analysis_scripts"   # the post-pro
 # Plain string  = auto-detect: use every chunk actually collected; if that
 #                 analysis (full run or subset) is already in processed_results/ and newer
 #                 than the collected results, skip stages 1-5 with a warning (delete
-#                 processed_results/ to analyze anew; see already_analyzed()). Chunks are collected as their jobs
+#                 processed_results/ to analyze anew; see data_current()); if only its per-run plots are missing or
+#                 older than the collected results, only the three plot scripts run (see missing_plots()). Chunks are collected as their jobs
 #                 finish, so an incomplete run may have gaps (chunks 0-40 and 45):
 #                 it is analyzed as a "+nsamples-<collected>" subset, with the uncollected
 #                 chunks and health checks listed inside and warned about on the figures.
@@ -584,8 +585,8 @@ def analyzed_data(run_folder, n_samples_override=None):
     return run_folder, (n if n < load_run_info(run_folder).sample_size else None)
 
 
-def already_analyzed(run_folder, n_samples):
-    """Whether stages 1-5 can be skipped for the run's analysis on n_samples chunks (None = the full run): its
+def data_current(run_folder, n_samples):
+    """Whether the run's analysis on n_samples chunks (None = the full run) is up to date, so stages 1-5 can be skipped: its
     run_data (and run_data_spam with SPAM), summary and, if the run has health checks, health_checks json all exist in
     processed_results/ and are newer than raw_results/results_counts.json (so newly collected chunks re-analyze)."""
     from source.core.records.health_check_records import load_health_checks, load_extra_health_checks
@@ -600,6 +601,26 @@ def already_analyzed(run_folder, n_samples):
         files.append(processed / f"health_checks{suffix}.json")
     counts_mtime = (run_path / "raw_results" / "results_counts.json").stat().st_mtime
     return all(f.exists() and f.stat().st_mtime > counts_mtime for f in files)
+
+
+def missing_plots(run_folder, n_samples):
+    """The per-run figure names (run_names.expected_plot_names) that are absent from the run's plots folder or not newer than
+    raw_results/results_counts.json. The nsamples-comparison figure is not one of them (--nsamples-comparison draws it)."""
+    from source.core.records.health_check_records import load_health_checks, load_extra_health_checks
+
+    run_path = PROJECT_ROOT / "datafiles" / run_folder
+    info = load_run_info(run_folder)
+    has_hc = bool(load_health_checks(run_path) or load_extra_health_checks(run_path))
+    folder = PROJECT_ROOT / plots_dir(run_folder)
+    counts_mtime = (run_path / "raw_results" / "results_counts.json").stat().st_mtime
+    return [name for name in expected_plot_names(info.lnn, info.nshots, info.do_spam, has_hc, n_samples)
+            if not ((folder / name).exists() and (folder / name).stat().st_mtime > counts_mtime)]
+
+
+def already_analyzed(run_folder, n_samples):
+    """Whether stages 1-5 can be skipped for the run's analysis on n_samples chunks (None = the full run): the data is
+    current (data_current()) and no per-run plot is missing or stale (missing_plots())."""
+    return data_current(run_folder, n_samples) and not missing_plots(run_folder, n_samples)
 
 
 BEST_FLAGS = {   # --best-* flag -> (PER_QPU_SUFFIXES key, summary key, whether a higher value is better)
@@ -707,11 +728,22 @@ def analyze_run(run_folder, n_samples_override=None, hc_threshold=None):
     if counts_path.exists() and (n_samples_override is None or hasattr(n_samples_override, "threshold")
                                  or 0 < n_samples_override <= len(json.loads(counts_path.read_text(encoding="utf-8")))):
         _, n_target = analyzed_data(run_folder, n_samples_override)
-        if already_analyzed(run_folder, n_target):
+        if data_current(run_folder, n_target):
+            missing = missing_plots(run_folder, n_target)
+            if not missing:
+                copy_summary(run_folder, n_target)
+                print(f"⚠️  {backend_name}: already analyzed (run data, summaries and plots are up to date) — "
+                      f"skipping stages 1-5. Delete datafiles/{run_folder}/processed_results/ to analyze it anew.")
+                return True, run_folder, n_target
+            print(f"⚠️  {backend_name}: run data is up to date but {len(missing)} plot(s) are missing or stale "
+                  f"({', '.join(missing)}) — redrawing the plots only.")
+            ok = all([
+                run_script("plot_real_qpu_results.py", run_folder, n_target),
+                run_script("plot_awae.py",             run_folder, n_target),
+                run_script("plot_health_checks.py",    run_folder, n_target),   # skips runs without health checks
+            ])
             copy_summary(run_folder, n_target)
-            print(f"⚠️  {backend_name}: already analyzed (run data and summaries in processed_results/ are up to date) — "
-                  f"skipping stages 1-5. Delete datafiles/{run_folder}/processed_results/ to analyze it anew.")
-            return True, run_folder, n_target
+            return ok, run_folder, n_target
 
     ok, n_samples = merge_and_analyze(run_folder, n_samples_override)
     if not ok:

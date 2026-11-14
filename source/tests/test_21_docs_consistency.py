@@ -11,7 +11,7 @@ Unit tests (no simulation or network) that the user docs still match the reposit
   - every "USER_MANUAL §N" / "main USER_MANUAL §N.M" reference names a section USER_MANUAL.md has, and every
     "readme_<qpu>.md §N" reference a section of that QPU readme; no doc or requirements file refers to a
     "README §N" (README.md has no numbered sections);
-  - no doc names a token file as tokens/token_<provider> (they are tokens/<provider>_token);
+  - no doc names a token file as tokens/token_<backend> (they are tokens/<backend>_token);
   - every QPU readme has the same seven top-level sections, in order, and the shared paragraphs
     (SHARED_PHRASES, ASYNC_SHARED_PHRASES) in the same words.
 """
@@ -104,7 +104,7 @@ def test_no_readme_section_references():
 
 @pytest.mark.parametrize("doc", USER_DOCS, ids=IDS)
 def test_token_file_names(doc):
-    assert "tokens/token_" not in _text(doc), f"{doc.name}: token files are tokens/<provider>_token (tokens/README.md)"
+    assert "tokens/token_" not in _text(doc), f"{doc.name}: token files are tokens/<backend>_token (tokens/README.md)"
 
 
 QPU_READMES  = sorted((ROOT / "source" / "benchmark_scripts" / "real_qpu_scripts").glob("*/readme_*.md"))

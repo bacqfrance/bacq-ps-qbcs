@@ -529,6 +529,36 @@ def subset_suffix(n_samples=None):
     return f"+nsamples-{n_samples}"
 
 
+# The opt-in figure of run_post_process.py --nsamples-comparison; not part of plot_names() / missing_plots().
+NSAMPLES_COMPARISON_PLOT = "awae_best_ems_nsamples_comparison.png"
+
+
+def plot_names(lnn, nshots, n_samples=None):
+    """The per-run figure file names (in the run's plots+summaries folder) by key, for the analysis of n_samples (None = full run).
+    The plot scripts save under these names and run_post_process.py checks for them, so the two cannot drift."""
+    s = subset_suffix(n_samples)
+    return {
+        "awae_spam":      f"awae_spam{s}.png",
+        "awae_no_spam":   f"awae_no_spam{s}.png",
+        "awae_best_ems":  f"awae_best_ems_spam_no_spam_comparison{s}.png",
+        "obs_spam":       f"obs_lnn{lnn}_ns{nshots}_spam{s}.png",
+        "obs_no_spam":    f"obs_lnn{lnn}_ns{nshots}_no_spam{s}.png",
+        "max_error":      f"max_error_lnn{lnn}_ns{nshots}{s}.png",
+        "health_checks":  f"health_checks{s}.png",
+    }
+
+
+def expected_plot_names(lnn, nshots, do_spam, has_health_checks, n_samples=None):
+    """The figure names a complete per-run analysis leaves: the SPAM figures only with do_spam, the health-check one only if the run has health checks."""
+    names = plot_names(lnn, nshots, n_samples)
+    keys = ["awae_no_spam", "obs_no_spam", "max_error"]
+    if do_spam:
+        keys += ["awae_spam", "awae_best_ems", "obs_spam"]
+    if has_health_checks:
+        keys.append("health_checks")
+    return [names[k] for k in keys]
+
+
 def hc_filter_label(threshold, n_kept, n_total):
     """How figures name a health-check-filtered analysis: 'health checks P011 > 0.5 (38 of 48 chunks kept)'."""
     return f"health checks P011 > {threshold:g} ({n_kept} of {n_total} chunks kept)"

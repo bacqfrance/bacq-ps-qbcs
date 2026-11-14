@@ -18,7 +18,7 @@ os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))   # 
 
 from source.core.common import rel_path
 from source.core.records.run_info import resolve_run
-from source.core.records.run_names import parse_run_name, plots_dir as plots_dir_of, subset_suffix
+from source.core.records.run_names import parse_run_name, plots_dir as plots_dir_of, subset_suffix, plot_names
 from source.core.records.circuit_check import load_run_verification, add_circuit_check_banner
 from source.core.records.chunk_scope import (load_run_completeness, add_completeness_banner, completeness,
                                              scope_from_env, figure_filter_label)
@@ -38,6 +38,7 @@ NAME         = parse_run_name(RUN_FOLDER)
 NSHOTS, LNN, DO_SPAM = INFO.nshots, INFO.lnn, INFO.do_spam
 PATH       = f"datafiles/{RUN_FOLDER}/processed_results"
 SUFFIX     = subset_suffix(N_SAMPLES)
+PLOT_NAMES = plot_names(LNN, NSHOTS, N_SAMPLES)   # the figure names run_post_process.py looks for
 # Executed-vs-submitted circuit check: a red line on every figure if it failed
 VERIFICATION = load_run_verification(f"datafiles/{RUN_FOLDER}", SUFFIX)
 COMPLETENESS = load_run_completeness(Path("datafiles") / RUN_FOLDER, SUFFIX) or completeness(Path("datafiles") / RUN_FOLDER, INFO.sample_size, N_SAMPLES)   # uncollected chunks / health checks: red line on every figure
@@ -124,7 +125,7 @@ def plot_obs(run_data_path, title_suffix, fname_suffix):
 plot_obs(
     run_data_path = f"{PATH}/run_data{SUFFIX}.json",
     title_suffix  = "no SPAM correction",
-    fname_suffix  = f"{PLOTS_DIR}/obs_lnn{LNN}_ns{NSHOTS}_no_spam{SUFFIX}.png",
+    fname_suffix  = f"{PLOTS_DIR}/{PLOT_NAMES['obs_no_spam']}",
 )
 
 # ── Plot with SPAM correction ─────────────────────────────────────────────────
@@ -132,7 +133,7 @@ if DO_SPAM:
     plot_obs(
         run_data_path = f"{PATH}/run_data_spam{SUFFIX}.json",
         title_suffix  = "with SPAM correction",
-        fname_suffix  = f"{PLOTS_DIR}/obs_lnn{LNN}_ns{NSHOTS}_spam{SUFFIX}.png",
+        fname_suffix  = f"{PLOTS_DIR}/{PLOT_NAMES['obs_spam']}",
     )
 
 
@@ -175,7 +176,7 @@ fig.suptitle(f"{NAME.figure_label_full} — max|obs-exact| per role\n"
              f"LNN={LNN}, shots={NSHOTS}{figure_filter_label(N_SAMPLES)}",
              fontweight="bold", fontsize=11)
 plt.tight_layout()
-fname_plot = f"{PLOTS_DIR}/max_error_lnn{LNN}_ns{NSHOTS}{SUFFIX}.png"
+fname_plot = f"{PLOTS_DIR}/{PLOT_NAMES['max_error']}"
 add_circuit_check_banner(fig, VERIFICATION); add_completeness_banner(fig, COMPLETENESS)
 plt.savefig(fname_plot, dpi=150, bbox_inches="tight")
 plt.close()

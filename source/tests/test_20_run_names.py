@@ -436,5 +436,73 @@ def test_health_check_filter_names():
     assert RN.collective_folder_name("full", ["real-data"], hc_threshold=0.5) == "full_collective_real-data_hc-gt-0.5"
 
 
+def test_expected_plot_names_follow_spam_and_health_checks():
+    full = RN.expected_plot_names(True, 100, do_spam=True, has_health_checks=True)
+    assert len(full) == 7 and "health_checks.png" in full and "awae_spam.png" in full
+    assert "obs_lnnTrue_ns100_spam.png" in full and "max_error_lnnTrue_ns100.png" in full
+    bare = RN.expected_plot_names(False, 100, do_spam=False, has_health_checks=False, n_samples=48)
+    assert bare == ["awae_no_spam+nsamples-48.png", "obs_lnnFalse_ns100_no_spam+nsamples-48.png",
+                    "max_error_lnnFalse_ns100+nsamples-48.png"]
+
+
+RUN = "full_real-data_ibm-fez_lnn-True_service-ibm-cloud_spam-True_layout-lowest_2026-09-21_#1"
+
+
+def _post_process_run(tmp_path, monkeypatch, do_spam=True, health_checks=True):
+    """A fake run under tmp_path: results_counts.json, current data json, no plots yet."""
+    from types import SimpleNamespace
+    from source.analysis_scripts import run_post_process as RPP
+    from source.core.records import health_check_records as HCR
+    monkeypatch.setattr(RPP, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(RPP, "load_run_info", lambda f: SimpleNamespace(lnn=True, nshots=100, do_spam=do_spam))
+    monkeypatch.setattr(HCR, "load_health_checks", lambda p: [{"verdict": "ok"}] if health_checks else [])
+    monkeypatch.setattr(HCR, "load_extra_health_checks", lambda p: [])
+    run = tmp_path / "datafiles" / RUN
+    (run / "raw_results").mkdir(parents=True)
+    (run / "processed_results").mkdir()
+    counts = run / "raw_results" / "results_counts.json"
+    counts.write_text("{}", encoding="utf-8")
+    os.utime(counts, (1000, 1000))
+    for name in ["run_data.json", "summary.json", "run_data_spam.json", "health_checks.json"]:
+        f = run / "processed_results" / name
+        f.write_text("{}", encoding="utf-8")
+        os.utime(f, (2000, 2000))
+    return RPP, tmp_path / RPP.plots_dir(RUN)
+
+
+def _draw(folder, names, mtime=3000):
+    folder.mkdir(parents=True, exist_ok=True)
+    for n in names:
+        (folder / n).write_text("x", encoding="utf-8")
+        os.utime(folder / n, (mtime, mtime))
+
+
+def test_run_with_json_but_no_plots_is_not_already_analyzed(tmp_path, monkeypatch):
+    RPP, folder = _post_process_run(tmp_path, monkeypatch)
+    assert RPP.data_current(RUN, None)
+    assert len(RPP.missing_plots(RUN, None)) == 7
+    assert not RPP.already_analyzed(RUN, None)
+
+
+def test_run_with_json_and_all_plots_is_already_analyzed(tmp_path, monkeypatch):
+    RPP, folder = _post_process_run(tmp_path, monkeypatch)
+    _draw(folder, RN.expected_plot_names(True, 100, True, True))
+    assert RPP.already_analyzed(RUN, None)
+
+
+def test_a_plot_older_than_the_collected_results_is_stale(tmp_path, monkeypatch):
+    RPP, folder = _post_process_run(tmp_path, monkeypatch)
+    names = RN.expected_plot_names(True, 100, True, True)
+    _draw(folder, names)
+    os.utime(folder / names[0], (500, 500))
+    assert RPP.missing_plots(RUN, None) == [names[0]]
+
+
+def test_plots_expected_without_spam_and_without_health_checks(tmp_path, monkeypatch):
+    RPP, folder = _post_process_run(tmp_path, monkeypatch, do_spam=False, health_checks=False)
+    _draw(folder, RN.expected_plot_names(True, 100, False, False))
+    assert RPP.already_analyzed(RUN, None)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

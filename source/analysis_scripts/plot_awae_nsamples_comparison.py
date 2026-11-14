@@ -28,7 +28,7 @@ os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))   # 
 from source.core.common import rel_path
 from source.core.analysis.derived_quantities import EPSILON, cumulative_awae, best_schemes
 from source.core.records.run_info import resolve_run
-from source.core.records.run_names import parse_run_name, run_summary_name, plots_dir as plots_dir_of, subset_suffix
+from source.core.records.run_names import parse_run_name, run_summary_name, plots_dir as plots_dir_of, subset_suffix, NSAMPLES_COMPARISON_PLOT
 from source.core.records.circuit_check import load_run_verification, add_circuit_check_banner
 from source.core.records.chunk_scope import load_run_completeness, add_completeness_banner, completeness
 
@@ -94,7 +94,7 @@ if not schemes:   # no scheme has a cumulative AWAE below 1 (derived_quantities)
     fig.suptitle(f"AWAE — best EMS: number of samples\n{NAME.figure_label_full}, LNN={LNN}, shots={NSHOTS}",
                  fontweight="bold", fontsize=11)
     add_circuit_check_banner(fig, VERIFICATION); add_completeness_banner(fig, COMPLETENESS)
-    fname = plots_dir / "awae_best_ems_nsamples_comparison.png"
+    fname = plots_dir / NSAMPLES_COMPARISON_PLOT
     plt.savefig(fname, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"✅ Saved → {rel_path(fname)}")
@@ -138,7 +138,7 @@ fig.suptitle(f"AWAE — best EMS ({title_ems}): number of samples\n{NAME.figure_
              fontweight="bold", fontsize=11)
 plt.tight_layout()
 add_circuit_check_banner(fig, VERIFICATION); add_completeness_banner(fig, COMPLETENESS)
-fname = plots_dir / "awae_best_ems_nsamples_comparison.png"
+fname = plots_dir / NSAMPLES_COMPARISON_PLOT
 plt.savefig(fname, dpi=150, bbox_inches="tight")
 plt.close()
 print(f"✅ Saved → {rel_path(fname)}")
