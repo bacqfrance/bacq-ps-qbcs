@@ -43,6 +43,7 @@ RETRY_WAIT_S=3600        # wait before each rerun after a failure
 RETRY_LIMIT_DAYS=7       # give up after this many days of failures without progress
 EXIT_GAVE_UP=14
 cd "$PROJECT"
+source venvs/aqt.venv/bin/activate   # the AQT venv: python3 below is its interpreter
 
 # ── Output helpers: a title between two rules, then aligned "Label:  value" rows (nothing wider than ~90 characters) ──
 RULE='────────────────────────────────────────────────────────────'
@@ -63,7 +64,7 @@ describe_exit() {                                      # what an exit code of th
     esac
 }
 
-PYTHON=$PROJECT/venvs/aqt.venv/bin/python
+PYTHON=python3
 AQT_DIR=source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q
 
 # No arguments or --help: only the loop script's usage (exit code 2 without arguments, 0 for --help).

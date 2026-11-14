@@ -481,13 +481,23 @@ def test_run_with_json_but_no_plots_is_not_already_analyzed(tmp_path, monkeypatc
     RPP, folder = _post_process_run(tmp_path, monkeypatch)
     assert RPP.data_current(RUN, None)
     assert len(RPP.missing_plots(RUN, None)) == 7
-    assert not RPP.already_analyzed(RUN, None)
+    assert not (RPP.data_current(RUN, None) and not RPP.missing_plots(RUN, None))
 
 
 def test_run_with_json_and_all_plots_is_already_analyzed(tmp_path, monkeypatch):
     RPP, folder = _post_process_run(tmp_path, monkeypatch)
     _draw(folder, RN.expected_plot_names(True, 100, True, True))
-    assert RPP.already_analyzed(RUN, None)
+    assert RPP.data_current(RUN, None) and not RPP.missing_plots(RUN, None)
+
+
+def test_a_health_check_record_newer_than_the_outputs_makes_the_data_stale(tmp_path, monkeypatch):
+    RPP, folder = _post_process_run(tmp_path, monkeypatch)
+    assert RPP.data_current(RUN, None)
+    hc = tmp_path / "datafiles" / RUN / "health_checks"
+    hc.mkdir()
+    (hc / "health_check_post.json").write_text("{}", encoding="utf-8")
+    os.utime(hc / "health_check_post.json", (5000, 5000))
+    assert not RPP.data_current(RUN, None)
 
 
 def test_a_plot_older_than_the_collected_results_is_stale(tmp_path, monkeypatch):
@@ -501,7 +511,7 @@ def test_a_plot_older_than_the_collected_results_is_stale(tmp_path, monkeypatch)
 def test_plots_expected_without_spam_and_without_health_checks(tmp_path, monkeypatch):
     RPP, folder = _post_process_run(tmp_path, monkeypatch, do_spam=False, health_checks=False)
     _draw(folder, RN.expected_plot_names(True, 100, False, False))
-    assert RPP.already_analyzed(RUN, None)
+    assert RPP.data_current(RUN, None) and not RPP.missing_plots(RUN, None)
 
 
 if __name__ == "__main__":

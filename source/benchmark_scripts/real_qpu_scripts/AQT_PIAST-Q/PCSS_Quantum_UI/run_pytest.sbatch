@@ -13,9 +13,10 @@
 PROJECT=$HOME/Quantum_Benchmarking_project
 export PYTHONIOENCODING=utf-8
 cd "$PROJECT"
+source venvs/local_sim.venv/bin/activate   # the local-simulation venv: python3 below is its interpreter
 
 echo "job: $SLURM_JOB_ID  node: $(hostname)  started: $(date '+%Y-%m-%d %H:%M:%S')"
-"$PROJECT/venvs/local_sim.venv/bin/python" -m pytest source/tests/ -ra
+python3 -m pytest source/tests/ -ra
 rc=$?
 echo "ended: $(date '+%Y-%m-%d %H:%M:%S')  exit code: $rc"
 exit $rc

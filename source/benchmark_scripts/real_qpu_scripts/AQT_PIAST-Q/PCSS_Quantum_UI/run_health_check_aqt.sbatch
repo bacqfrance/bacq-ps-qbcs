@@ -15,6 +15,7 @@
 PROJECT=$HOME/Quantum_Benchmarking_project
 export PYTHONIOENCODING=utf-8
 cd "$PROJECT"
+source venvs/aqt.venv/bin/activate   # the AQT venv: python3 below is its interpreter
 
 # ── Output helpers: a title between two rules, then aligned "Label:  value" rows (nothing wider than ~90 characters) ──
 RULE='────────────────────────────────────────────────────────────'
@@ -37,7 +38,7 @@ row Node "$(hostname)"
 row Started "$(stamp)"
 row Arguments "$*"
 echo
-"$PROJECT/venvs/aqt.venv/bin/python" -u \
+python3 -u \
     source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/health_check_real_aqt.py "$@"
 rc=$?
 echo; row Ended "$(stamp)"; row "Exit code" "$rc — $(describe_exit $rc)"

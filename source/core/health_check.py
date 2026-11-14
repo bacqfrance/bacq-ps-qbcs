@@ -574,7 +574,7 @@ def collect_health_check(exp_results_folder_path, service=None,
                          accompanying=False, number=None, backend_name=None):
     """
     Standalone function — no bacq_ps_qbcs instance needed.
-    Collect results from IBM or IQM health check job and save to disk.
+    Collect results from an IBM, IQM (EQE1, Resonance, VLQ) or AQT (PCSS) health check job and save to disk.
 
     :param exp_results_folder_path: str/Path — run folder
     :param service:                 QiskitRuntimeService — IBM real QPU, MQSSQiskitAdapter — IQM cross-session retrieval

@@ -103,7 +103,7 @@ ANALYSIS_SCRIPTS = PROJECT_ROOT / "source" / "analysis_scripts"   # the post-pro
 # List entries:
 # Plain string  = auto-detect: use every chunk actually collected; if that
 #                 analysis (full run or subset) is already in processed_results/ and newer
-#                 than the collected results, skip stages 1-5 with a warning (delete
+#                 than the collected results and the run's health-check records, skip stages 1-5 with a warning (delete
 #                 processed_results/ to analyze anew; see data_current()); if only its per-run plots are missing or
 #                 older than the collected results, only the three plot scripts run (see missing_plots()). Chunks are collected as their jobs
 #                 finish, so an incomplete run may have gaps (chunks 0-40 and 45):
@@ -577,10 +577,19 @@ def analyzed_data(run_folder, n_samples_override=None):
     return run_folder, (n if n < load_run_info(run_folder).sample_size else None)
 
 
+def _inputs_mtime(run_path):
+    """The newest input of a run's analysis: raw_results/results_counts.json or any health_checks/*.json (a health check
+    collected after the last chunk makes the run's outputs stale)."""
+    times = [(run_path / "raw_results" / "results_counts.json").stat().st_mtime]
+    times += [f.stat().st_mtime for f in (run_path / "health_checks").glob("*.json")]
+    return max(times)
+
+
 def data_current(run_folder, n_samples):
     """Whether the run's analysis on n_samples chunks (None = the full run) is up to date, so stages 1-5 can be skipped: its
     run_data (and run_data_spam with SPAM), summary and, if the run has health checks, health_checks json all exist in
-    processed_results/ and are newer than raw_results/results_counts.json (so newly collected chunks re-analyze)."""
+    processed_results/ and are newer than the collected results and health-check records (_inputs_mtime(), so newly collected chunks or health
+    checks re-analyze)."""
     from source.core.records.health_check_records import load_health_checks, load_extra_health_checks
 
     run_path = PROJECT_ROOT / "datafiles" / run_folder
@@ -591,28 +600,22 @@ def data_current(run_folder, n_samples):
         files.append(processed / f"run_data_spam{suffix}.json")
     if load_health_checks(run_path) or load_extra_health_checks(run_path):
         files.append(processed / f"health_checks{suffix}.json")
-    counts_mtime = (run_path / "raw_results" / "results_counts.json").stat().st_mtime
+    counts_mtime = _inputs_mtime(run_path)
     return all(f.exists() and f.stat().st_mtime > counts_mtime for f in files)
 
 
 def missing_plots(run_folder, n_samples):
     """The per-run figure names (run_names.expected_plot_names) that are absent from the run's plots folder or not newer than
-    raw_results/results_counts.json. The nsamples-comparison figure is not one of them (--nsamples-comparison draws it)."""
+    the collected results and health-check records (_inputs_mtime()). The nsamples-comparison figure is not one of them (--nsamples-comparison draws it)."""
     from source.core.records.health_check_records import load_health_checks, load_extra_health_checks
 
     run_path = PROJECT_ROOT / "datafiles" / run_folder
     info = load_run_info(run_folder)
     has_hc = bool(load_health_checks(run_path) or load_extra_health_checks(run_path))
     folder = PROJECT_ROOT / plots_dir(run_folder)
-    counts_mtime = (run_path / "raw_results" / "results_counts.json").stat().st_mtime
+    counts_mtime = _inputs_mtime(run_path)
     return [name for name in expected_plot_names(info.lnn, info.nshots, info.do_spam, has_hc, n_samples)
             if not ((folder / name).exists() and (folder / name).stat().st_mtime > counts_mtime)]
-
-
-def already_analyzed(run_folder, n_samples):
-    """Whether stages 1-5 can be skipped for the run's analysis on n_samples chunks (None = the full run): the data is
-    current (data_current()) and no per-run plot is missing or stale (missing_plots())."""
-    return data_current(run_folder, n_samples) and not missing_plots(run_folder, n_samples)
 
 
 BEST_FLAGS = {   # --best-* flag -> (PER_QPU_SUFFIXES key, summary key, whether a higher value is better)
@@ -758,7 +761,7 @@ def nsamples_comparison(run_folder, n_ref):
     run_path = PROJECT_ROOT / "datafiles" / run_folder
     info     = load_run_info(run_folder)
     ref_n    = n_ref if n_ref is not None else info.sample_size
-    counts_mtime = (run_path / "raw_results" / "results_counts.json").stat().st_mtime
+    counts_mtime = _inputs_mtime(run_path)
     done = []
     for n in NSAMPLES_COMPARISON:
         if n > ref_n:
@@ -768,6 +771,9 @@ def nsamples_comparison(run_folder, n_ref):
             continue   # the reference, already analyzed
         files = [run_path / "processed_results" / f"run_data{subset_suffix(n)}.json",
                  run_path / "processed_results" / run_summary_name(n)]
+        if info.do_spam:
+            files.append(run_path / "processed_results" / f"run_data_spam{subset_suffix(n)}.json")
+        # no health_checks+nsamples-N json is produced for these n, so it is not checked
         if all(f.exists() and f.stat().st_mtime > counts_mtime for f in files):
             print(f"   {backend_name}: n_samples={n} already analyzed")
         else:

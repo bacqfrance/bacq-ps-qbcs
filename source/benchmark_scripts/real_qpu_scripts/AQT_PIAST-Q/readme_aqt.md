@@ -377,8 +377,7 @@ sbatch file as they are then (a running job keeps the copy of the sbatch file it
 - A job cannot submit new jobs from a worker node, so it continues by requeueing itself
   (`scontrol` works there). SSH from a worker node to the login node is refused as well.
 - The venvs are Linux venvs built on the cluster (*Access and setup* above), not copies
-  from a PC. The sbatch files run the scripts with the interpreter of `venvs/aqt.venv` (or `local_sim.venv`)
-  directly.
+  from a PC. The sbatch files activate `venvs/aqt.venv` (or `local_sim.venv`) and run the scripts with its `python3`.
 - `tokens/aqt_piast-q_token` goes on the cluster too. It is a bearer
   credential, so make it readable only by yourself (`chmod 600 tokens/aqt_piast-q_token`).
 - The job is network-bound: it waits on PIAST-Q almost all the time and uses the CPU only

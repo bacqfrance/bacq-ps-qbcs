@@ -466,8 +466,8 @@ def vlq_collect_timing(job, upload_end_at):
 
 def wait_for_result(job, job_id="", timeout_s=None):
     """job.result() of a finished job as a qiskit Result (counts per circuit in submission order), logged and
-    time-limited (TIMEOUTS['result download']). Bit strings are in the order qaas 0.5 returned (key_order_left_to_right), which
-    the pipeline's reversal of the counts expects."""
+    time-limited (TIMEOUTS['result download']). Bit strings are requested left to right (key_order_left_to_right=True), the
+    order the pipeline's reversal of the counts expects."""
     timeout_s = timeout_s or TIMEOUTS["result download"]
     return call("result download", lambda: job.result(qiskit_legacy=True, key_order_left_to_right=True), f"HEAppE job {job_id}",
                 timeout_s=timeout_s + 30)

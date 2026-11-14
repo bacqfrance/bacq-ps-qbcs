@@ -3004,7 +3004,7 @@ class bacq_ps_qbcs:
         spam_correction    = n_spam > 0
         chunk_key          = f"chunk_{nc}"
 
-        # ── CHANGE: retrieve via IQMBackend.retrieve_job (no CircuitJobRequest) ──
+        # A VLQ job (shared by several chunks) is fetched once into the job cache; other IQM jobs go through backend.retrieve_job.
         vlq   = record.get("service_name") == QAAS_IT4I
         cache = self.__dict__.setdefault("_iqm_job_cache", {})
         if vlq and job_id not in cache:                  # a packed job is shared by several chunks — fetch it once

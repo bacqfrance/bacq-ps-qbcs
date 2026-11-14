@@ -3,6 +3,8 @@ health_check_real_ibm.py
 Submit AND collect a QPU health check on a real IBM QPU, in one script.
 Each run uses a new numbered RUN_FOLDER; the folder of a leftover unfinished
 attempt is cleared before it is reused.
+The optional instance=NAME argument picks the IBM instance (default: the
+account's Open Plan instance).
 collect_health_check() blocks (polls every 30s internally) until the job
 reaches a final state.
 """

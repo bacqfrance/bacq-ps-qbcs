@@ -37,6 +37,7 @@ PROJECT=$HOME/Quantum_Benchmarking_project
 export PYTHONIOENCODING=utf-8
 PAUSE_AFTER_HOURS=10     # pause at the first chunk boundary after this many hours, then requeue
 cd "$PROJECT"
+source venvs/aqt.venv/bin/activate   # the AQT venv: python3 below is its interpreter
 
 # ── Output helpers: a title between two rules, then aligned "Label:  value" rows (nothing wider than ~90 characters) ──
 RULE='────────────────────────────────────────────────────────────'
@@ -56,7 +57,7 @@ describe_exit() {                                      # what an exit code of th
     esac
 }
 
-PYTHON=$PROJECT/venvs/aqt.venv/bin/python
+PYTHON=python3
 AQT_DIR=source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q
 
 # No arguments or --help: only the loop script's usage (exit code 2 without arguments, 0 for --help).
