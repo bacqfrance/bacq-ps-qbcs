@@ -40,8 +40,8 @@ root by itself, so it can also be started from any other directory. On Windows, 
 > <https://www.eurohpc-ju.europa.eu/eurohpc-quantum-computers/our-quantum-computers_en>.
 >
 > **Times.** The circuit-generation times for the full benchmark below were measured on a desktop-class Windows PC. QPU times are measured on past
-> runs (IBM, IQM Resonance: billed time),
-> modelled (IQM EQE1: 0.9 s per circuit) or estimated (IQM VLQ: execution ≈ 3 ms per circuit + 0.3 ms per shot; AQT: 3 s per circuit at
+> runs (IBM, IQM Resonance: billed time; IQM VLQ: execution window),
+> modelled (IQM EQE1: 0.9 s per circuit) or estimated (AQT: 3 s per circuit at
 > ≤ 10 shots, 15 s at 200 shots). Queue time comes on top of the QPU time and is unpredictable: from minutes
 > to days on a busy machine.
 >
@@ -263,7 +263,7 @@ benchmark; without arguments they only print their usage (USER_MANUAL §4.3 list
 > | IQM EQE1 | 5 tasks × $0.30 + 32,200 shots × $0.0016 = $53.02 | ≈ €47 |
 > | IQM Resonance (Emerald, Garnet) | 4 tasks × $0.30 + 32,200 shots × $0.0016 = $52.72 (Emerald; Garnet: $0.00145 per shot, $47.89) | ≈ €46 (Emerald), €42 (Garnet) |
 > | IQM Resonance Sirius | 4 tasks × $0.30 + 32,200 shots × $0.00064 (synthetic price, as for VLQ) = $21.81 | ≈ €19 |
-> | IQM VLQ | 4 tasks (2 for the job's 8 chunks at 5 chunks per task, 2 health checks) × $0.30 + 32,200 shots × $0.00064 = $21.81 | ≈ €19 |
+> | IQM VLQ | 4 tasks (2 for the two jobs' 8 chunks, one task each, 2 health checks) × $0.30 + 32,200 shots × $0.00064 = $21.81 | ≈ €19 |
 > | AQT PIAST-Q | 169 executions × €0.30 + 32,900 shots × €0.021 | ≈ €740 |
 >
 > 🆓 **IBM Quantum Open Plan.** The mini benchmark takes 15 s of the Open Plan's 10 free minutes per month
@@ -294,7 +294,7 @@ script runs a PRE health check, aborts if the QPU is degraded, submits, and subm
 | IBM | `ibm.venv` | `python3 .../IBM/qbcs_real_submit_ibm.py backend=ibm_marrakesh mini`,<br>later `python3 .../IBM/qbcs_real_collect_ibm.py backend=ibm_marrakesh mini` | 1 (all 8 chunks) + 2 health checks | 160 + 2 | 32,000 + 200 | **15 s billed**, measured on Fez, Kingston and Marrakesh (QPU execution alone ~8.5 s) |
 | IQM EQE1 | `iqm_eqe1.venv` | `python3 .../IQM_EQE1/qbcs_real_submit_iqm_eqe1_with_retries.py backend=EQE1 mini`,<br>later `python3 .../IQM_EQE1/qbcs_real_collect_iqm_eqe1.py backend=EQE1 mini` | 3 (≤ 70 circuits each: 3 + 3 + 2 chunks) + 2 | 160 + 2 | 32,000 + 200 | **~146 s** modelled (0.9 s per circuit × 162 circuits; EQE1 reports no QPU time) |
 | IQM Resonance | `iqm_resonance.venv` | `python3 .../IQM_RESONANCE/qbcs_real_submit_iqm_resonance.py backend=emerald mini`,<br>later `python3 .../IQM_RESONANCE/qbcs_real_collect_iqm_resonance.py backend=emerald mini` | 2 (≤ 100 circuits each: 5 + 3 chunks) + 2 | 160 + 2 | 32,000 + 200 | **billed: Emerald 18 s, Garnet 14 s, Sirius 15 s** (QPU execution alone: 14, 10 and 11 s) |
-| IQM VLQ | `iqm_vlq.venv` | `python3 .../IQM_VLQ/qbcs_real_submit_iqm_vlq_with_retries.py backend=VLQ mini`,<br>later `python3 .../IQM_VLQ/qbcs_real_collect_iqm_vlq.py backend=VLQ mini` | 1 (all 8 chunks) + 2 | 160 + 2 | 32,000 + 200 | **15 s** (IQM Resonance-equivalent billed time; QPU execution alone ~12 s) |
+| IQM VLQ | `iqm_vlq.venv` | `python3 .../IQM_VLQ/qbcs_real_submit_iqm_vlq_with_retries.py backend=VLQ mini`,<br>later `python3 .../IQM_VLQ/qbcs_real_collect_iqm_vlq.py backend=VLQ mini` | 2 (5 + 3 chunks) + 2 | 160 + 2 | 32,000 + 200 | **16 s** (IQM Resonance-equivalent billed time; QPU execution alone ~12 s) |
 | AQT PIAST-Q | `aqt.venv` | on the PCSS cluster, `sbatch source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/PCSS_Quantum_UI/run_aqt_loop.sbatch backend=PIAST-Q mini` \* (synchronous, no collect step) | 8 chunks (1 batch each) + 9 health checks (1 PRE + 1 after each chunk) | 160 circuits, **160 executions** (200 shots fit AQT's limit of 200 per circuit, so each chunk runs once) + 9 | 32,000 + 900 | **~41 min** estimated (160 executions × 15 s at 200 shots = 40 min, plus 9 health checks ≈ 1¼ min; AQT reports no QPU time), measured on 2026-10-02: 5 h wallclock including queue |
 
 `...` = `source/benchmark_scripts/real_qpu_scripts`.
@@ -458,7 +458,7 @@ few chunks first. Expect ~1½–2 h CPU time on your side for loading and transp
 | IBM (Fez, Kingston, Marrakesh) | 10 (48 chunks each) + 2 health checks | 32,640 + 2 | 326,400 + 200 | **~2 min** (12 s billed per 48-chunk job) | ~1 h to ~1 day |
 | IQM EQE1 | 480 (1 chunk each) + 2 | 32,640 + 2 | 326,400 + 200 | **~8 h** (0.9 s per circuit) | ~9 h |
 | IQM Resonance (Emerald) | 480 (1 chunk each) + 2 | 32,640 + 2 | 326,400 + 200 | **~7 min** (~0.85 s billed per job) | ~1 h |
-| IQM VLQ | 48 (10 chunks each; 48-chunk jobs failed at IT4I, 12-chunk ones are refused at the upload) + 2 | 32,640 + 2 | 326,400 + 200 | ~3½ min estimated (execution ≈ 3 ms per circuit + 0.3 ms per shot) | submission ~1.5 h (transpiling; uploading takes seconds per job), plus queue |
+| IQM VLQ | 96 (5 chunks each) + 2 | 32,640 + 2 | 326,400 + 200 | ~21 min (execution window of the 96 jobs, measured) | submission ~32 min (transpiling; uploading takes seconds per job), plus queue (usually, a few seconds) |
 | AQT PIAST-Q | 480 chunks, one after another + 481 health checks (1 PRE + 1 after each chunk) | 32,640 + 481 | 326,400 + 48,100 | **~28 h** (3 s per circuit ≈ 27 h, health checks ~1 h at ~9 s each) | weeks: the first 206 chunks took ~17½ days (~2 h per chunk, 96 % of it queue) |
 
 For the AQT full run, keep the session alive for the duration: start the loop script inside `tmux` or

@@ -81,7 +81,7 @@ still complete on IT4I's side: check the job status before submitting again.
 | `LNN` | taken from the backend's `"lnn"` entry in `backends.json`: `false` — the star is all-to-all through the resonator |
 | `DO_SPAM` | also run SPAM calibration |
 | `CHUNKS_TO_SUBMIT` | submit only the first N chunks |
-| `CHUNKS_PER_JOB` | whole chunks (each with its 8 SPAM circuits) per VLQ job. Mini: all 8 chunks in one job (8 × 20 = 160 circuits). Full: 10 (10 × 68 = 680 circuits, 700 with `extra_health_checks=per-chunk`). Jobs of 48 chunks (3,264 circuits) failed when IT4I forwarded them to IQM, and IT4I's gateway refuses the upload of 12 chunks with per-chunk health checks (840 circuits; HTTP 502 `Failed to buffer the request body: length limit exceeded`; 11 chunks, 770 circuits, still went through); with 10 chunks a failure costs one short job, and rerunning the submit script resubmits only the chunks without records |
+| `CHUNKS_PER_JOB` | whole chunks (each with its 8 SPAM circuits) per VLQ job. Mini: 5 chunks in the first job and the other 3 in the second (5 × 20 = 100 and 3 × 20 = 60 circuits). Full: 5 (5 × 68 = 340 circuits, 350 with `extra_health_checks=per-chunk`), so 96 jobs. Jobs that are too large or too long (too many long circuits, or too many shots) can fail during execution; 5 chunks work with a safe margin, and rerunning the submit script resubmits only the chunks without records |
 
 ### Benchmark size and run folders (command-line arguments)
 
@@ -224,8 +224,8 @@ Every chunk and health-check record gets a `timing` block and a `circuit_check` 
   `not_available` ("IQM VLQ (qaas 1.0) does not return the executed circuits") and the analysis falls back to the weaker check that all
   transpiled circuits sit on the run's physical qubits. Runs made with qaas 0.5 keep the gate-by-gate `match` check they recorded.
 
-IT4I documents a charge of at least 0.9 s per job; the counter we observed charges the execution
-time only (≈ 0.2 s per job + 0.3 ms per shot + 3 ms per circuit). The summary's cost is a
+IT4I documents a charge of at least 0.9 s per job. A job's execution window (`qpu_exec_s`), measured on jobs of 1 to 700 circuits
+at 10 to 200 shots (qaas 1.0), is ≈ 0.2 s per job + 38 ms per circuit + 0.13 ms per shot (a shot counted per circuit, so a 340-circuit job of 10-shot circuits runs for about 13 s). The summary's cost is a
 synthetic estimate combining the IQM Resonance and Amazon Braket billing schemes (VLQ is not sold
 commercially): $0.30 per task and Braket's Emerald shot price scaled by IQM Resonance's credits per
 second for Sirius (a Star 24 machine, 0.3) over Emerald (0.75), $0.00064 per shot; each job counts
@@ -275,7 +275,7 @@ through the `QPU_*` environment variables; each also works standalone (main USER
   cancellation HEAppE accepted reads state ERROR (Failed) afterwards, not CANCELLED. Right after submission (HEAppE state
   "Submitted") IT4I's QScheduler can answer with HTTP 502 ("Cannot parse `<n>:task:<m>` to a `u64`"): the script then
   reports that HEAppE did not accept the cancellation, and the job keeps running; cancel it again a little later. A job
-  may also have finished already (the mini benchmark's job finishes within seconds). qaas logs a refused request at ERROR
+  may also have finished already (the mini benchmark's jobs finish within seconds). qaas logs a refused request at ERROR
   ("Failed to cancel job …"), so such a line in the terminal output is expected.
 - **Upload failures.** Rerunning the submit script resubmits the chunks of an upload marked `"submission failed"`; an
   upload marked `may_exist_on_provider: true` (timed out or lost its connection) may have created a job, so check it

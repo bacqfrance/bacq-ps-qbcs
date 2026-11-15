@@ -124,8 +124,7 @@ benchmark records. The code of steps 4–8 is built on these findings.
    they decide what the timing block records (step 4), how the cost is modelled (step 8), and
    they become the test fixtures of step 9.
 5. Find out the provider's limits: circuits per job, shots per circuit, walltime, upload size,
-   rate limits. Note which of them made a job fail (VLQ: 48-chunk jobs timed out between IT4I and
-   IQM; AQT: at most 200 shots per circuit, at most 50 circuits per job, a limit of the `qiskit-aqt-provider` client library, which rejects larger jobs before sending) and which were given
+   rate limits. Note which of them made a job fail (VLQ: jobs that are too large or too long can fail during execution, so a job holds 5 chunks; AQT: at most 200 shots per circuit, at most 50 circuits per job, a limit of the `qiskit-aqt-provider` client library, which rejects larger jobs before sending) and which were given
    by the provider's staff (EQE1: 70 circuits per job).
 6. If the service is reached through a flaky layer (an HPC scheduler, a gateway), plan for calls
    that never return: the SDK may set no overall time limit (qaas sets only 60 s per request).

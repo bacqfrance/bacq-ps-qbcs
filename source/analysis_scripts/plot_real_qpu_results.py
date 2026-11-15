@@ -40,7 +40,7 @@ PATH       = f"datafiles/{RUN_FOLDER}/processed_results"
 SUFFIX     = subset_suffix(N_SAMPLES)
 PLOT_NAMES = plot_names(LNN, NSHOTS, N_SAMPLES)   # the figure names run_post_process.py looks for
 # Executed-vs-submitted circuit check: a red line on every figure if it failed
-VERIFICATION = load_run_verification(f"datafiles/{RUN_FOLDER}", SUFFIX)
+VERIFICATION = load_run_verification(Path("datafiles") / RUN_FOLDER, SUFFIX)
 COMPLETENESS = load_run_completeness(Path("datafiles") / RUN_FOLDER, SUFFIX) or completeness(Path("datafiles") / RUN_FOLDER, INFO.sample_size, N_SAMPLES)   # uncollected chunks / health checks: red line on every figure
 PLOTS_DIR  = plots_dir_of(RUN_FOLDER).as_posix()
 os.makedirs(PLOTS_DIR, exist_ok=True)
