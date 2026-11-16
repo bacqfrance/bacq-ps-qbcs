@@ -41,10 +41,10 @@ Optional filters narrow the selected runs, for the individual and the collective
 A filtered collective set goes to its own folder, e.g. mini_collective_real-data_dates-2026-09-01-to-2026-09-30_backends-ibm-fez.
 Add --latest-per-qpu to keep only the latest run (date, then run number; complete or not, any layout) of each
 (data type, <provider>-<backend>) among the runs the selection and filters leave; its collective plots go to a folder ending
-_latest-per-qpu. --best-Nacc-per-qpu / --best-Emin-at-Nmax-per-qpu instead keep, per (data type, <provider>-<backend>), the run
-with the highest N_acc / the lowest E_min at N_max (the later run on a tie); every candidate is analyzed first if it is not
-(also with --collective-only), and the folder ends _best-nacc-per-qpu / _best-emin-at-nmax-per-qpu. The three flags exclude
-each other. The collective plots and the run table show a layout as optimized_by_gates for an optimized run made before T1/T2
+_latest-per-qpu. --best-Nacc-per-qpu / --best-Nacc-strict-per-qpu / --best-Emin-at-Nmax-per-qpu instead keep, per (data type, <provider>-<backend>), the run
+with the highest N_acc / the highest N_acc_strict (a run without a bootstrap has none and is never chosen) / the lowest E_min at N_max (the later run on a tie);
+every candidate is analyzed first if it is not (also with --collective-only), and the folder ends _best-nacc-per-qpu / _best-nacc-strict-per-qpu /
+_best-emin-at-nmax-per-qpu. The four per-QPU flags exclude each other. The collective plots and the run table show a layout as optimized_by_gates for an optimized run made before T1/T2
 entered the layout score (dated 2026-10-19 or earlier, or whose physical_qubits.json has no decoherence_included) and as
 optimized_per_chunk_by_2q_gates_IQM for the legacy layout of iqm-emerald; --layouts= accepts these labels too. An incomplete run (fewer chunks analyzed than its sample size) is marked "(n/N chunks)" in the
 collective plots. Each collective plots folder also gets a copy of every plotted run's summary json.
@@ -189,7 +189,7 @@ RUN_THESE = {
 
 NSAMPLES_COMPARISON = [8, 48, 120, 240, 480]   # sample counts of --nsamples-comparison
 
-USAGE = f"usage: {LAUNCHER} " + """source/analysis_scripts/run_post_process.py SELECTION INCLUDE... [FILTER...] [--latest-per-qpu | --best-Nacc-per-qpu | --best-Emin-at-Nmax-per-qpu] [--individual-only | --collective-only] [--nsamples-comparison] [--filter-per-health-check[=T]]
+USAGE = f"usage: {LAUNCHER} " + """source/analysis_scripts/run_post_process.py SELECTION INCLUDE... [FILTER...] [--latest-per-qpu | --best-Nacc-per-qpu | --best-Nacc-strict-per-qpu | --best-Emin-at-Nmax-per-qpu] [--individual-only | --collective-only] [--nsamples-comparison] [--filter-per-health-check[=T]]
 
   Run the BACQ analysis pipeline (merge + analyze, summary, plots, collective plots) for a chosen set of runs,
   real-QPU and/or simulated. Nothing is analyzed unless at least one INCLUDE flag is given.
@@ -224,8 +224,10 @@ USAGE = f"usage: {LAUNCHER} " + """source/analysis_scripts/run_post_process.py S
                          suffix _latest-per-qpu. Incomplete runs are marked "(n/N chunks)" in the collective plots.
   --best-Nacc-per-qpu    keep only the run with the highest N_acc of each (data type, <provider>-<backend>) (the later run on a
                          tie); runs not yet analyzed are analyzed first, even with --collective-only; suffix _best-nacc-per-qpu
+  --best-Nacc-strict-per-qpu    the same with the highest N_acc_strict (a run without a bootstrap has none and is never
+                         chosen); suffix _best-nacc-strict-per-qpu
   --best-Emin-at-Nmax-per-qpu   the same with the lowest E_min at N_max; suffix _best-emin-at-nmax-per-qpu
-                         (the three per-QPU flags exclude each other)
+                         (the four per-QPU flags exclude each other)
   The collective plots and run table label layouts optimized_by_gates (optimized before T1/T2 entered the layout score) and
   optimized_per_chunk_by_2q_gates_IQM (iqm-emerald's legacy layout); --layouts= accepts these labels.
 
@@ -589,7 +591,8 @@ def data_current(run_folder, n_samples):
     """Whether the run's analysis on n_samples chunks (None = the full run) is up to date, so stages 1-5 can be skipped: its
     run_data (and run_data_spam with SPAM), summary and, if the run has health checks, health_checks json all exist in
     processed_results/ and are newer than the collected results and health-check records (_inputs_mtime(), so newly collected chunks or health
-    checks re-analyze)."""
+    checks re-analyze). Outputs written before the NEC bootstrap (a run_data or summary without "nec_analysis") are
+    stale too, so every older analysis is redone."""
     from source.core.records.health_check_records import load_health_checks, load_extra_health_checks
 
     run_path = PROJECT_ROOT / "datafiles" / run_folder
@@ -601,7 +604,22 @@ def data_current(run_folder, n_samples):
     if load_health_checks(run_path) or load_extra_health_checks(run_path):
         files.append(processed / f"health_checks{suffix}.json")
     counts_mtime = _inputs_mtime(run_path)
-    return all(f.exists() and f.stat().st_mtime > counts_mtime for f in files)
+    return outputs_current(files, counts_mtime)
+
+
+def outputs_current(files, counts_mtime):
+    """Whether every analysis output in files exists, is newer than counts_mtime and, for a run_data or summary json,
+    was written with the NEC bootstrap ("nec_analysis"; older outputs are stale). Used for the full run and the subsets."""
+    if not all(f.exists() and f.stat().st_mtime > counts_mtime for f in files):
+        return False
+    for f in files:
+        if f.name.startswith(("run_data", "summary")):
+            try:
+                if "nec_analysis" not in json.loads(f.read_text(encoding="utf-8")):
+                    return False
+            except (OSError, ValueError):
+                return False
+    return True
 
 
 def missing_plots(run_folder, n_samples):
@@ -620,6 +638,7 @@ def missing_plots(run_folder, n_samples):
 
 BEST_FLAGS = {   # --best-* flag -> (PER_QPU_SUFFIXES key, summary key, whether a higher value is better)
     "--best-Nacc-per-qpu":         ("best-nacc",          "N_acc",      True),
+    "--best-Nacc-strict-per-qpu":  ("best-nacc-strict",   "N_acc_strict", True),
     "--best-Emin-at-Nmax-per-qpu": ("best-emin-at-nmax",  "E_min_Nmax", False),
 }
 
@@ -630,10 +649,11 @@ def _qpu_key(run_folder):
     return n.data_type, n.device
 
 
-def pick_best_per_qpu(analyzed, summary_key, higher_is_better):
+def pick_best_per_qpu(analyzed, summary_key, higher_is_better, require_value=False):
     """The (run_folder, n_samples) of `analyzed` with the best summary value of `summary_key` for each
     (data type, device), in the order of `analyzed`. Equal values: the later run (date, then run number).
-    A run whose summary lacks the value (missing, null, NaN) only wins if no run of its QPU has one."""
+    A run whose summary lacks the value (missing, null, NaN) only wins if no run of its QPU has one, and never with
+    require_value (N_acc_strict: a run without a bootstrap is never selected)."""
     best = {}   # QPU -> (rank, (run_folder, n_samples)); rank: (has value, value as "bigger is better", date, run number)
     for run_folder, n_samples in analyzed:
         path = PROJECT_ROOT / "datafiles" / run_folder / "processed_results" / run_summary_name(n_samples)
@@ -645,6 +665,9 @@ def pick_best_per_qpu(analyzed, summary_key, higher_is_better):
         n = parse_run_name(run_folder)
         rank = (usable, (value if higher_is_better else -value) if usable else 0, n.date or "", n.run_number or 0)
         key = _qpu_key(run_folder)
+        if require_value and not usable:
+            print(f"⚠️  {run_folder}: no usable {summary_key} in its summary — never selected")
+            continue
         if key not in best or rank >= best[key][0]:
             best[key] = (rank, (run_folder, n_samples))
         if not usable:
@@ -774,7 +797,7 @@ def nsamples_comparison(run_folder, n_ref):
         if info.do_spam:
             files.append(run_path / "processed_results" / f"run_data_spam{subset_suffix(n)}.json")
         # no health_checks+nsamples-N json is produced for these n, so it is not checked
-        if all(f.exists() and f.stat().st_mtime > counts_mtime for f in files):
+        if outputs_current(files, counts_mtime):
             print(f"   {backend_name}: n_samples={n} already analyzed")
         else:
             ok, _ = merge_and_analyze(run_folder, n)
@@ -864,7 +887,7 @@ def main():
         print("\n✅ Pipeline complete.")
         return
     if best:
-        analyzed = pick_best_per_qpu(analyzed, best[1], best[2])
+        analyzed = pick_best_per_qpu(analyzed, best[1], best[2], require_value=best[1] == "N_acc_strict")
         print(f"\nBest {best[1]} per QPU ({len(analyzed)} run(s)):")
         for f, n in analyzed:
             print(f"  {f}")

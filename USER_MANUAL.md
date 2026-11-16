@@ -48,6 +48,7 @@ Based on:
     - [10.1 Run them in this order](#101-run-them-in-this-order)
     - [10.2 The scripts](#102-the-scripts)
     - [10.3 Things that will trip you up](#103-things-that-will-trip-you-up)
+  - [11. NEC error mitigation and uncertainties](#11-nec-error-mitigation-and-uncertainties)
 
 ---
 
@@ -261,10 +262,10 @@ run this from the project root, with `local_sim.venv` active:
 ```bash
 pytest source/tests/
 ```
-Runs `test_00`/`test_01`/`test_07`/`test_08`/`test_10`/`test_11`/`test_12`/`test_13`/`test_14`/`test_15`/`test_16`/`test_17`/`test_18`/`test_19`/`test_20`/`test_21`/`test_22`/`test_23`/`test_24`/`test_25`/`test_26`/`test_27`/`test_28`/`test_29`/`test_30`/`test_31` (§9) —
+Runs `test_00`/`test_01`/`test_07`/`test_08`/`test_10`/`test_11`/`test_12`/`test_13`/`test_14`/`test_15`/`test_16`/`test_17`/`test_18`/`test_19`/`test_20`/`test_21`/`test_22`/`test_23`/`test_24`/`test_25`/`test_26`/`test_27`/`test_28`/`test_29`/`test_30`/`test_31`/`test_32` (§9) —
 fundamental checks that confirm the circuits are built correctly, a full
 local-sim pipeline + post-processing integration check, and unit tests of the
-executed-circuit check and the timing bookkeeping — in 5 to 10 minutes (490 tests; longer on slower machines).
+executed-circuit check and the timing bookkeeping — in 5 to 10 minutes (509 tests; longer on slower machines).
 **Two venvs are needed**: `local_sim.venv` runs the suite (the run stops at once with instructions if `venvs/local_sim.venv` is missing; `test_10` also starts a child process in it), and `test_12` runs itself in `aqt.venv` — it fails with an error telling you to create `venvs/aqt.venv` (`source/benchmark_scripts/real_qpu_scripts/AQT_PIAST-Q/readme_aqt.md` §1, `requirements_aqt.txt`, which includes `pytest`) or to activate `aqt.venv` and run `python3 -m pip install pytest` (`py -m pip install pytest` on Windows) if only `pytest` is missing there.
 All tests passing (no failures, no errors) means the base venv, myQLM↔Qiskit
 translation, local Aer simulation, and `source/analysis_scripts/run_post_process.py` all work
@@ -1287,6 +1288,7 @@ The numbered tests skip 02-06 and 09 (those numbers belong to retired tests).
 | `source/tests/test_29_job_cancel.py` | the shared body of the `cancel_real_qpu_jobs_*.py` scripts (`job_cancel.py`) with fake status and cancellation: only queued or running jobs are cancelled, a job shared by chunks once, records without a job and ended jobs are left alone, the standalone health check, records unchanged on disk, and exit code 2 when a cancellation or a status query fails (the next run folder still runs) |
 | `source/tests/test_30_dummy_estimates.py` | unit tests, no simulation or network (temporary folders): the gate counts of a circuit (`rz` free, 2-qubit gates, measurements), the time model and each pricing model (`ibm_payg`, `braket`, `braket_scaled`, `hqc`) against hand-computed values, a null or missing term refused (all shipped dummies valid), `dummy_estimates.json` written once with no absolute path, a run's jobs read from a cached circuit folder and its records, and the driver's skip/resume rule (§4.4) |
 | `source/tests/test_31_extra_health_check_collection.py` | unit tests, no simulator, QPU or network (temporary folders, stand-ins shaped as the providers returned them): the collection side of `extra_health_checks`; the health-check circuits saved as `health_checks/extra_*.json` (file names per mode, the counts at the recorded offsets, bit reversal, a degraded check warns without exiting), the IBM, IQM EQE1, IQM Resonance and VLQ collectors keeping them apart from the chunks' results, packing → recorded offsets → collection for a per-chunk and a per-job job of several chunks, the circuit check of each slot (match, mismatch of one slot only and its warning, a missing file, `not_available` where the executed circuits are not returned), the run's circuit verification counting the extra records, a repeated collection leaving everything as it was, and `plot_health_checks.py` on degraded, half-missing and failed-job records (`incomplete_extra_health_checks`); the chunks passing `--filter-per-health-check` (`chunks_passing_extra_health_checks()`: per-chunk and per-job pairs, a missing post, P011 equal to the threshold), the SPAM calibration counts of a chunk set, and `plot_health_checks.py`'s filtered output recording `filter_threshold` |
+| `source/tests/test_32_nec_bootstrap.py` | unit tests on synthetic data, no simulator, QPU or network: the NEC attenuations (`sign_matrix` bit order, zero noise giving F = 1 and f_S = 1), the stratified bootstrap (`bootstrap_weights` reproducible with a seed and keeping each input state's sample count), the attenuation floor (never NaN, a zero attenuation giving a finite value), `compute_mitigated_expectation_values` on a tiny run (the global switch reproducing mean(obs)/mean(F), per-observable differing, no bootstrap below 5 samples per input state), and `compute_derived_quantities`' `N_acc_strict` (its own scheme by upper bound, null without a bootstrap, the depth-1 values at 0) |
 
 ### 9.1 Your circuit caches are safe during `pytest source/tests/`
 
@@ -1348,9 +1350,9 @@ Either scope flag can be added as well (e.g. `python3 source/analysis_scripts/ru
 
 `--latest-per-qpu` keeps only the latest run (by date, then run number; complete or not, any layout) of each
 (data type, `<provider>-<backend>`) among the runs the selection and filters leave. Its collective plots go to a folder ending
-`_latest-per-qpu`. `--best-Nacc-per-qpu` and `--best-Emin-at-Nmax-per-qpu` instead keep the run with the highest N_acc, or the
+`_latest-per-qpu`. `--best-Nacc-per-qpu`, `--best-Nacc-strict-per-qpu` and `--best-Emin-at-Nmax-per-qpu` instead keep the run with the highest N_acc, the highest N_acc_strict (§11; a run without a bootstrap is never chosen), or the
 lowest E_min at N_max, of each (data type, `<provider>-<backend>`) (the later run on a tie); runs not yet analyzed are analyzed
-first, also with `--collective-only`, and the folders end `_best-nacc-per-qpu` / `_best-emin-at-nmax-per-qpu`. The three flags
+first, also with `--collective-only`, and the folders end `_best-nacc-per-qpu` / `_best-nacc-strict-per-qpu` / `_best-emin-at-nmax-per-qpu`. The four flags
 exclude each other. The collective plots, the run table and the per-run plot titles name the layout of an optimized run made
 before T1 and T2 entered the layout score (dated 2026-10-19 or earlier, or recorded without `decoherence_included`)
 `optimized_by_gates`, and the legacy layout of `iqm-emerald` `optimized_per_chunk_by_2q_gates_IQM`; `--layouts=` accepts these
@@ -1399,7 +1401,7 @@ settings (samples, depths, shots) still come from its run folder; the argument o
 
 | File | Shows |
 |---|---|
-| `awae_best_ems_vs_Nt.png` | AWAE vs $N_t$ of each run's best EMS at $N_{max}$ (solid) and at $N_{acc}$ (dashed) — one line if they coincide — with the threshold ε = 0.05 (`derived_quantities.EPSILON`) |
+| `awae_best_ems_vs_Nt.png` | AWAE vs $N_t$ of each run's best EMS at $N_{max}$ (solid), at $N_{acc}$ (dashed) and at $N_{acc,strict}$ (dash-dot) — one line where they coincide — with the 95% intervals as bars and the threshold ε = 0.05 (`derived_quantities.EPSILON`) |
 | `cumul_awae_best_ems_vs_Nt.png` | the same for the cumulative AWAE (Z_exact-weighted mean over the depths up to $N_t$, `derived_quantities.cumulative_awae()`), the quantity $N_{acc}$ is defined by |
 | `awae_and_cumul_awae_best_ems_vs_Nt.png` | both side by side |
 | `qpu_time.png` | `QPU_time_s` per run, log scale; bar labels and ticks in seconds (up to 60 s), minutes (up to 60 min), hours (up to 24 h) or days; a dummy emulator's modelled time is labelled `[estimated]` |
@@ -1409,9 +1411,10 @@ settings (samples, depths, shots) still come from its run folder; the argument o
 | `submission_to_results_duration_without_dead_time.png` | `QPU_submission_to_results_duration_without_dead_time_s` per run (the window minus long idle gaps), log scale, units as above; simulations and runs summarized without it are left out |
 | `effective_cost_EUR.png` | `effective_cost_EUR` per run, log scale with € labels; a dummy emulator's modelled cost is labelled `[estimated]` |
 | `n_acc.png` | $N_{acc}$ per run, linear scale (a run with $N_{acc}$ = 0 shows a bar at 0); runs whose summary lacks it are left out |
-| `e_min_nmax.png` | `E_min_Nmax` (the lowest AWAE over the schemes at $N_{max}$) per run, linear scale 0 to 1.05, with the threshold ε = 0.05 as a dashed line |
+| `n_acc_strict.png` | $N_{acc,strict}$ (§11) per run, linear scale like `n_acc.png`; a run without a bootstrap interval is drawn as missing, with a note |
+| `e_min_nmax.png` | `E_min_Nmax` (the lowest AWAE over the schemes at $N_{max}$) per run, linear scale 0 to 1.05, with the threshold ε = 0.05 as a dashed line, the value to 3 decimals on each bar and its 95% bootstrap interval centred on the bar's right edge |
 
-The same runs in one table, `<benchmark>_collective_<data types>.csv` in the same folder as the plots (e.g. `analysis/plots+summaries/mini_collective_real-data+sim-noiseless/mini_collective_real-data+sim-noiseless.csv`), which also holds a copy of each run's `summary_<run name>.json`: `;`-separated and padded with spaces so it also reads as a text table, UTF-8, one row per run, in the order of the plots; columns `run` (the plot label), `n_samples`, `sample_size`, `N_acc`, `best_scheme_Nacc`, `N_max`, `E_min_Nmax` (4 significant digits), `best_scheme_Nmax`, `QPU_time_s` (whole seconds), `QPU_time` (readable), `effective_cost_EUR` (2 decimals), and `estimated` (only when a dummy emulator is among the runs; `estimated` in its row); a quantity the summary lacks is an empty cell.
+The same runs in one table, `<benchmark>_collective_<data types>.csv` in the same folder as the plots (e.g. `analysis/plots+summaries/mini_collective_real-data+sim-noiseless/mini_collective_real-data+sim-noiseless.csv`), which also holds a copy of each run's `summary_<run name>.json`: `;`-separated and padded with spaces so it also reads as a text table, UTF-8, one row per run, in the order of the plots; columns `run` (the plot label), `n_samples`, `sample_size`, `N_acc`, `best_scheme_Nacc`, `N_max`, `E_min_Nmax` (4 significant digits), `best_scheme_Nmax`, `QPU_time_s` (whole seconds), `QPU_time` (readable), `effective_cost_EUR` (2 decimals), `N_acc_strict`, `best_scheme_Nacc_strict`, `E_min_Nacc`, `E_min_Nacc_strict` (4 significant digits), the 95% interval ends `E_min_Nmax_ci95_lo` / `_hi`, `E_min_Nacc_ci95_lo` / `_hi`, `E_min_Nacc_strict_ci95_lo` / `_hi` (4 significant digits; the strict and interval cells are empty for a run without a bootstrap), and `estimated` (only when a dummy emulator is among the runs; `estimated` in its row); a quantity the summary lacks is an empty cell.
 
 Each run is labelled `<device_label>, layout <mode>, DD/MM/YYYY #N` (`device_label`, a key of the saved summary; older summaries on disk carry `computer_name`; the per-run figures use `figure_label_full`, §5.4:
 e.g. `ibm-fez — real QPU, lnn-True`, or for a simulation `fake-fez — simulation (FakeFez noise), lnn-True`; a legacy summary without either uses the backend name).
@@ -1475,7 +1478,7 @@ Runs without a layout argument carry `layout-optimized` (scored; `layout-random`
 (the lexicographically lowest SWAP-free placement) or `layout-legacy` (runs made before layouts were recorded; qiskit chose the qubits per circuit).
 
 **A still-collecting run.** A plain entry uses every chunk collected so far: a run already analyzed on those chunks (its run
-data (and SPAM run data with SPAM), summary and, if the run has health checks, health-check json in `processed_results/` and its per-run plots all newer than the collected results and the run's health-check records) skips stages 1-5
+data (and SPAM run data with SPAM), summary and, if the run has health checks, health-check json in `processed_results/` and its per-run plots all newer than the collected results and the run's health-check records, the run data and summary written with the NEC bootstrap of §11) skips stages 1-5
 with a warning (delete its `processed_results/` to analyze it anew; with current data but missing or stale plots, only the plots are redrawn), and an incomplete one is analyzed as a `+nsamples-<collected>` subset (any uncollected chunks
 and health checks are listed in it and warned about on the figures). `dict(run=…, n_samples=N)` analyzes exactly the
 first N chunks (at most as many as are collected), e.g. `dict(run="real-data_ibm-fez", n_samples=120)`. A subset's outputs
@@ -1574,7 +1577,7 @@ covers the first *n* collected ones (`source/core/records/chunk_scope.py`), ever
 cost, circuit checks — except the SPAM correction, which uses every collected chunk's calibration. Its files carry the number of chunks in their name as `+nsamples-<n>` (`run_data+nsamples-<n>.json`,
 `health_checks+nsamples-<n>.png/.json`, `summary+nsamples-<n>.json`, as for a subset analysis, §5.4); their `completeness` block lists the uncollected chunks and
 health checks, and every figure carries a red warning line naming them. Merged results keep each chunk's
-own number, which the NEC analysis needs (a sample's NEC input state is its chunk number mod 8). In the
+own number, which the NEC analysis needs (a sample's NEC input state is its chunk number mod 8, §11). In the
 health check plot, an uncollected health check is a red cross and an uncollected chunk job a purple cross,
 both at their submission time.
 
@@ -1616,6 +1619,66 @@ were looked up (2026-09-27; the IQM Resonance credits, used for the VLQ/Sirius e
   or stops with `FileNotFoundError`. Once the folder is found, every setting comes
   from its `run_info.json`. `run_post_process.py` avoids this by passing the folder
   explicitly (`QPU_RUN_FOLDER`).
+
+---
+
+## 11. NEC error mitigation and uncertainties
+
+**NEC circuits.** For each RC sample, a Noise Estimation Circuit runs the CNOT skeleton of the real circuit, which is the
+identity, from an input bitstring that depends on the sample: chunk number mod 2^nsites (mod 8 for the 3-qubit register). The run returns
+the raw bitstring counts, and a classical map gives the expected output for each input; the analysis computes the attenuation
+afterwards (SPAM-corrected for the SPAM schemes). The NEC schemes divide the mitigated observable by this attenuation.
+
+**Two attenuation estimators.** `CONFIG["nec_correction"]` selects one:
+
+- `"global"`: one scalar F = P(all bits correct), the same for all 7 observables (X0, Y1, Z2, X0Y1, X0Z2, Y1Z2, X0Y1Z2).
+  F is not a Pauli attenuation: it over-corrects some observables and under-corrects others, more so with depth.
+- `"per_observable"` (default): each observable is divided by its own attenuation f_S, the sign-corrected Z-correlator of its
+  qubit subset S: f_S = mean over samples k of [ Σ_b counts_k[b] · Π_{q∈S} (−1)^(b_q ⊕ t_q) / total_k ], with t the expected output bitstring.
+
+The NEC is measured in the Z basis only, so for X and Y observables f_S is a proxy (the Z-correlator of the same qubits). It is exact
+only for Z-type observables; an exact correction would need NEC circuits measured in the X/Y basis, which the benchmark does not run.
+
+**Why per-observable is the default.** It lowered E_min at the deepest depth on the IBM QPUs, clearly on IQM Emerald, and in most
+noisy simulations (where the exact values are known). On very noisy QPUs (AQT, IQM VLQ) it can be worse at deep depths: dividing
+noisy observables by small attenuations amplifies the noise, while the global F is more stable. Set `CONFIG["nec_correction"] = "global"` to use F.
+
+**Attenuation floor.** Whichever the estimator, the denominator is floored in absolute value (sign kept; 0 counts as positive) at
+`NEC_FLOOR_C / sqrt(n_samples · shots)` (`mitigation.py`), with `NEC_FLOOR_C` = 2: an attenuation within 2 standard errors of zero
+(a two-sided ≈ 95.45% bound) cannot be told apart from zero. For 480 samples of 10 shots the floor is ≈ 0.029, for 48 samples ≈ 0.091. This
+avoids NaN and infinities: a scheme whose attenuation is lost in noise gets a large (about 1/floor) but finite mitigated value, visibly bad in the plots.
+The formula ignores two small variance sources, the variation of the attenuation between circuits and the amplification by the SPAM inverse matrix.
+`run_data*.json` counts the floor hits (`attenuation_floor_hits`, 0 to 7, per scheme and depth, full run). With `nshots=0` (exact probabilities) the plugin's 1e14 shots enter the formula.
+
+**Bootstrap.** The 95% intervals come from a bootstrap within one run. The unit is the RC sample (one circuit per chunk), resampled
+stratified by input state (sample index mod 2^nsites), so each input state keeps its share. It is paired: one seed (`NEC_BOOTSTRAP_SEED`)
+gives the same resampled indices for every scheme, depth and SPAM mode, which the cumulative AWAE needs. There are `NEC_BOOTSTRAP_RESAMPLES` = 1000 resamples, and the intervals are
+percentile intervals (2.5% and 97.5%): the "basic" interval is not used because its upper end can fall below the value itself, and BCa is not implemented.
+Each of the 12 schemes (6 base × with/without SPAM) is evaluated separately.
+
+- The reported values (AWAE, cumulative AWAE, E_min, N_acc, the plotted points) are full-run values. The bootstrap supplies only the intervals and N_acc_strict; the medians are stored for information.
+- The full-run value can lie outside its interval. AWAE contains |n − i|, so resampled data (more noise than the full run) give higher values;
+  this is the conservative direction for N_acc_strict. Plots draw each interval as a line from its lower to its upper bound.
+- The intervals cover sample and shot noise only. The day-to-day variation between runs of the same QPU (calibration, layout) is larger: the
+  cumulative AWAE differed between runs by 1 to 30 times the within-run bootstrap standard deviation.
+- A bootstrap runs only if every input state has at least 5 samples (`NEC_BOOTSTRAP_MIN_PER_STATE`): the subset n = 8 has no interval, 48 (6 per state) and above do; an incomplete run is judged by its smallest class.
+  Otherwise the point values are still computed, every `*_ci95` is `null`, `bootstrap_done` is `false`, `N_acc_strict` and its twin fields are `null`, `N_acc` is unchanged, and the plots draw no bars and say why.
+
+**N_acc and N_acc_strict.** E_min(N_t) is the smallest full-run cumulative AWAE over the schemes (at most 1.0); ε = 0.05.
+`N_acc` is the largest depth at which E_min stays below ε at that depth and all shallower ones. `N_acc_strict` has its own best scheme: at each depth the scheme with the
+smallest **upper 95% bound** is chosen, and `N_acc_strict` is the largest depth at which that bound stays below ε at that and all shallower depths (`best_ems_Nacc_strict` is that scheme).
+`N_acc_strict` ≤ `N_acc` is not guaranteed, because another scheme may be used. As for `N_acc`, a value of 0 makes the `*_Nacc_strict` fields hold the depth-1 values.
+
+**`run_data*.json`.** The top-level `nec_analysis` holds `nec_correction`, `attenuation_floor_c`, `attenuation_floor`, `n_samples`, `shots_per_circuit`,
+`bootstrap_done`, `bootstrap_resamples`, `bootstrap_seed`, `bootstrap_stratified`, `bootstrap_min_per_input_state`, `samples_per_input_state_min`, `interval`
+(and `bootstrap_skipped_because` when no bootstrap ran). Per depth and scheme (`bare`, `NEC`, `RC`, `NEC+RC`, `cRC`, `NEC+cRC`): `obs_values`, `AWAE`, `AWAE_median`,
+`AWAE_ci95` (`[lo, hi]` or `null`), `AWAE_cumul`, `AWAE_cumul_median`, `AWAE_cumul_ci95`, `shots_per_sample`; the NEC schemes also `nec_attenuation` (7 values),
+`attenuation_floor_hits` and `attenuation_floor_hit_rate_bootstrap`. Per depth, `derived_ci95` holds `[lo, hi]` for `E_bare`, `FE_coh_nec` and `FE_ct_nec`.
+
+**`summary.json`.** Besides the existing fields: `E_min_Nmax_ci95`, `E_min_Nacc_ci95`, `bootstrap_done`, `N_acc_strict`, `E_min_Nacc_strict`, `E_min_Nacc_strict_ci95`,
+`best_ems_Nacc_strict`, `N_cnot_acc_strict`, `E_bare`, `FE_coh_nec` and `FE_ct_nec` (each also with the `_spam` suffix) as `<key>_Nacc_strict`, and for each of those
+quantities `<key>_Nmax_ci95`, `<key>_Nacc_ci95` and `<key>_Nacc_strict_ci95`; `nec_analysis` (`no_spam` and `spam` blocks as above) and `uncertainty_notes`.
+All `*_strict` and `*_ci95` fields are `null` when `bootstrap_done` is `false`.
 
 ---
 

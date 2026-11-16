@@ -1,9 +1,8 @@
 """
 test_26_awae_helpers.py
 =======================
-Unit tests of the shared AWAE helpers in source/core/analysis/derived_quantities.py: cumulative_awae() reproduces the
-Z-weighted cumulative AWAE the summary has always used (bit for bit) and agrees with the other forms the plot scripts
-once used, EPSILON is the one accuracy threshold, and best_schemes() lists the best mitigation schemes of a summary.
+Unit tests of the shared AWAE helpers in source/core/analysis/derived_quantities.py: cumulative_awae() (a cumsum along the last axis) agrees with
+the Z-weighted cumulative AWAE forms the summary and the plot scripts once used (to rounding, not bit for bit), EPSILON is the one accuracy threshold, and best_schemes() lists the best mitigation schemes of a summary.
 """
 
 import sys, os
@@ -41,7 +40,7 @@ def test_cumulative_awae_matches_the_forms(seed, n):
     rng = np.random.default_rng(seed)
     Z, a = rng.uniform(0.1, 1.0, n), rng.uniform(0.0, 2.0, n)
     got = cumulative_awae(Z, a)
-    assert np.array_equal(got, _formula_a(Z, a))
+    assert np.allclose(got, _formula_a(Z, a), rtol=1e-12)
     assert np.allclose(got, _formula_b(Z, a), rtol=1e-12)
     assert np.allclose(got, _formula_c(Z, a), rtol=1e-12)
 
@@ -66,6 +65,12 @@ def test_epsilon():
     ({"best_ems_Nmax": "NEC", "best_ems_Nacc": None}, [("N_max", "NEC")]),
     ({"best_ems_Nmax": None, "best_ems_Nacc": None}, []),
     ({}, []),
+    ({"best_ems_Nmax": "NEC", "best_ems_Nacc": "NEC", "best_ems_Nacc_strict": "RC"}, [("N_max", "NEC"), ("N_acc_strict", "RC")]),
+    ({"best_ems_Nmax": "NEC", "best_ems_Nacc": "RC", "best_ems_Nacc_strict": "NEC+RC"},
+     [("N_max", "NEC"), ("N_acc", "RC"), ("N_acc_strict", "NEC+RC")]),
+    ({"best_ems_Nmax": "NEC", "best_ems_Nacc": "RC", "best_ems_Nacc_strict": "RC"}, [("N_max", "NEC"), ("N_acc", "RC")]),
+    ({"best_ems_Nmax": None, "best_ems_Nacc": None, "best_ems_Nacc_strict": "cRC"}, [("N_acc_strict", "cRC")]),
+    ({"best_ems_Nmax": "NEC", "best_ems_Nacc_strict": None}, [("N_max", "NEC")]),
 ])
 def test_best_schemes(summary, expected):
     assert best_schemes(summary) == expected

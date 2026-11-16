@@ -8,6 +8,10 @@ VLQ-specific the pipeline needs, kept out of qbcs.py:
   retrieve_job(), job_status(), cancel_job(), wait_for_result()   an existing job, through the backend's QClient
   fetch_calibration()      a calibration set + its quality metrics from IT4I's public API
   qubit_metrics(), representative_roles(), select_vlq_qubits(), snapshot_from_calibration()   from iqm_star.py
+  attach_calibration()     download the backend's calibration and attach it as backend.vlq_calibration (for the layout choice)
+  save_vlq_calibration()   write a calibration to a run folder as vlq_calibration.json + calibration_snapshot.json
+  use_run_calibration()    the calibration of a simulation run: from calibration_file=, else downloaded once and reused
+  qpu_status()             IT4I's public VLQ status JSON
   vlq_collect_timing()     QPU / queue time of a finished job (source/core/records/job_timing.py terms)
 
 Qubit selection, the scoring and the effective all-to-all snapshot are shared with IQM Resonance's Sirius and live in

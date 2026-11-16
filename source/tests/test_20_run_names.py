@@ -267,10 +267,12 @@ def test_collective_run_table(tmp_path):
     assert len({line.index(";") for line in lines}) == 1                       # columns aligned as text
     rows = [[c.strip() for c in r] for r in csv.reader(lines, delimiter=";")]
     assert rows[0] == ["run", "n_samples", "sample_size", "N_acc", "best_scheme_Nacc", "N_max", "E_min_Nmax", "best_scheme_Nmax",
-                       "QPU_time_s", "QPU_time", "effective_cost_EUR"]
+                       "QPU_time_s", "QPU_time", "effective_cost_EUR", "N_acc_strict", "best_scheme_Nacc_strict", "E_min_Nacc",
+                       "E_min_Nacc_strict", "E_min_Nmax_ci95_lo", "E_min_Nmax_ci95_hi", "E_min_Nacc_ci95_lo", "E_min_Nacc_ci95_hi",
+                       "E_min_Nacc_strict_ci95_lo", "E_min_Nacc_strict_ci95_hi"]
     assert [r[0] for r in rows[1:]] == ["A", "B", "C"]
-    assert rows[1] == ["A", "", "480", "19", "cRC", "19", "0.04512", "NEC+cRC", "151", "2.5 min", "212.08"]
-    assert rows[2][3:] == ["19", "cRC", "19", "", "NEC+cRC", "", "", ""] and rows[2][1] == "10"
+    assert rows[1] == ["A", "", "480", "19", "cRC", "19", "0.04512", "NEC+cRC", "151", "2.5 min", "212.08"] + [""] * 10
+    assert rows[2][3:11] == ["19", "cRC", "19", "", "NEC+cRC", "", "", ""] and rows[2][1] == "10"
     assert rows[3][3] == "" and rows[3][5:7] == ["", ""]
     assert str(tmp_path) not in path.read_text(encoding="utf-8")
 
@@ -465,9 +467,19 @@ def _post_process_run(tmp_path, monkeypatch, do_spam=True, health_checks=True):
     os.utime(counts, (1000, 1000))
     for name in ["run_data.json", "summary.json", "run_data_spam.json", "health_checks.json"]:
         f = run / "processed_results" / name
-        f.write_text("{}", encoding="utf-8")
+        f.write_text('{"nec_analysis": {}}' if name != "health_checks.json" else "{}", encoding="utf-8")
         os.utime(f, (2000, 2000))
     return RPP, tmp_path / RPP.plots_dir(RUN)
+
+
+def test_analysis_before_the_nec_bootstrap_is_not_current(tmp_path, monkeypatch):
+    # a run_data / summary written before the NEC bootstrap (no "nec_analysis") is re-analysed, however new it is
+    RPP, _ = _post_process_run(tmp_path, monkeypatch)
+    assert RPP.data_current(RUN, None)
+    f = tmp_path / "datafiles" / RUN / "processed_results" / "summary.json"
+    f.write_text("{}", encoding="utf-8")
+    os.utime(f, (2000, 2000))
+    assert not RPP.data_current(RUN, None)
 
 
 def _draw(folder, names, mtime=3000):

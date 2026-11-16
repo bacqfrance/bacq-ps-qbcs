@@ -362,6 +362,7 @@ else:
 
 awae_Nt       = {ems: [] for ems in ems_list}
 awae_cumul_Nt = {ems: [] for ems in ems_list}
+awae_cumul_ci95 = {ems: [] for ems in ems_list}   # bootstrap 95% intervals per depth (None without a bootstrap)
 Z_Nt          = []
 
 for nt in nt_list:
@@ -369,6 +370,20 @@ for nt in nt_list:
     for ems in ems_list:
         src_depths, src_key = ems_source[ems]
         awae_Nt[ems].append(src_depths[str(nt)][src_key]["AWAE"])
+        awae_cumul_ci95[ems].append(src_depths[str(nt)][src_key].get("AWAE_cumul_ci95"))
+
+# E_bare / FE_coh_nec / FE_ct_nec intervals per depth, from each file's bootstrap ("_spam" for the SPAM-corrected one)
+per_depth_ci95 = {}
+for _suffix, _src in ([("", depths_nospam), ("_spam", depths_spam)] if has_spam_data else [("", depths)]):
+    for _key in ("E_bare", "FE_coh_nec", "FE_ct_nec"):
+        per_depth_ci95[f"{_key}{_suffix}"] = [(_src[str(nt)].get("derived_ci95") or {}).get(_key) for nt in nt_list]
+
+# NEC settings and bootstrap bookkeeping (run_data*.json "nec_analysis"); the bootstrap counts only if every file has it
+NEC_ANALYSES = {}
+for _tag, _p in ([("no_spam", nospam_path), ("spam", spam_path)] if has_spam_data else [("spam" if USE_SPAM else "no_spam", path)]):
+    with open(_p, encoding="utf-8") as f:
+        NEC_ANALYSES[_tag] = json.load(f).get("nec_analysis")
+BOOTSTRAP_DONE = all((a or {}).get("bootstrap_done", False) for a in NEC_ANALYSES.values())
 
 Z_Nt = np.array(Z_Nt)
 for ems in ems_list:
@@ -394,7 +409,10 @@ derived = compute_derived_quantities(
     cnots_per_trotter = 6,
     Nt_vals           = nt_list,
     analyze_only_bare = False,
-    lnn               = LNN
+    lnn               = LNN,
+    awae_cumul_ci95   = awae_cumul_ci95,
+    per_depth_ci95    = per_depth_ci95,
+    bootstrap_done    = BOOTSTRAP_DONE,
 )
 
 # ── Build summary ─────────────────────────────────────────────────────────────
@@ -415,6 +433,15 @@ summary = {
     # chunks analyzed, uncollected chunks and health checks (older run_data files: computed now)
     "completeness":          COMPLETENESS,
     **derived,
+    "nec_analysis":          NEC_ANALYSES,
+    "uncertainty_notes":     ("E_min, N_acc and best_ems_* come from the full-run values; *_ci95 are 95% percentile intervals of "
+                              "a stratified bootstrap over the RC samples of this run (resampling within each NEC input state, "
+                              "the same resamples for every scheme and depth), so they cover sample and shot noise only, not "
+                              "day-to-day variation between runs. The full-run value can lie outside its interval (resampled "
+                              "data are noisier, and AWAE contains |n - i|). N_acc_strict: the largest depth at which the "
+                              "smallest upper 95% bound of the cumulative AWAE over the schemes is below the threshold there "
+                              "and at every shallower depth (its scheme: best_ems_Nacc_strict); null, like every interval, "
+                              "when bootstrap_done is false (fewer than the minimum samples per NEC input state)."),
     "QPU_execution_time_s":  QPU_EXEC,
     "timing_definitions_version": TIMING["timing_definitions_version"],
     "timing_notes":          {
@@ -478,5 +505,5 @@ with open(out_path, "w", encoding="utf-8") as f:
     json.dump(summary, f, indent=4, cls=NaNEncoder)
 
 print(f"✅ Summary saved → {rel_path(out_path)}")
-print(f"   N_max={derived['N_max']}, N_acc={derived['N_acc']}, best_ems={derived['best_ems_Nmax']}")
+print(f"   N_max={derived['N_max']}, N_acc={derived['N_acc']}, N_acc_strict={derived['N_acc_strict']}, best_ems={derived['best_ems_Nmax']}")
 

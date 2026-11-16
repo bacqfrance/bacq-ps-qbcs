@@ -24,119 +24,129 @@ from source.core.records.run_names import subset_suffix
 BASE_EMS_LIST = ["bare", "NEC", "RC", "NEC+RC", "cRC", "NEC+cRC"]
 
 
-def calc_expval_measurement_dict(measurement_counts):
-    """
-    Computes expectation values of 7 Pauli observables (X0, Y1, Z2, X0Y1, X0Z2, Y1Z2, X0Y1Z2)
-    from measurement counts over multiple jobs and randomized compilation (RC) circuits.
-
-    Args:
-        measurement_counts (dict): Nested dict { job_key: { rc_key: { bitstring: count } } }
-            - bitstring: 3-character binary string (e.g. "010")
-
-    Returns:
-        - avg_value_array (np.ndarray): Shape (n_jobs, n_rc_circuits, 7) 
-        - per-job expectation values (np.ndarray): Shape (n_jobs, 7) — expectation values averaged over RC circuits per job.
-    """
-    n_jobs = len(measurement_counts)
-    circuit_counts = {job_key: len(rc_dict) for job_key, rc_dict in measurement_counts.items()}
-    n_rc_circuits = next(iter(circuit_counts.values()))
-    assert all(c == n_rc_circuits for c in circuit_counts.values()), \
-        f"Jobs have inconsistent RC-circuit counts, expected uniform {n_rc_circuits}: {circuit_counts}"
-
-    # Shape: (n_jobs, n_rc_circuits, 7)
-    avg_value_array = np.zeros((n_jobs, n_rc_circuits, 7), dtype=complex)
-
-    for ij, job_key in enumerate(measurement_counts):
-        results_rc_circuits = measurement_counts[job_key]
-
-        for ir, rc_key in enumerate(results_rc_circuits):
-            counts = results_rc_circuits[rc_key]
-            total = sum(counts.values())
-
-            X0 = Y1 = Z2 = X0Y1 = X0Z2 = Y1Z2 = X0Y1Z2 = 0
-
-            for ky, it in counts.items():
-                s0 = 1 - 2 * int(ky[0])
-                s1 = 1 - 2 * int(ky[1])
-                s2 = 1 - 2 * int(ky[2])
-
-                X0     += it * s0
-                Y1     += it * s1
-                Z2     += it * s2
-                X0Y1   += it * s0 * s1
-                X0Z2   += it * s0 * s2
-                Y1Z2   += it * s1 * s2
-                X0Y1Z2 += it * s0 * s1 * s2
-
-            avg_value_array[ij, ir, :] = np.array(
-                [X0, Y1, Z2, X0Y1, X0Z2, Y1Z2, X0Y1Z2]
-            ) / total
-
-    return avg_value_array, avg_value_array.mean(axis=1)
+# ── NEC correction and bootstrap settings (USER_MANUAL, "NEC error mitigation and uncertainties") ─────────────
+NEC_CORRECTION_MODES        = ("per_observable", "global")
+NEC_CORRECTION              = "per_observable"   # the default; CONFIG["nec_correction"] overrides it
+NEC_FLOOR_C                 = 2.0                # attenuation floor = NEC_FLOOR_C / sqrt(n_samples * shots_per_circuit)
+NEC_BOOTSTRAP_RESAMPLES     = 1000
+NEC_BOOTSTRAP_SEED          = 20261115           # one seed for every scheme, depth and SPAM mode: paired resamples
+NEC_BOOTSTRAP_MIN_PER_STATE = 5                  # every NEC input state needs this many samples for a bootstrap
+UNLIMITED_SHOTS             = 1e14               # the shot count the circuit plugin uses for nshots=0 (statevector)
 
 
-class analyze_measurement_outcomes:
+def observable_qubits(obs_list=None, nqubits=3):
+    """The measured bit positions of each observable, in the order of EXACT_OBS_LIST: each letter's position in
+    "XYZ" is its qubit ("X" -> (0,), "XZ" -> (0, 2), "XYZ" -> (0, 1, 2)), bit q being character q of a
+    bitstring (the convention of the counts)."""
+    obs_list = EXACT_OBS_LIST if obs_list is None else obs_list
+    out = []
+    for name in obs_list:
+        qubits = tuple("XYZ".index(c) for c in name)
+        assert all(q < nqubits for q in qubits), f"observable {name} needs more than {nqubits} qubits"
+        out.append(qubits)
+    return out
 
-    def __init__(self, dict_measurement_counts, nqubits=None):
-        self.dict_measurement_counts = dict_measurement_counts
-        self.measurement_data,_ = calc_expval_measurement_dict(dict_measurement_counts)
-        self.njobs = self.measurement_data.shape[0]
-        self.rc_circuits_per_job = self.measurement_data.shape[1]
-        assert nqubits is not None,"nqubits cannot be None!!"
-        self.nqubits = nqubits
-        # A merged circuit key ends with its chunk number (merge_chunks), in the order of the array's samples
-        self.chunk_numbers = [int(k.rsplit("_", 1)[1]) for k in next(iter(dict_measurement_counts.values()))]
 
-    def positions_of(self, rc_samples):
-        """The positions of the samples to average: None / an int n -> the first n; a collection of chunk numbers
-        (a chunk-filtered analysis) -> the samples of those chunks."""
-        if rc_samples is None or isinstance(rc_samples, (int, np.integer)):
-            return slice(None, rc_samples)
-        return [i for i, c in enumerate(self.chunk_numbers) if c in rc_samples]
+def sign_matrix(nqubits):
+    """(2**nqubits, 7) matrix: the +-1 outcome of each observable of EXACT_OBS_LIST for each bitstring
+    (row int(bitstring, 2))."""
+    bits = np.array([[int(c) for c in format(b, f"0{nqubits}b")] for b in range(2**nqubits)])
+    return np.array([[np.prod([1 - 2 * bits[b, q] for q in S]) for S in observable_qubits(nqubits=nqubits)]
+                     for b in range(2**nqubits)], dtype=float)
 
-    def compute_expectation_values_per_job(self, job_index=0, rc_samples=None):
-        data  = self.measurement_data[job_index, self.positions_of(rc_samples), :]
-        mean_ = data.mean(axis=0)       # (7)
-        std_  = data.std(axis=0)        # (7)
 
-        return mean_, std_
+def _chunk_of(circuit_key):
+    """The chunk number a merged circuit key ends with (merge_chunks keeps it as the index)."""
+    tail = circuit_key.rsplit("_", 1)[-1]
+    assert tail.isdigit(), f"Circuit key {circuit_key!r} does not end in a plain integer sample index"
+    return int(tail)
 
-    def compute_average_fidelity_nec(self, job_id, fidelity_nec_dict, 
-                                     rc_samples=None, classical_nec_map=None, 
-                                     expect_counts=None, n_input_states=None):
 
-        entry = fidelity_nec_dict[job_id]
-        is_dict_shaped = isinstance(entry, dict)
+def selected_chunks(job_counts, rc_samples=None):
+    """The chunk numbers to analyse, in the order of the merged counts: None / an int n -> the first n; a collection
+    of chunk numbers (a chunk-filtered analysis) -> the samples of those chunks."""
+    chunks = [_chunk_of(k) for k in job_counts]
+    if rc_samples is None or isinstance(rc_samples, (int, np.integer)):
+        return chunks[:rc_samples]
+    return [c for c in chunks if c in rc_samples]
 
-        if expect_counts is not None:
-            assert is_dict_shaped == expect_counts, \
-                f"{job_id}: got {'dict' if is_dict_shaped else 'list'}-shaped entry, but expect_counts={expect_counts}"
 
-        by_chunk = rc_samples is not None and not isinstance(rc_samples, (int, np.integer))   # a chunk-filtered analysis
-        if rc_samples is None:
-            rc_samples = len(entry) if is_dict_shaped else self.rc_circuits_per_job  # Full average
+def dense_counts(job_counts, nqubits, chunks):
+    """One job's counts as a (len(chunks), 2**nqubits) array, row i the circuit of chunk chunks[i] (SPAM-corrected
+    counts may be fractional or negative)."""
+    by_chunk = {_chunk_of(k): v for k, v in job_counts.items()}
+    missing = [c for c in chunks if c not in by_chunk]
+    assert not missing, f"chunks {missing} are missing from a job"
+    C = np.zeros((len(chunks), 2**nqubits))
+    for i, c in enumerate(chunks):
+        for b, n in by_chunk[c].items():
+            C[i, int(b, 2)] += n
+    return C
 
-        if is_dict_shaped:
-            assert classical_nec_map is not None and n_input_states is not None, \
-                "classical_nec_map and n_input_states must be provided when fidelity_nec_dict entries are counts-based"
-            if by_chunk:
-                rc_items = [(k, v) for k, v in entry.items() if int(k.rsplit("_", 1)[1]) in rc_samples]
-            else:
-                rc_items = list(entry.items())[0:rc_samples]
-            vals = []
-            for rc_key, counts in rc_items:
-                total = sum(counts.values())
-                target = get_target_bitstring(rc_key, n_input_states, self.nqubits, classical_nec_map)
-                vals.append(counts.get(target, 0) / total)
-            vals = np.array(vals, dtype=float)
 
-        else:
-            if by_chunk:   # one value per collected chunk, in the order of the counts
-                vals = np.array([entry[i] for i in self.positions_of(rc_samples) if i < len(entry)], dtype=complex)
-            else:
-                vals = np.array(entry[0:rc_samples], dtype=complex)
+def observable_samples(C, S):
+    """(n_samples, 7) expectation values of the observables per sample, from dense counts C and sign_matrix S."""
+    return (C @ S) / C.sum(axis=1, keepdims=True)
 
-        return vals.mean(), vals.std()
+
+def nec_attenuation_samples(C, targets, S):
+    """Per NEC sample k (dense counts C, target bitstring index targets[k]):
+    F (n,): the probability of the target bitstring (the global fidelity), and
+    f (n, 7): the sign-corrected Z-correlator of each observable's qubits,
+    f_S,k = sum_b C[k,b] prod_{q in S} (-1)^(b_q xor t_q) / total_k (the per-observable attenuation)."""
+    tot = C.sum(axis=1)
+    F = C[np.arange(len(C)), targets] / tot
+    f = (C @ S) / tot[:, None] * S[targets]
+    return F, f
+
+
+def input_states(chunks, nqubits, randomized):
+    """The NEC input state of each sample (chunk % 2**nqubits, as sample_index_to_input_bitstring), or 0 for all
+    samples when the input state is not randomized: the bootstrap strata."""
+    return np.array([c % 2**nqubits if randomized else 0 for c in chunks], dtype=int)
+
+
+def samples_per_input_state(strata, nqubits, randomized):
+    """The number of samples of every input state, the states with none included."""
+    return [int(np.sum(strata == s)) for s in (range(2**nqubits) if randomized else [0])]
+
+
+def bootstrap_weights(strata, n_resamples=NEC_BOOTSTRAP_RESAMPLES, seed=NEC_BOOTSTRAP_SEED):
+    """(n_resamples, n) resample counts of a stratified bootstrap: within each stratum, as many draws with
+    replacement as it has samples. A pure function of its arguments, so two analyses of the same samples
+    (with and without SPAM correction) get the same resamples. The mean of a resample of X is W @ X / n."""
+    rng = np.random.default_rng(seed)
+    strata = np.asarray(strata)
+    W = np.zeros((n_resamples, len(strata)))
+    for s in np.unique(strata):
+        idx = np.flatnonzero(strata == s)
+        m = len(idx)
+        draws = rng.integers(0, m, size=(n_resamples, m)) + m * np.arange(n_resamples)[:, None]
+        W[:, idx] = np.bincount(draws.ravel(), minlength=n_resamples * m).reshape(n_resamples, m)
+    return W
+
+
+def attenuation_floor(n_samples, shots, c=NEC_FLOOR_C):
+    """The smallest |attenuation| an NEC division uses: c / sqrt(N), N = n_samples * shots per circuit (nshots=0
+    counts as the plugin's UNLIMITED_SHOTS). 1/sqrt(N) bounds the standard error of a mean of +-1 outcomes."""
+    return c / np.sqrt(n_samples * (shots if shots else UNLIMITED_SHOTS))
+
+
+def floor_attenuation(x, floor):
+    """x with every entry |x| < floor replaced by sign(x) * floor (0 counts as positive), and the mask of the
+    replaced entries."""
+    x = np.asarray(x, dtype=float)
+    hit = np.abs(x) < floor
+    return np.where(hit, np.where(x < 0, -floor, floor), x), hit
+
+
+def ci95(draws, axis=0):
+    """The 95% percentile interval (2.5% and 97.5% values, stacked on a new first axis) of bootstrap draws
+    (None without draws)."""
+    if draws is None:
+        return None
+    return np.percentile(draws, [2.5, 97.5], axis=axis)
+
 
 def load_classical_nec_map(config, depth_label):
     path = os.path.join(get_circuit_folder(config, top_folder=True), f"nec_classical_map_{depth_label}.json")
@@ -184,10 +194,21 @@ def merge_chunks(chunked_dict):
 
     return merged
 
-def compute_mitigated_expectation_values(config, rc_samples=None, roles=None, spam_samples=None):
+def compute_mitigated_expectation_values(config, rc_samples=None, roles=None, spam_samples=None, bootstrap=True):
     """
-    Computes mitigated expectation values of 7 Pauli observables for each circuit depth,
-    under 6 error mitigation schemes: raw, raw+nec, rc, rc+nec, crc, crc+nec.
+    Computes mitigated expectation values of the 7 Pauli observables for each circuit depth,
+    under 6 error mitigation schemes: raw, raw+nec, rc, rc+nec, crc, crc+nec, with their bootstrap.
+
+    The NEC schemes divide the mean of each observable over the samples by the mean of its NEC attenuation
+    (a ratio of means): per observable (the default, CONFIG["nec_correction"] = "per_observable") the
+    sign-corrected Z-correlator of its qubits on the NEC counts, or with "global" the probability F that the NEC
+    returns its whole target bitstring (one value for all 7 observables). The attenuation is floored in absolute
+    value at attenuation_floor(n_samples, shots), so a vanishing one gives a large finite value, never NaN.
+    List-shaped NEC entries (runs without nec_measurement_counts) carry F only: they always use "global".
+
+    The bootstrap resamples the RC samples within the run, stratified by NEC input state, with the same
+    resamples (bootstrap_weights(), NEC_BOOTSTRAP_SEED) for every depth, role and SPAM mode. It runs only if
+    bootstrap is True and every input state has at least NEC_BOOTSTRAP_MIN_PER_STATE samples.
 
     Args:
         config (dict):      CONFIG dict with T_list, dt, folder_path, etc.
@@ -200,11 +221,17 @@ def compute_mitigated_expectation_values(config, rc_samples=None, roles=None, sp
                              means the matrix of those kept chunks. Only a value below the number of
                              collected chunks loads (building it if missing) the
                              subset matrix spam_confusion_matrix_inv+nsamples-{spam_samples}.npy.
+        bootstrap (bool):   False skips the bootstrap.
 
     Returns:
-        dict keyed by trotter steps (int), each containing:
+        (results_per_depth, nec_info):
+        results_per_depth: dict keyed by trotter steps (int), each containing
             { "raw", "raw_nec", "rc", "rc_nec", "crc", "crc_nec" }:
-                { "mean": np.ndarray (7,), "std": np.ndarray (7,) }
+                { "mean": np.ndarray (7,), "boot": np.ndarray (n_resamples, 7) or None }
+            and for the NEC roles also "attenuation" (7,) (before the floor), "floor_hits" (how many of the 7
+            full-run attenuations were floored) and "floor_hit_rate_bootstrap" (the fraction of floored
+            attenuations over all resamples, None without a bootstrap);
+        nec_info: the settings and bookkeeping that run_data*.json records as "nec_analysis".
     """
     measurement_counts = load_json(get_run_subfolder(config, "raw_results", "results_counts_merged.json"))["chunk_0"]
     fidelity_nec_dict  = load_json(get_run_subfolder(config, "raw_results", "results_fidelity_merged.json"))["chunk_0"]
@@ -236,6 +263,16 @@ def compute_mitigated_expectation_values(config, rc_samples=None, roles=None, sp
         f"Role pairing mismatch: {list(zip(non_nec_roles, nec_roles))}"
     )
 
+    mode = config.get("nec_correction") or NEC_CORRECTION
+    assert mode in NEC_CORRECTION_MODES, f"nec_correction must be one of {NEC_CORRECTION_MODES}, got {mode!r}"
+    nq         = config["nsites"]
+    S          = sign_matrix(nq)
+    randomized = bool(config["nec_randomize_input_state"])
+    n_nec_input_states = config["samples"] if randomized else 1
+    shots      = config.get("shots", 0)
+
+    chunks = W = None
+    mode_used = mode
     results_per_depth = {}
 
     for di, nt in enumerate(trotter_steps_list):
@@ -248,50 +285,69 @@ def compute_mitigated_expectation_values(config, rc_samples=None, roles=None, sp
             local_idx = di * n_roles + ri
             role_keys[role] = f"job_{tag}_{role}_ems{local_idx}"
 
-        # Build per-depth counts dict for analyzer
-        depth_counts = {
-            role_keys[role]: measurement_counts[role_keys[role]]
-            for role in non_nec_roles
-            if role_keys[role] in measurement_counts
-        }
-        analyzer = analyze_measurement_outcomes(depth_counts, nqubits=config["nsites"])
+        # The analysed samples: the same chunks at every depth, so one set of resamples serves all of them
+        first_job = measurement_counts[role_keys[non_nec_roles[0]]]
+        depth_chunks = selected_chunks(first_job, rc_samples)
+        if chunks is None:
+            chunks     = depth_chunks
+            all_chunks = [_chunk_of(k) for k in first_job]
+            n          = len(chunks)
+            strata     = input_states(chunks, nq, randomized)
+            per_state  = samples_per_input_state(strata, nq, randomized)
+            do_boot    = bootstrap and min(per_state) >= NEC_BOOTSTRAP_MIN_PER_STATE
+            W          = bootstrap_weights(strata) if do_boot else None
+            floor      = attenuation_floor(n, shots)
+        assert depth_chunks == chunks, f"{tag}: the analysed chunks differ from the first depth's"
 
-        # ── Expectation values per non-NEC role ───────────────────────────────
-        exp_values = {}
-        for ji, role in enumerate(non_nec_roles):
-            mean, std          = analyzer.compute_expectation_values_per_job(
-                                    job_index=ji, rc_samples=rc_samples)
-            exp_values[role]   = {"mean": mean, "std": std}
-
-        n_nec_input_states = config["samples"] if config["nec_randomize_input_state"] else 1
-
-        # ── NEC fidelity per NEC role ─────────────────────────────────────────
-        fid_values = {}
-        for role in nec_roles:
-            fid_mean, fid_std  = analyzer.compute_average_fidelity_nec(
-                job_id            = role_keys[role],
-                fidelity_nec_dict = fidelity_nec_dict,
-                rc_samples        = rc_samples,
-                classical_nec_map = classical_nec_map,
-                n_input_states    = n_nec_input_states,
-                expect_counts     = config["nec_measurement_counts"]
-            )
-            fid_values[role]   = {"mean": fid_mean, "std": fid_std}
-
-        # ── Assemble results for this depth ───────────────────────────────────
         results_per_depth[nt] = {}
         for role, nec_role in zip(non_nec_roles, nec_roles):
-            assert role==nec_role[:-4], f"{role} and {nec_role} mismatch!!"
-            results_per_depth[nt][role]     = {
-                "mean": exp_values[role]["mean"].real,
-                "std":  exp_values[role]["std"].real
-            }
-            results_per_depth[nt][nec_role] = {
-                "mean": (exp_values[role]["mean"] / fid_values[nec_role]["mean"]).real,
-                "std":   fid_values[nec_role]["std"].real
-            }
+            obs      = observable_samples(dense_counts(measurement_counts[role_keys[role]], nq, chunks), S)
+            obs_mean = obs.mean(axis=0)
+            obs_boot = W @ obs / n if W is not None else None
+            results_per_depth[nt][role] = {"mean": obs_mean, "boot": obs_boot}
 
-    return results_per_depth
+            entry = fidelity_nec_dict[role_keys[nec_role]]
+            if config["nec_measurement_counts"]:
+                assert isinstance(entry, dict), f"{role_keys[nec_role]}: expected NEC counts, got a list"
+            if isinstance(entry, dict):
+                targets = np.array([int(get_target_bitstring(f"c_{c}", n_nec_input_states, nq, classical_nec_map), 2)
+                                    for c in chunks])
+                F, f = nec_attenuation_samples(dense_counts(entry, nq, chunks), targets, S)
+                att = f if mode == "per_observable" else np.repeat(F[:, None], S.shape[1], axis=1)
+            else:   # one fidelity per sample, in the order of the counts: no per-observable attenuation
+                pos = {c: i for i, c in enumerate(all_chunks)}
+                F = np.array([entry[pos[c]] for c in chunks if pos[c] < len(entry)], dtype=complex).real
+                att = np.repeat(F[:, None], S.shape[1], axis=1)
+                mode_used = "global"
+            att_mean = att.mean(axis=0)
+            att_floored, hit = floor_attenuation(att_mean, floor)
+            out = {"mean": obs_mean / att_floored, "boot": None, "attenuation": att_mean,
+                   "floor_hits": int(hit.sum()), "floor_hit_rate_bootstrap": None}
+            if W is not None:
+                att_boot, hit_boot = floor_attenuation(W @ att / n, floor)
+                out["boot"] = obs_boot / att_boot
+                out["floor_hit_rate_bootstrap"] = float(hit_boot.mean())
+            results_per_depth[nt][nec_role] = out
+
+    nec_info = {
+        "nec_correction":                mode_used,
+        "attenuation_floor_c":           NEC_FLOOR_C,
+        "attenuation_floor":             float(floor),
+        "n_samples":                     n,
+        "shots_per_circuit":             shots,
+        "bootstrap_done":                W is not None,
+        "bootstrap_resamples":           NEC_BOOTSTRAP_RESAMPLES,
+        "bootstrap_seed":                NEC_BOOTSTRAP_SEED,
+        "bootstrap_stratified":          True,
+        "bootstrap_min_per_input_state": NEC_BOOTSTRAP_MIN_PER_STATE,
+        "samples_per_input_state_min":   min(per_state),
+        "interval":                      "percentile: the 2.5% and 97.5% values of the bootstrap",
+    }
+    if W is None:
+        nec_info["bootstrap_skipped_because"] = (
+            "bootstrap switched off" if not bootstrap else
+            f"no interval: n = {n}, fewer than {NEC_BOOTSTRAP_MIN_PER_STATE} samples per input state")
+    return results_per_depth, nec_info
 
 
 def check_shots_consistency(config):
@@ -325,24 +381,21 @@ def compute_AWAE(ideal_values, noisy_values):
     """
     Computes epsilon = (1/S) * sum_j |i_j| * |n_j - i_j|
     where S = sum_j |i_j|
-    
+
     Args:
-        ideal_values : array of shape (n_obs,) - noiseless expectation values
-        noisy_values : array of shape (n_obs,) - noisy expectation values
-    
+        ideal_values : array of shape (7,) - noiseless expectation values
+        noisy_values : array of shape (..., 7) - noisy expectation values (leading axes, e.g. bootstrap draws,
+                       give one value each)
+
     Returns:
-        epsilon : float - figure of merit
+        epsilon : float, or an array of the leading shape - figure of merit
     """
-    assert len(ideal_values)==len(noisy_values)
-    assert len(ideal_values)==7
+    ideal_values = np.asarray(ideal_values, dtype=float)
+    noisy_values = np.asarray(noisy_values, dtype=float)
+    assert ideal_values.shape == (7,) and noisy_values.shape[-1] == 7
 
-    ideal_values = np.array(ideal_values)
-    noisy_values = np.array(noisy_values)
-
-    S       = np.sum(np.abs(ideal_values))
-    epsilon = (1 / S) * np.sum(np.abs(ideal_values) * np.abs(noisy_values - ideal_values))
-
-    return epsilon
+    S = np.sum(np.abs(ideal_values))
+    return np.sum(np.abs(ideal_values) * np.abs(noisy_values - ideal_values), axis=-1) / S
 
 
 def post_processing_and_saving(CONFIG, roles=None, use_circuit_LNN=False, filename="run_data.json", n_samples=None, print_runtimes=True, qiskit_v13_qpy=False,
@@ -393,8 +446,8 @@ def post_processing_and_saving(CONFIG, roles=None, use_circuit_LNN=False, filena
             if spam_used < n_spam_available:
                 compute_and_save_spam_confusion_matrix(CONFIG, n_samples=spam_used)
 
-    mitigated_results          = compute_mitigated_expectation_values(CONFIG, rc_samples=effective_n, roles=roles,
-                                                                      spam_samples=spam_n_samples)
+    mitigated_results, nec_info = compute_mitigated_expectation_values(CONFIG, rc_samples=effective_n, roles=roles,
+                                                                       spam_samples=spam_n_samples)
     nchunks = effective_n if isinstance(effective_n, int) else len(effective_n)   # a chunk-filtered scope is a set
 
     # CPU / QPU / queue time (health checks included) — the same aggregate_run_timing()
@@ -430,41 +483,63 @@ def post_processing_and_saving(CONFIG, roles=None, use_circuit_LNN=False, filena
     run_data["completeness"]       = completeness(run_path, CONFIG["samples"], effective_n if subset else None)
     if completeness_warning(run_data["completeness"]) and print_runtimes:
         print(f"  {completeness_warning(run_data['completeness'])}")
+    run_data["nec_analysis"]       = nec_info
     run_data["depths"]             = {}
     obs_list     = list(EXACT_OBS_LIST)
-    exact_values = load_exact_observables(CONFIG, list(mitigated_results), use_circuit_LNN)
-    for nt, results in mitigated_results.items():
-        # ── Exact observables for this specific depth ─────────────────────
-        exact_obs_values_nt = exact_values[int(nt)]
-        Z_exact_nt = float(np.sum(np.abs(exact_obs_values_nt)))
+    nts          = [int(nt) for nt in mitigated_results]
+    exact_values = load_exact_observables(CONFIG, nts, use_circuit_LNN)
+    Z_exact      = np.array([float(np.sum(np.abs(exact_values[nt]))) for nt in nts])
+    shots_per_sample = int(round(CONFIG["shots"]))
 
-        obs_values = {
-            role: np.real(results[role]["mean"])
-            for role in results.keys()
+    # Per scheme: the full-run AWAE per depth and, with a bootstrap, its (n_resamples, n_depths) draws; the
+    # cumulative AWAE of every draw uses the same resamples at all depths (paired).
+    from source.core.analysis.derived_quantities import cumulative_awae, fe_quantities
+    schemes = [(ems, role) for ems, role in zip(BASE_EMS_LIST, ["raw", "raw_nec", "rc", "rc_nec", "crc", "crc_nec"])
+               if role in roles]
+    awae, awae_boot, cumul, cumul_boot = {}, {}, {}, {}
+    for ems, role in schemes:
+        awae[ems]  = np.array([compute_AWAE(exact_values[nt], mitigated_results[nt][role]["mean"]) for nt in nts])
+        cumul[ems] = cumulative_awae(Z_exact, awae[ems])
+        if nec_info["bootstrap_done"]:
+            awae_boot[ems]  = np.stack([compute_AWAE(exact_values[nt], mitigated_results[nt][role]["boot"])
+                                        for nt in nts], axis=-1)
+            cumul_boot[ems] = cumulative_awae(Z_exact, awae_boot[ems])
+
+    def _ci(draws, i):   # [lo, hi] at depth index i, None without a bootstrap
+        return None if draws is None else [float(v) for v in ci95(draws[:, i])]
+
+    def _median(draws, i):
+        return None if draws is None else float(np.median(draws[:, i]))
+
+    # E_bare, FE_coh_nec and FE_ct_nec per bootstrap draw (their intervals; the summary picks the depth)
+    fe_boot = None
+    if nec_info["bootstrap_done"] and all(e in cumul_boot for e in ("bare", "NEC", "NEC+RC", "NEC+cRC")):
+        fe_boot = fe_quantities(cumul_boot["bare"], cumul_boot["NEC"], cumul_boot["NEC+RC"], cumul_boot["NEC+cRC"])
+
+    for i, nt in enumerate(nts):
+        depth = run_data["depths"][nt] = {
+            "Z_exact"                   : float(Z_exact[i]),
+            "perfect_circuit_obs_values": np.real(exact_values[nt]).tolist(),
         }
+        for ems, role in schemes:
+            res = mitigated_results[nt][role]
+            entry = depth[ems] = {
+                "obs_values":        np.real(res["mean"]).tolist(),
+                "AWAE":              float(awae[ems][i]),            # full run (the point estimate)
+                "AWAE_median":       _median(awae_boot.get(ems), i),  # bootstrap median
+                "AWAE_ci95":         _ci(awae_boot.get(ems), i),      # bootstrap 95% percentile interval
+                "AWAE_cumul":        float(cumul[ems][i]),
+                "AWAE_cumul_median": _median(cumul_boot.get(ems), i),
+                "AWAE_cumul_ci95":   _ci(cumul_boot.get(ems), i),
+                "shots_per_sample":  shots_per_sample,
+            }
+            if "attenuation" in res:
+                entry["nec_attenuation"]                   = np.real(res["attenuation"]).tolist()
+                entry["attenuation_floor_hits"]            = res["floor_hits"]
+                entry["attenuation_floor_hit_rate_bootstrap"] = res["floor_hit_rate_bootstrap"]
+        depth["derived_ci95"] = {k: _ci(v, i) for k, v in fe_boot.items()} if fe_boot is not None else None
 
-        bare_obs_values       = obs_values.get("raw",     None)
-        nec_mitigated_obs     = obs_values.get("raw_nec", None)
-        rc_mitigated_obs      = obs_values.get("rc",      None)
-        rc_nec_mitigated_obs  = obs_values.get("rc_nec",  None)
-        crc_mitigated_obs     = obs_values.get("crc",     None)
-        crc_nec_mitigated_obs = obs_values.get("crc_nec", None)
 
- 
-        shots_per_sample = int(round(CONFIG["shots"]))
-
-        run_data["depths"][int(nt)] = {
-            "Z_exact"                   : Z_exact_nt,
-            "perfect_circuit_obs_values": np.real(exact_obs_values_nt).tolist(),
-        }
-        if bare_obs_values       is not None: run_data["depths"][int(nt)]["bare"]    = {"obs_values": bare_obs_values.tolist(),       "AWAE": compute_AWAE(exact_obs_values_nt, bare_obs_values).tolist(),       "shots_per_sample": shots_per_sample}
-        if nec_mitigated_obs     is not None: run_data["depths"][int(nt)]["NEC"]     = {"obs_values": nec_mitigated_obs.tolist(),     "AWAE": compute_AWAE(exact_obs_values_nt, nec_mitigated_obs).tolist(),     "shots_per_sample": shots_per_sample}
-        if rc_mitigated_obs      is not None: run_data["depths"][int(nt)]["RC"]      = {"obs_values": rc_mitigated_obs.tolist(),      "AWAE": compute_AWAE(exact_obs_values_nt, rc_mitigated_obs).tolist(),      "shots_per_sample": shots_per_sample}
-        if rc_nec_mitigated_obs  is not None: run_data["depths"][int(nt)]["NEC+RC"]  = {"obs_values": rc_nec_mitigated_obs.tolist(),  "AWAE": compute_AWAE(exact_obs_values_nt, rc_nec_mitigated_obs).tolist(),  "shots_per_sample": shots_per_sample}
-        if crc_mitigated_obs     is not None: run_data["depths"][int(nt)]["cRC"]     = {"obs_values": crc_mitigated_obs.tolist(),     "AWAE": compute_AWAE(exact_obs_values_nt, crc_mitigated_obs).tolist(),     "shots_per_sample": shots_per_sample}
-        if crc_nec_mitigated_obs is not None: run_data["depths"][int(nt)]["NEC+cRC"] = {"obs_values": crc_nec_mitigated_obs.tolist(), "AWAE": compute_AWAE(exact_obs_values_nt, crc_nec_mitigated_obs).tolist(), "shots_per_sample": shots_per_sample}
-
- 
     CONFIG["epsilon"]               = CONFIG["epsilon"].tolist()
     CONFIG["noise_angles"]          = CONFIG["noise_angles"].tolist()
     CONFIG["neighbor_noise_angles"] = CONFIG["neighbor_noise_angles"].tolist()

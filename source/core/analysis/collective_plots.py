@@ -1,9 +1,10 @@
 """
 collective_plots.py
 Plots comparing all runs analyzed by source/analysis_scripts/run_post_process.py (stage 6):
-  awae_best_ems_vs_Nt.png        AWAE vs N_t of each run's best EMS (for N_max and for N_acc: up to two per run)
+  awae_best_ems_vs_Nt.png        AWAE vs N_t of each run's best EMS (for N_max, for N_acc and for N_acc_strict: up to three per run,
+                                 a scheme listed once), full-run values with 95% bootstrap interval bars (none for a run without a bootstrap)
   cumul_awae_best_ems_vs_Nt.png  the same for the cumulative AWAE (Z_exact-weighted mean up to N_t,
-                                 as in source/analysis_scripts/plot_awae.py — the quantity N_acc is defined by)
+                                 as stored in run_data*.json — the quantity N_acc is defined by)
   awae_and_cumul_awae_best_ems_vs_Nt.png  both side by side
   qpu_time.png              QPU time per run (log scale; a dummy emulator's modelled time is labelled "[estimated]")
   submission_time.png       submission time per run, summed over jobs (log scale)
@@ -12,10 +13,13 @@ Plots comparing all runs analyzed by source/analysis_scripts/run_post_process.py
   submission_to_results_duration_without_dead_time.png  the same window minus long idle gaps (log scale)
   effective_cost_EUR.png    effective cost in EUR per run (log scale; a dummy emulator's modelled cost is labelled "[estimated]")
   n_acc.png                 N_acc per run (linear scale)
-  e_min_nmax.png            E_min at N_max per run (linear scale, with the threshold epsilon)
-and, in the same folder, <benchmark>_collective_<data types>[<filter suffix>][_latest-per-qpu|_best-nacc-per-qpu|_best-emin-at-nmax-per-qpu][_hc-gt-T].csv (the suffixes only for a filtered set of runs): one row per run with
-  run, n_samples (the kept-chunk count of a health-check-filtered run), sample_size, N_acc, best_scheme_Nacc, N_max, E_min_Nmax, best_scheme_Nmax, QPU_time_s, QPU_time, effective_cost_EUR
-  and a twelfth column, estimated ("estimated" for a dummy emulator), only when a dummy emulator is among the runs
+  n_acc_strict.png          N_acc_strict per run (linear scale; a run without a bootstrap has none and is marked in a note)
+  e_min_nmax.png            E_min at N_max per run (linear scale, with the threshold epsilon and the 95% interval of E_min_Nmax)
+and, in the same folder, <benchmark>_collective_<data types>[<filter suffix>][_latest-per-qpu|_best-nacc-per-qpu|_best-nacc-strict-per-qpu|_best-emin-at-nmax-per-qpu][_hc-gt-T].csv (the suffixes only for a filtered set of runs): one row per run with
+  run, n_samples (the kept-chunk count of a health-check-filtered run), sample_size, N_acc, best_scheme_Nacc, N_max, E_min_Nmax, best_scheme_Nmax, QPU_time_s, QPU_time, effective_cost_EUR,
+  N_acc_strict, best_scheme_Nacc_strict, E_min_Nacc, E_min_Nacc_strict, and the 95% interval ends E_min_Nmax_ci95_lo / _hi, E_min_Nacc_ci95_lo / _hi, E_min_Nacc_strict_ci95_lo / _hi
+  (the strict and interval cells are empty for a run without a bootstrap)
+  and a last column, estimated ("estimated" for a dummy emulator), only when a dummy emulator is among the runs
 
 Reads each run's processed_results/summary.json (a subset: summary+nsamples-N.json) and
 run_data[_spam][+nsamples-N].json. Works with both the current summary format and the
@@ -33,7 +37,7 @@ from pathlib import Path
 from source.core.common import PROJECT_ROOT, rel_path
 from source.core.records.run_info import load_run_info
 from source.core.records.run_names import layout_label, parse_run_name, run_summary_name, subset_suffix, summary_name
-from source.core.analysis.derived_quantities import EPSILON, cumulative_awae, best_schemes
+from source.core.analysis.derived_quantities import EPSILON, best_schemes
 
 import matplotlib
 matplotlib.use("Agg")
@@ -59,7 +63,7 @@ def _load_run(run_folder, n_samples):
     backend = parse_run_name(run_folder).device
     suffix = subset_suffix(n_samples)
 
-    # Best EMS for N_max and for N_acc; "+SPAM" marks the readout-corrected variant (older
+    # Best EMS for N_max, N_acc and N_acc_strict; "+SPAM" marks the readout-corrected variant (older
     # summaries name the scheme only — then the uncorrected data is used).
     best = best_schemes(summary)
     run_data = {}
@@ -75,12 +79,14 @@ def _load_run(run_folder, n_samples):
             print(f"⚠️  {run_folder}: no {fname} — {ems} left out of the AWAE plot")
             continue
         base = ems.removesuffix("+SPAM")
-        pts = sorted((int(nt), d[base]["AWAE"], d["Z_exact"]) for nt, d in data["depths"].items()
-                     if isinstance(d.get(base), dict) and "AWAE" in d[base])
+        pts = sorted((int(nt), d[base]) for nt, d in data["depths"].items()
+                     if isinstance(d.get(base), dict) and "AWAE" in d[base] and "AWAE_cumul" in d[base])
         if pts:
-            nts, awae, z = zip(*pts)
-            cumul = list(cumulative_awae(z, awae))   # Z_exact-weighted mean of AWAE over all depths up to N_t
-            curves.append((tag, ems, list(nts), dict(awae=list(awae), cumul=cumul)))
+            def col(key, pts=pts):
+                return [float("nan") if e.get(key) is None else e[key] for _, e in pts]
+            curves.append((tag, ems, [nt for nt, _ in pts],
+                           dict(awae=col("AWAE"), cumul=col("AWAE_cumul"),   # full-run values (cumulative: Z_exact-weighted mean up to N_t)
+                                awae_ci=[e.get("AWAE_ci95") for _, e in pts], cumul_ci=[e.get("AWAE_cumul_ci95") for _, e in pts])))   # [lo, hi] or None
 
     cpu = (summary.get("timing_breakdown") or {}).get("cpu") or {}
     submit_parts = [cpu.get("submit_s"), cpu.get("health_check_submit_s")]
@@ -106,6 +112,13 @@ def _load_run(run_folder, n_samples):
         n_acc      = summary.get("N_acc"),
         n_max      = summary.get("N_max"),
         emin_nmax  = summary.get("E_min_Nmax"),
+        emin_nmax_ci = summary.get("E_min_Nmax_ci95"),   # [lo, hi] or None (no bootstrap)
+        emin_nacc  = summary.get("E_min_Nacc"),
+        emin_nacc_ci = summary.get("E_min_Nacc_ci95"),
+        n_acc_strict = summary.get("N_acc_strict"),   # None without a bootstrap
+        emin_nacc_strict = summary.get("E_min_Nacc_strict"),
+        emin_nacc_strict_ci = summary.get("E_min_Nacc_strict_ci95"),
+        best_ems_nacc_strict = summary.get("best_ems_Nacc_strict"),
         best_ems_nmax = summary.get("best_ems_Nmax"),
         best_ems_nacc = summary.get("best_ems_Nacc"),
         cost_eur   = summary.get("effective_cost_EUR", summary.get("effective_cost_euros")),   # legacy key: effective_cost_euros
@@ -165,50 +178,67 @@ def _plain_log_axis(ax, tick_fmt=None):
 ESTIMATED = " [estimated]"   # marks a dummy emulator's modelled QPU time and cost in the plots and the run table
 
 
-def _bar_plot(runs, labels, key, ylabel, title, value_fmt, path, tick_fmt=None, log=True, mark_estimated=False):
+def _bar_plot(runs, labels, key, ylabel, title, value_fmt, path, tick_fmt=None, log=True, mark_estimated=False, ci_key=None, missing_note=None):
     """Bar plot of r[key] per run; log=True: log scale, positive values only; log=False: linear axis from 0
     (zero kept), with the threshold line epsilon for E_min. mark_estimated: a dummy emulator's bar is labelled
-    "[estimated]" (its value is modelled) and the title says so."""
+    "[estimated]" (its value is modelled) and the title says so. ci_key: the run key of a [lo, hi] 95% interval drawn as a line centred on the bar's right
+    edge (none for a null interval). missing_note: text added under the plot when a run has no value (it is left out)."""
     if mark_estimated and any(r.get("estimated") for r in runs):
         labels = [l + (ESTIMATED if r.get("estimated") else "") for l, r in zip(labels, runs)]
         title += " (dummy emulators: estimated)"
     def usable(v):
         return isinstance(v, (int, float)) and not math.isnan(v) and (v > 0 or (not log and v >= 0))
-    pts = [(l, r[key]) for l, r in zip(labels, runs) if usable(r[key])]
+    pts = [(l, r[key], r.get(ci_key) if ci_key else None) for l, r in zip(labels, runs) if usable(r[key])]
     for l, r in zip(labels, runs):
         if not usable(r[key]):
             print(f"⚠️  {l}: no {'positive ' if log else ''}{key} in its summary — left out of {path.name}")
     if not pts:
         print(f"⏭  {path.name}: no data — skipped")
         return
-    names, vals = zip(*pts)
+    names, vals, cis = zip(*pts)
     # the rotated run labels are long and tight_layout() takes their room from the axes: a taller figure keeps the plot area ~4 in
     fig, ax = plt.subplots(figsize=(max(6, 1.1 * len(pts) + 2), 4 + min(0.07 * max(len(n) for n in names), 5)))
     bars = ax.bar(range(len(vals)), vals, color="steelblue", width=0.6)
-    for b, v in zip(bars, vals):
-        ax.annotate(value_fmt(v), (b.get_x() + b.get_width() / 2, v), xytext=(0, 3),
-                    textcoords="offset points", ha="center", va="bottom", fontsize=8)
+    tops = list(vals)    # where each value label sits: on top of its bar
+    highest = list(vals)   # the top of each bar or of its interval line, for the axis range
+    for i, ci in enumerate(cis):
+        if isinstance(ci, (list, tuple)) and len(ci) == 2 and all(isinstance(x, (int, float)) for x in ci):
+            # the interval centred on the bar's right edge (bar width 0.6), with short caps, clear of the value label
+            x = i + 0.3
+            ax.vlines(x, ci[0], ci[1], color="black", lw=1.5, zorder=3)
+            ax.hlines(ci, x - 0.04, x + 0.04, color="black", lw=1.5, zorder=3)
+            highest[i] = max(highest[i], ci[1])
+    if not log and key == "emin_nmax":   # a label below the threshold line would sit on it: lift it just above the line
+        tops = [max(t, EPSILON) for t in tops]
+    for b, v, top in zip(bars, vals, tops):
+        # a white box keeps the number readable where the threshold line or a grid line crosses it
+        ax.annotate(value_fmt(v), (b.get_x() + b.get_width() / 2, top), xytext=(0, 3),
+                    textcoords="offset points", ha="center", va="bottom", fontsize=8, zorder=4,
+                    bbox=dict(boxstyle="square,pad=0.15", fc="white", ec="none", alpha=0.85))
     ax.set_xticks(range(len(vals)))
     ax.set_xticklabels(names, rotation=30, ha="right")
     if log:
-        ax.set_ylim(min(vals) / 2, max(vals) * 6)   # room for the value label above the tallest bar
+        ax.set_ylim(min(vals) / 2, max(highest + tops) * 6)   # room for the value label above the tallest bar or interval
         _plain_log_axis(ax, tick_fmt)
     elif key == "emin_nmax":
-        ax.set_ylim(0, 1.05)
-        ax.axhline(EPSILON, color="black", ls="--", lw=1, alpha=0.6, label=rf"accuracy threshold $\varepsilon$={EPSILON}")
+        ax.set_ylim(0, max(1.05, max(highest + tops) * 1.12))   # room above an interval reaching past 1
+        ax.axhline(EPSILON, color="black", ls="--", lw=1, alpha=0.6, zorder=2, label=rf"accuracy threshold $\varepsilon$={EPSILON}")
         ax.legend(fontsize=8)
     else:
-        ax.set_ylim(0, max(max(vals), 1) * 1.35)
+        ax.set_ylim(0, max(max(highest + tops), 1) * 1.35)
     ax.set_ylabel(ylabel)
     ax.set_title(title, fontweight="bold")
     ax.grid(True, axis="y", which="both", alpha=0.3)
     fig.tight_layout()
+    if missing_note and len(pts) < len(runs):
+        fig.text(0.5, 0.0, missing_note, ha="center", va="top", fontsize=8, color="firebrick")
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"✅ Saved → {rel_path(path)}")
 
 
 AWAE_KINDS = {"awae": "AWAE", "cumul": "Cumulative AWAE"}
+CURVE_STYLE = {"N_max": ("-", "o"), "N_acc": ("--", "s"), "N_acc_strict": ("-.", "^")}   # (linestyle, marker) per best-scheme tag
 
 
 def _awae_plot(runs, labels, kinds, path):
@@ -221,8 +251,11 @@ def _awae_plot(runs, labels, kinds, path):
         c = colors[i % len(colors)]
         for tag, ems, nts, vals in r["curves"]:
             for ax, kind in zip(axes, kinds):
-                ax.plot(nts, vals[kind], color=c, ls="-" if tag == "N_max" else "--",
-                        marker="o" if tag == "N_max" else "s", lw=1.5, ms=4, label=f"{l}: {ems} (best for {tag})")
+                ax.plot(nts, vals[kind], color=c, ls=CURVE_STYLE[tag][0], marker=CURVE_STYLE[tag][1],
+                        lw=1.5, ms=4, label=f"{l}: {ems} (best for {tag})")
+                for x, iv in zip(nts, vals[kind + "_ci"]):   # 95% interval; the full-run value can lie outside it, so no errorbar yerr
+                    if iv is not None and iv[0] is not None and iv[1] is not None:
+                        ax.vlines(x, iv[0], iv[1], color=c, lw=1.2, alpha=0.5)
             all_nt.update(nts)
     if not all_nt:
         plt.close(fig)
@@ -235,7 +268,7 @@ def _awae_plot(runs, labels, kinds, path):
         ax.set_ylabel(AWAE_KINDS[kind])
         ax.set_title(f"{AWAE_KINDS[kind]} vs $N_t$", fontsize=10)
         ax.grid(True, alpha=0.3)
-    fig.suptitle("Best EMS of each run (solid: best at $N_{max}$, dashed: best at $N_{acc}$)", fontweight="bold", fontsize=11)
+    fig.suptitle("Best EMS of each run (solid: best at $N_{max}$, dashed: at $N_{acc}$, dash-dot: at $N_{acc,strict}$; bars: 95% intervals)", fontweight="bold", fontsize=11)
     axes[-1].legend(fontsize=7, loc="upper left", bbox_to_anchor=(1.01, 1))
     fig.tight_layout()
     fig.savefig(path, dpi=150, bbox_inches="tight")
@@ -245,14 +278,21 @@ def _awae_plot(runs, labels, kinds, path):
 
 def _write_run_table(runs, labels, path):
     """The collective run table: one row per run, ";"-separated, each column padded with spaces to a common width
-    so the file also reads as a text table (a missing value, None / NaN / "N/A", is an empty cell). A twelfth column, `estimated`, is added only when a dummy emulator is among the runs."""
+    so the file also reads as a text table (a missing value, None / NaN / "N/A", is an empty cell). The last column, `estimated`, is added only when a dummy emulator is among the runs."""
     def num(v, fmt):
         return fmt.format(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and not math.isnan(v) else ""
     def text(v):
         return v if isinstance(v, str) and v != "N/A" else ""
+    def ci_cells(ci):
+        ok = isinstance(ci, (list, tuple)) and len(ci) == 2
+        return [num(ci[0], "{:.4g}") if ok else "", num(ci[1], "{:.4g}") if ok else ""]
+    with_estimated = any(r.get("estimated") for r in runs)   # a column only when a dummy emulator (modelled time and cost) is among the runs
     rows = [["run", "n_samples", "sample_size", "N_acc", "best_scheme_Nacc", "N_max", "E_min_Nmax", "best_scheme_Nmax",
-             "QPU_time_s", "QPU_time", "effective_cost_EUR"]]
-    if any(r.get("estimated") for r in runs):   # a column only when a dummy emulator (modelled time and cost) is among the runs
+             "QPU_time_s", "QPU_time", "effective_cost_EUR",
+             "N_acc_strict", "best_scheme_Nacc_strict", "E_min_Nacc", "E_min_Nacc_strict",
+             "E_min_Nmax_ci95_lo", "E_min_Nmax_ci95_hi", "E_min_Nacc_ci95_lo", "E_min_Nacc_ci95_hi",
+             "E_min_Nacc_strict_ci95_lo", "E_min_Nacc_strict_ci95_hi"]]
+    if with_estimated:
         rows[0].append("estimated")
     for l, r in zip(labels, runs):
         q = r["qpu_time_s"]
@@ -261,7 +301,11 @@ def _write_run_table(runs, labels, path):
                      num(r.get("n_acc"), "{:.0f}"), text(r.get("best_ems_nacc")), num(r.get("n_max"), "{:.0f}"),
                      num(r.get("emin_nmax"), "{:.4g}"), text(r.get("best_ems_nmax")),
                      num(q, "{:.0f}"), _duration_fmt(round(q)) if q_ok else "",
-                     num(r["cost_eur"], "{:.2f}")] + (["estimated" if r.get("estimated") else ""] if len(rows[0]) > 11 else []))
+                     num(r["cost_eur"], "{:.2f}"),
+                     num(r.get("n_acc_strict"), "{:.0f}"), text(r.get("best_ems_nacc_strict")),
+                     num(r.get("emin_nacc"), "{:.4g}"), num(r.get("emin_nacc_strict"), "{:.4g}")]
+                    + ci_cells(r.get("emin_nmax_ci")) + ci_cells(r.get("emin_nacc_ci")) + ci_cells(r.get("emin_nacc_strict_ci"))
+                    + (["estimated" if r.get("estimated") else ""] if with_estimated else []))
     widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f, delimiter=";")
@@ -301,6 +345,9 @@ def make_collective_plots(analyzed, out_dir):
               lambda v: f"€{v:,.2f}", out_dir / "effective_cost_EUR.png", mark_estimated=True)
     _bar_plot(runs, labels, "n_acc", "$N_{acc}$", "$N_{acc}$ per run",
               lambda v: f"{v:.0f}", out_dir / "n_acc.png", log=False)
+    _bar_plot(runs, labels, "n_acc_strict", "$N_{acc,strict}$", "$N_{acc,strict}$ per run",
+              lambda v: f"{v:.0f}", out_dir / "n_acc_strict.png", log=False,
+              missing_note="runs left out: no $N_{acc,strict}$ (no bootstrap: fewer than 5 samples per input state)")
     _bar_plot(runs, labels, "emin_nmax", "$E_{min}$ at $N_{max}$", "$E_{min}$ at $N_{max}$ per run",
-              lambda v: f"{v:.3g}", out_dir / "e_min_nmax.png", log=False)
+              lambda v: f"{v:.3f}", out_dir / "e_min_nmax.png", log=False, ci_key="emin_nmax_ci")
     _write_run_table(runs, labels, out_dir / f"{out_dir.name}.csv")

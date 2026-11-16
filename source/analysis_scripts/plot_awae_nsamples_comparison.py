@@ -11,6 +11,7 @@ Driven by source/analysis_scripts/run_post_process.py --nsamples-comparison via 
                       (the smaller analyses are not asked for a best EMS of their own)
   QPU_NSAMPLES_LIST   comma-separated sample counts to compare, e.g. 8,48,120,240,480;
                       each needs its run_data[_spam][+nsamples-N].json already analyzed
+                      (each draws its own 95% interval bars; n = 8 has none: fewer than 5 samples per input state)
 """
 
 import os
@@ -26,7 +27,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 os.chdir(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))   # datafiles/ paths are relative to the project root
 
 from source.core.common import rel_path
-from source.core.analysis.derived_quantities import EPSILON, cumulative_awae, best_schemes
+from source.core.analysis.derived_quantities import EPSILON, best_schemes
 from source.core.records.run_info import resolve_run
 from source.core.records.run_names import parse_run_name, run_summary_name, plots_dir as plots_dir_of, subset_suffix, NSAMPLES_COMPARISON_PLOT
 from source.core.records.circuit_check import load_run_verification, add_circuit_check_banner
@@ -65,17 +66,29 @@ def suffix_of(n):
 
 
 def load_awae(n, ems_full):
-    """(nt_list, AWAE, cumulative AWAE) of one scheme ("NEC+cRC" or "NEC+cRC+SPAM") analyzed on n samples."""
+    """(nt_list, AWAE, cumulative AWAE, AWAE intervals, cumulative intervals) of one scheme ("NEC+cRC" or "NEC+cRC+SPAM") analyzed on
+    n samples, all full-run values of that analysis; an interval is [lo, hi] or None (no bootstrap: n below 5 samples per input state)."""
     use_spam = ems_full.endswith("+SPAM")
     ems      = ems_full.removesuffix("+SPAM")
     fname    = f"run_data{'_spam' if use_spam else ''}{suffix_of(n)}.json"
     with open(processed / fname, encoding="utf-8") as f:
-        depths = json.load(f)["depths"]
+        run_data = json.load(f)
+    if "nec_analysis" not in run_data:   # written before the NEC bootstrap: no cumulative AWAE or intervals
+        raise KeyError(f"{fname} predates the NEC bootstrap (no nec_analysis); re-analyse the run")
+    depths  = run_data["depths"]
     nt_list = sorted(int(k) for k in depths)
-    Z    = np.array([depths[str(nt)]["Z_exact"] for nt in nt_list])
-    awae = np.array([depths[str(nt)][ems]["AWAE"] for nt in nt_list])
-    cumul = cumulative_awae(Z, awae)
-    return nt_list, awae, cumul
+    def col(key):
+        return [depths[str(nt)][ems][key] for nt in nt_list]   # the intervals are null without a bootstrap
+    awae  = np.array(col("AWAE"), dtype=float)
+    cumul = np.array(col("AWAE_cumul"), dtype=float)
+    return nt_list, awae, cumul, col("AWAE_ci95"), col("AWAE_cumul_ci95")
+
+
+def draw_bars(ax, x, intervals, color):
+    """95% interval bars (vlines: the full-run value can lie outside its interval); a null interval draws none."""
+    for xi, iv in zip(x, intervals):
+        if iv is not None and iv[0] is not None and iv[1] is not None:
+            ax.vlines(xi, iv[0], iv[1], color=color, lw=1.5, alpha=0.6)
 
 
 # ── Reference: best EMS (N_max, N_acc) and N_acc of the run's own analysis ─────
@@ -84,6 +97,7 @@ with open(processed / run_summary_name(N_SAMPLES), encoding="utf-8") as f:
 best_ems      = summary["best_ems_Nmax"]
 best_ems_nacc = summary.get("best_ems_Nacc", best_ems)
 N_acc         = summary["N_acc"]
+N_acc_strict  = summary.get("N_acc_strict")   # None: the reference analysis has no bootstrap
 schemes       = best_schemes(summary)
 if not schemes:   # no scheme has a cumulative AWAE below 1 (derived_quantities)
     msg = "No error-mitigation scheme reaches cumulative AWAE < 1"
@@ -99,31 +113,39 @@ if not schemes:   # no scheme has a cumulative AWAE below 1 (derived_quantities)
     plt.close()
     print(f"✅ Saved → {rel_path(fname)}")
     sys.exit(0)
-print(f"  Best EMS ({REF_N} samples): {best_ems} (N_max), {best_ems_nacc} (N_acc), N_acc: {N_acc}")
+print(f"  Best EMS ({REF_N} samples): {best_ems} (N_max), {best_ems_nacc} (N_acc), N_acc: {N_acc}, N_acc_strict: {N_acc_strict}")
 
 # ── Figure ────────────────────────────────────────────────────────────────────
 cmap      = plt.get_cmap("viridis")
 colors    = {n: cmap(0.9 * i / max(len(NSAMPLES_LIST) - 1, 1)) for i, n in enumerate(reversed(NSAMPLES_LIST))}
-linestyle = {"N_max": "-", "N_acc": "--"}
-markers   = {"N_max": "o", "N_acc": "s"}
+linestyle = {"N_max": "-", "N_acc": "--", "N_acc_strict": "-."}
+markers   = {"N_max": "o", "N_acc": "s", "N_acc_strict": "^"}
 
 fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=(14, 5), sharey=True)
 nt_ticks = []
+no_bars = []   # sample counts analyzed without a bootstrap (no interval bars)
 for n in NSAMPLES_LIST:
     for tag, ems in schemes:
         try:
-            nt_list, awae, cumul = load_awae(n, ems)
+            nt_list, awae, cumul, awae_ci, cumul_ci = load_awae(n, ems)
         except FileNotFoundError as e:
             print(f"⚠️  n_samples={n}: {e.filename} missing — curve left out")
             continue
         nt_ticks = nt_list
         label = f"n_samples={n}" + (" (reference)" if n == REF_N else "") + (f", {tag} best" if len(schemes) > 1 else "")
-        for ax, y in ((ax_a, awae), (ax_b, cumul)):
+        for ax, y, iv in ((ax_a, awae, awae_ci), (ax_b, cumul, cumul_ci)):
             ax.plot(nt_list, y, color=colors[n], marker=markers[tag], ls=linestyle[tag],
                     lw=2.2 if n == REF_N else 1.5, ms=5, label=label)
+            draw_bars(ax, nt_list, iv, colors[n])
+        if all(v is None for v in awae_ci):
+            no_bars.append(n)
 
 for ax in (ax_a, ax_b):
     ax.axvline(N_acc, color="purple", ls=":", lw=1.5, alpha=0.7, label=f"$N_{{acc}}$={N_acc} ({REF_N} samples)")
+    if N_acc_strict is not None and N_acc_strict != N_acc:
+        ax.axvline(N_acc_strict, color="green", ls="-.", lw=1.5, alpha=0.7, label=f"$N_{{acc,strict}}$={N_acc_strict} ({REF_N} samples)")
+    else:
+        ax.plot([], [], " ", label=f"$N_{{acc,strict}}$={'n/a' if N_acc_strict is None else N_acc_strict} ({REF_N} samples)")
     ax.set_xlabel("$N_t$")
     ax.set_xticks(nt_ticks)
     ax.grid(True, alpha=0.3)
@@ -133,10 +155,12 @@ ax_b.set_ylabel("Cumulative AWAE"); ax_b.set_title("Cumulative AWAE vs $N_t$")
 ax_a.legend(fontsize=7)
 ax_b.legend(fontsize=7)
 
-title_ems = schemes[0][1] if len(schemes) == 1 else f"{best_ems} (N_max) / {best_ems_nacc} (N_acc)"
+title_ems = schemes[0][1] if len(schemes) == 1 else f"{best_ems} (N_max) / {best_ems_nacc} (N_acc)" if len(schemes) == 2 else " / ".join(f"{e} ({t})" for t, e in schemes)
 fig.suptitle(f"AWAE — best EMS ({title_ems}): number of samples\n{NAME.figure_label_full}, LNN={LNN}, shots={NSHOTS}",
              fontweight="bold", fontsize=11)
 plt.tight_layout()
+if no_bars:
+    fig.text(0.5, 0.0, f"no interval for n_samples={sorted(set(no_bars))}: fewer than 5 samples per input state", ha="center", va="top", fontsize=8, color="firebrick")
 add_circuit_check_banner(fig, VERIFICATION); add_completeness_banner(fig, COMPLETENESS)
 fname = plots_dir / NSAMPLES_COMPARISON_PLOT
 plt.savefig(fname, dpi=150, bbox_inches="tight")

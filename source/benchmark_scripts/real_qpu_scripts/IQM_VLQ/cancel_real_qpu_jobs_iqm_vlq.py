@@ -39,7 +39,7 @@ BENCH        = parse_benchmark_args(ARGV, extra_keys=("backend", "date"), requir
 LAYOUT       = parse_layout_args(ARGV, collect=True)   # layout=... / date=... pick the run folder(s) (date= alone: each layout's run of that date); None: every run with something left to collect
 LNN          = BACKEND_CFG["lnn"]   # the backend's topology, from backends.json
 DO_SPAM      = True
-RUN_FOLDERS  = [] if BENCH is None else find_collect_run_folders(qpu_run_prefix("IQM_VLQ", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM), LAYOUT, parse_date_arg(ARGV))   # one status report per folder
+RUN_FOLDERS  = [] if BENCH is None else find_collect_run_folders(qpu_run_prefix("IQM_VLQ", BACKEND_NAME, BENCH.tag, LNN, DO_SPAM), LAYOUT, parse_date_arg(ARGV))   # jobs cancelled per folder
 HC_NAME      = health_check_run_name("IQM_VLQ", BACKEND_NAME, STANDALONE_HEALTH_CHECK_REPS, STANDALONE_HEALTH_CHECK_NSHOTS)
 HC_LATEST    = latest_run_folder(HC_NAME)   # None: no standalone health check on disk
 HC_FOLDER    = HC_LATEST or HC_NAME   # the standalone health check's folder

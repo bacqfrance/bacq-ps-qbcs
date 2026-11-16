@@ -3,7 +3,8 @@ test_08_mini_local_sim.py
 =========================
 source/benchmark_scripts/local_simulation_scripts/benchmark_noiseless_all_to_all.py itself, run the way a
 user starts with it — with the `mini` argument — and unmodified except for its
-output folder name (and, in the no-SPAM case, do_spam=True replaced by do_spam=False) (so it can't touch a real mini_sim-noiseless_… run). Its results are then
+output folder name, so it can't touch a real mini_sim-noiseless_… run (and, in the no-SPAM case,
+do_spam=True replaced by do_spam=False). Its results are then
 analyzed through source/analysis_scripts/run_post_process.py like any other run: summary JSON + plots must carry
 the mini benchmark's own 200 shots / 8 samples / 2 depths, and the run must hold the drawings of
 the first circuit of every error-mitigation role (source/core/circuits/circuit_drawings.py). The mini run is also
