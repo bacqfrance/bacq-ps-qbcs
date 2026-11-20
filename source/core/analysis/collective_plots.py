@@ -14,12 +14,16 @@ Plots comparing all runs analyzed by source/analysis_scripts/run_post_process.py
   effective_cost_EUR.png    effective cost in EUR per run (log scale; a dummy emulator's modelled cost is labelled "[estimated]")
   n_acc.png                 N_acc per run (linear scale)
   n_acc_strict.png          N_acc_strict per run (linear scale; a run without a bootstrap has none and is marked in a note)
+  n_acc_bare.png            N_acc_bare per run (the N_acc rule over the unmitigated schemes only; linear scale)
   e_min_nmax.png            E_min at N_max per run (linear scale, with the threshold epsilon and the 95% interval of E_min_Nmax)
-and, in the same folder, <benchmark>_collective_<data types>[<filter suffix>][_latest-per-qpu|_best-nacc-per-qpu|_best-nacc-strict-per-qpu|_best-emin-at-nmax-per-qpu][_hc-gt-T].csv (the suffixes only for a filtered set of runs): one row per run with
+and, in the same folder, <benchmark>_collective_<data types>[<filter suffix>][_latest-per-qpu|_best-nacc-per-qpu|_best-nacc-strict-per-qpu|_best-nacc-bare-per-qpu|_best-emin-at-nmax-per-qpu][_hc-gt-T].csv (the suffixes only for a filtered set of runs): one row per run with
   run, n_samples (the kept-chunk count of a health-check-filtered run), sample_size, N_acc, best_scheme_Nacc, N_max, E_min_Nmax, best_scheme_Nmax, QPU_time_s, QPU_time, effective_cost_EUR,
-  N_acc_strict, best_scheme_Nacc_strict, E_min_Nacc, E_min_Nacc_strict, and the 95% interval ends E_min_Nmax_ci95_lo / _hi, E_min_Nacc_ci95_lo / _hi, E_min_Nacc_strict_ci95_lo / _hi
+  N_acc_strict, best_scheme_Nacc_strict, E_min_Nacc, E_min_Nacc_strict, and the 95% interval ends E_min_Nmax_ci95_lo / _hi, E_min_Nacc_ci95_lo / _hi, E_min_Nacc_strict_ci95_lo / _hi,
+  N_acc_bare, E_min_Nacc_bare, E_min_Nacc_bare_ci95_lo / _hi, best_scheme_Nacc_bare
   (the strict and interval cells are empty for a run without a bootstrap)
   and a last column, estimated ("estimated" for a dummy emulator), only when a dummy emulator is among the runs
+The figures are redrawn only when the set of runs or one of their summaries changed since the last drawing
+(collective_inputs.json in the folder lists them); force=True redraws regardless.
 
 Reads each run's processed_results/summary.json (a subset: summary+nsamples-N.json) and
 run_data[_spam][+nsamples-N].json. Works with both the current summary format and the
@@ -119,6 +123,10 @@ def _load_run(run_folder, n_samples):
         emin_nacc_strict = summary.get("E_min_Nacc_strict"),
         emin_nacc_strict_ci = summary.get("E_min_Nacc_strict_ci95"),
         best_ems_nacc_strict = summary.get("best_ems_Nacc_strict"),
+        n_acc_bare = summary.get("N_acc_bare"),   # None for a summary written before it existed
+        emin_nacc_bare = summary.get("E_min_Nacc_bare"),
+        emin_nacc_bare_ci = summary.get("E_min_Nacc_bare_ci95"),
+        best_ems_nacc_bare = summary.get("best_ems_Nacc_bare"),
         best_ems_nmax = summary.get("best_ems_Nmax"),
         best_ems_nacc = summary.get("best_ems_Nacc"),
         cost_eur   = summary.get("effective_cost_EUR", summary.get("effective_cost_euros")),   # legacy key: effective_cost_euros
@@ -291,7 +299,8 @@ def _write_run_table(runs, labels, path):
              "QPU_time_s", "QPU_time", "effective_cost_EUR",
              "N_acc_strict", "best_scheme_Nacc_strict", "E_min_Nacc", "E_min_Nacc_strict",
              "E_min_Nmax_ci95_lo", "E_min_Nmax_ci95_hi", "E_min_Nacc_ci95_lo", "E_min_Nacc_ci95_hi",
-             "E_min_Nacc_strict_ci95_lo", "E_min_Nacc_strict_ci95_hi"]]
+             "E_min_Nacc_strict_ci95_lo", "E_min_Nacc_strict_ci95_hi",
+             "N_acc_bare", "best_scheme_Nacc_bare", "E_min_Nacc_bare", "E_min_Nacc_bare_ci95_lo", "E_min_Nacc_bare_ci95_hi"]]
     if with_estimated:
         rows[0].append("estimated")
     for l, r in zip(labels, runs):
@@ -305,6 +314,8 @@ def _write_run_table(runs, labels, path):
                      num(r.get("n_acc_strict"), "{:.0f}"), text(r.get("best_ems_nacc_strict")),
                      num(r.get("emin_nacc"), "{:.4g}"), num(r.get("emin_nacc_strict"), "{:.4g}")]
                     + ci_cells(r.get("emin_nmax_ci")) + ci_cells(r.get("emin_nacc_ci")) + ci_cells(r.get("emin_nacc_strict_ci"))
+                    + [num(r.get("n_acc_bare"), "{:.0f}"), text(r.get("best_ems_nacc_bare")), num(r.get("emin_nacc_bare"), "{:.4g}")]
+                    + ci_cells(r.get("emin_nacc_bare_ci"))
                     + (["estimated" if r.get("estimated") else ""] if with_estimated else []))
     widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
     with open(path, "w", newline="", encoding="utf-8") as f:
@@ -315,9 +326,13 @@ def _write_run_table(runs, labels, path):
     print(f"✅ Saved → {rel_path(path)}")
 
 
-def make_collective_plots(analyzed, out_dir):
+MANIFEST = "collective_inputs.json"   # the runs (summary name and modification time) and figures of the last drawing
+
+
+def make_collective_plots(analyzed, out_dir, force=False):
     """analyzed: [(run_folder, n_samples or None)]; the plots, the run table (<out_dir name>.csv) and the runs'
-    summary jsons are written to out_dir."""
+    summary jsons are written to out_dir. The drawing is skipped when MANIFEST there matches the current runs
+    and summaries and every figure and the table it lists exists (a change of the plot code is not detected: force=True redraws)."""
     runs = sorted((r for r in (_load_run(f, n) for f, n in analyzed) if r is not None), key=run_order)
     if not runs:
         print("⏭  no analyzed runs — no collective plots")
@@ -328,6 +343,17 @@ def make_collective_plots(analyzed, out_dir):
     for r in runs:   # the summaries behind the plots and the table, next to them
         src = _find_summary(PROJECT_ROOT / "datafiles" / r["run_folder"], r["n_samples"])
         shutil.copy2(src, out_dir / summary_name(r["run_folder"], r["n_samples"]))
+    inputs = [[summary_name(r["run_folder"], r["n_samples"]),
+               (_find_summary(PROJECT_ROOT / "datafiles" / r["run_folder"], r["n_samples"])).stat().st_mtime_ns] for r in runs]
+    manifest_path = out_dir / MANIFEST
+    if not force and manifest_path.is_file():
+        try:
+            old = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except ValueError:
+            old = {}
+        if old.get("inputs") == inputs and old.get("files") and all((out_dir / f).is_file() for f in old["files"]):
+            print(f"⏭  collective plots in {rel_path(out_dir)} are up to date (same runs and summaries; --force-plots redraws)")
+            return
     _awae_plot(runs, labels, ["awae"], out_dir / "awae_best_ems_vs_Nt.png")
     _awae_plot(runs, labels, ["cumul"], out_dir / "cumul_awae_best_ems_vs_Nt.png")
     _awae_plot(runs, labels, ["awae", "cumul"], out_dir / "awae_and_cumul_awae_best_ems_vs_Nt.png")
@@ -348,6 +374,11 @@ def make_collective_plots(analyzed, out_dir):
     _bar_plot(runs, labels, "n_acc_strict", "$N_{acc,strict}$", "$N_{acc,strict}$ per run",
               lambda v: f"{v:.0f}", out_dir / "n_acc_strict.png", log=False,
               missing_note="runs left out: no $N_{acc,strict}$ (no bootstrap: fewer than 5 samples per input state)")
+    _bar_plot(runs, labels, "n_acc_bare", "$N_{acc,bare}$", "$N_{acc,bare}$ per run (unmitigated schemes only)",
+              lambda v: f"{v:.0f}", out_dir / "n_acc_bare.png", log=False,
+              missing_note="runs left out: no $N_{acc,bare}$ (analysis from before it was added: re-analyze the run)")
     _bar_plot(runs, labels, "emin_nmax", "$E_{min}$ at $N_{max}$", "$E_{min}$ at $N_{max}$ per run",
               lambda v: f"{v:.3f}", out_dir / "e_min_nmax.png", log=False, ci_key="emin_nmax_ci")
     _write_run_table(runs, labels, out_dir / f"{out_dir.name}.csv")
+    files = sorted(p.name for p in out_dir.iterdir() if p.suffix in (".png", ".csv"))
+    manifest_path.write_text(json.dumps({"inputs": inputs, "files": files}, indent=1), encoding="utf-8")

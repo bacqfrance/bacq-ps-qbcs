@@ -167,16 +167,22 @@ best_ems_nacc = summary.get("best_ems_Nacc", best_ems)
 N_acc         = summary["N_acc"]
 N_acc_strict  = summary.get("N_acc_strict")   # None: no bootstrap, so undefined
 NACC_STRICT_TXT = "n/a" if N_acc_strict is None else str(N_acc_strict)
-print(f"  Best EMS: {best_ems} (N_max), {best_ems_nacc} (N_acc), N_acc: {N_acc}, N_acc_strict: {NACC_STRICT_TXT}")
+N_acc_bare    = summary.get("N_acc_bare")   # None: a summary from before it existed
+NACC_BARE_TXT = "n/a" if N_acc_bare is None else str(N_acc_bare)
+print(f"  Best EMS: {best_ems} (N_max), {best_ems_nacc} (N_acc), N_acc: {N_acc}, N_acc_strict: {NACC_STRICT_TXT}, N_acc_bare: {NACC_BARE_TXT}")
 
 
 def add_nacc_lines(ax):
-    """The N_acc line (always) and the N_acc_strict line (when it differs); the legend prints both values."""
+    """The N_acc line (always), the N_acc_strict and N_acc_bare lines (when they differ from the others); the legend prints all three values."""
     ax.axvline(N_acc, color="purple", ls=":", lw=1.5, alpha=0.7, label=f"$N_{{acc}}$={N_acc}")
     if N_acc_strict is not None and N_acc_strict != N_acc:
         ax.axvline(N_acc_strict, color="green", ls="-.", lw=1.5, alpha=0.7, label=f"$N_{{acc,strict}}$={N_acc_strict}")
     else:
         ax.plot([], [], " ", label=f"$N_{{acc,strict}}$={NACC_STRICT_TXT}")   # legend-only entry
+    if N_acc_bare is not None and N_acc_bare not in (N_acc, N_acc_strict):
+        ax.axvline(N_acc_bare, color="darkorange", ls=(0, (1, 1)), lw=1.5, alpha=0.8, label=f"$N_{{acc,bare}}$={N_acc_bare}")
+    else:
+        ax.plot([], [], " ", label=f"$N_{{acc,bare}}$={NACC_BARE_TXT}")
 
 
 def add_interval_note(fig):

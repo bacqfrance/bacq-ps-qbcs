@@ -98,6 +98,7 @@ best_ems      = summary["best_ems_Nmax"]
 best_ems_nacc = summary.get("best_ems_Nacc", best_ems)
 N_acc         = summary["N_acc"]
 N_acc_strict  = summary.get("N_acc_strict")   # None: the reference analysis has no bootstrap
+N_acc_bare    = summary.get("N_acc_bare")     # None: a summary from before it existed
 schemes       = best_schemes(summary)
 if not schemes:   # no scheme has a cumulative AWAE below 1 (derived_quantities)
     msg = "No error-mitigation scheme reaches cumulative AWAE < 1"
@@ -113,7 +114,7 @@ if not schemes:   # no scheme has a cumulative AWAE below 1 (derived_quantities)
     plt.close()
     print(f"✅ Saved → {rel_path(fname)}")
     sys.exit(0)
-print(f"  Best EMS ({REF_N} samples): {best_ems} (N_max), {best_ems_nacc} (N_acc), N_acc: {N_acc}, N_acc_strict: {N_acc_strict}")
+print(f"  Best EMS ({REF_N} samples): {best_ems} (N_max), {best_ems_nacc} (N_acc), N_acc: {N_acc}, N_acc_strict: {N_acc_strict}, N_acc_bare: {N_acc_bare}")
 
 # ── Figure ────────────────────────────────────────────────────────────────────
 cmap      = plt.get_cmap("viridis")
@@ -146,6 +147,10 @@ for ax in (ax_a, ax_b):
         ax.axvline(N_acc_strict, color="green", ls="-.", lw=1.5, alpha=0.7, label=f"$N_{{acc,strict}}$={N_acc_strict} ({REF_N} samples)")
     else:
         ax.plot([], [], " ", label=f"$N_{{acc,strict}}$={'n/a' if N_acc_strict is None else N_acc_strict} ({REF_N} samples)")
+    if N_acc_bare is not None and N_acc_bare not in (N_acc, N_acc_strict):
+        ax.axvline(N_acc_bare, color="darkorange", ls=(0, (1, 1)), lw=1.5, alpha=0.8, label=f"$N_{{acc,bare}}$={N_acc_bare} ({REF_N} samples)")
+    else:
+        ax.plot([], [], " ", label=f"$N_{{acc,bare}}$={'n/a' if N_acc_bare is None else N_acc_bare} ({REF_N} samples)")
     ax.set_xlabel("$N_t$")
     ax.set_xticks(nt_ticks)
     ax.grid(True, alpha=0.3)

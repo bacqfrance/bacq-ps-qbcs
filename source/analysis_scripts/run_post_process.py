@@ -41,13 +41,16 @@ Optional filters narrow the selected runs, for the individual and the collective
 A filtered collective set goes to its own folder, e.g. mini_collective_real-data_dates-2026-09-01-to-2026-09-30_backends-ibm-fez.
 Add --latest-per-qpu to keep only the latest run (date, then run number; complete or not, any layout) of each
 (data type, <provider>-<backend>) among the runs the selection and filters leave; its collective plots go to a folder ending
-_latest-per-qpu. --best-Nacc-per-qpu / --best-Nacc-strict-per-qpu / --best-Emin-at-Nmax-per-qpu instead keep, per (data type, <provider>-<backend>), the run
-with the highest N_acc / the highest N_acc_strict (a run without a bootstrap has none and is never chosen) / the lowest E_min at N_max (the later run on a tie);
+_latest-per-qpu. --best-Nacc-per-qpu / --best-Nacc-strict-per-qpu / --best-Nacc-bare-per-qpu / --best-Emin-at-Nmax-per-qpu instead keep, per (data type, <provider>-<backend>), the run
+with the highest N_acc / the highest N_acc_strict (a run without a bootstrap has none and is never chosen) / the highest N_acc_bare (unmitigated schemes only) / the lowest E_min at N_max (the later run on a tie);
 every candidate is analyzed first if it is not (also with --collective-only), and the folder ends _best-nacc-per-qpu / _best-nacc-strict-per-qpu /
-_best-emin-at-nmax-per-qpu. The four per-QPU flags exclude each other. The collective plots and the run table show a layout as optimized_by_gates for an optimized run made before T1/T2
+_best-nacc-bare-per-qpu / _best-emin-at-nmax-per-qpu. The five per-QPU flags exclude each other. The collective plots and the run table show a layout as optimized_by_gates for an optimized run made before T1/T2
 entered the layout score (dated 2026-10-19 or earlier, or whose physical_qubits.json has no decoherence_included) and as
 optimized_per_chunk_by_2q_gates_IQM for the legacy layout of iqm-emerald; --layouts= accepts these labels too. An incomplete run (fewer chunks analyzed than its sample size) is marked "(n/N chunks)" in the
 collective plots. Each collective plots folder also gets a copy of every plotted run's summary json.
+Each output is redone only when it is missing, lacks a field the code now writes (a summary without N_acc_bare), or is older than its own
+inputs: a summary is redone alone, and each plot script runs only for its own stale figures; the collective plots are skipped while the
+runs and their summaries are the ones of the last drawing. --force-plots redraws every figure (a change of the plot code is not detected).
 Add --individual-only (stages 1-5 only) or --collective-only (stage 6 only, from the
 runs' existing analysis results); without either flag both are done. The collective plots go to
 analysis/plots+summaries/<benchmark>_collective_<data types>/, e.g. mini_collective_real-data+sim-noiseless
@@ -80,7 +83,7 @@ from source.core.runner_support.benchmark_args import parse_benchmark_args, usag
 # The pipeline, plotting and provider modules (myQLM, matplotlib, …) are imported inside the functions that use
 # them, so a wrong argument prints the usage before those heavy imports.
 from source.core.records.run_names import (collective_folder_name, collective_plots_dir, entry_data_type, is_run_name, make_run_filter,
-                                   parse_run_name, run_summary_name, subset_suffix, summary_name, plots_dir, expected_plot_names)
+                                   parse_run_name, run_summary_name, subset_suffix, summary_name, plots_dir, expected_plot_names, plot_names)
 
 ANALYSIS_SCRIPTS = PROJECT_ROOT / "source" / "analysis_scripts"   # the post-processing scripts run_script() launches
 
@@ -105,7 +108,7 @@ ANALYSIS_SCRIPTS = PROJECT_ROOT / "source" / "analysis_scripts"   # the post-pro
 #                 analysis (full run or subset) is already in processed_results/ and newer
 #                 than the collected results and the run's health-check records, skip stages 1-5 with a warning (delete
 #                 processed_results/ to analyze anew; see data_current()); if only its per-run plots are missing or
-#                 older than the collected results, only the three plot scripts run (see missing_plots()). Chunks are collected as their jobs
+#                 older than the collected results or of their own inputs, only the plot scripts concerned run (see stale_plot_scripts()). Chunks are collected as their jobs
 #                 finish, so an incomplete run may have gaps (chunks 0-40 and 45):
 #                 it is analyzed as a "+nsamples-<collected>" subset, with the uncollected
 #                 chunks and health checks listed inside and warned about on the figures.
@@ -189,7 +192,7 @@ RUN_THESE = {
 
 NSAMPLES_COMPARISON = [8, 48, 120, 240, 480]   # sample counts of --nsamples-comparison
 
-USAGE = f"usage: {LAUNCHER} " + """source/analysis_scripts/run_post_process.py SELECTION INCLUDE... [FILTER...] [--latest-per-qpu | --best-Nacc-per-qpu | --best-Nacc-strict-per-qpu | --best-Emin-at-Nmax-per-qpu] [--individual-only | --collective-only] [--nsamples-comparison] [--filter-per-health-check[=T]]
+USAGE = f"usage: {LAUNCHER} " + """source/analysis_scripts/run_post_process.py SELECTION INCLUDE... [FILTER...] [--latest-per-qpu | --best-Nacc-per-qpu | --best-Nacc-strict-per-qpu | --best-Nacc-bare-per-qpu | --best-Emin-at-Nmax-per-qpu] [--individual-only | --collective-only] [--nsamples-comparison] [--filter-per-health-check[=T]]
 
   Run the BACQ analysis pipeline (merge + analyze, summary, plots, collective plots) for a chosen set of runs,
   real-QPU and/or simulated. Nothing is analyzed unless at least one INCLUDE flag is given.
@@ -226,8 +229,10 @@ USAGE = f"usage: {LAUNCHER} " + """source/analysis_scripts/run_post_process.py S
                          tie); runs not yet analyzed are analyzed first, even with --collective-only; suffix _best-nacc-per-qpu
   --best-Nacc-strict-per-qpu    the same with the highest N_acc_strict (a run without a bootstrap has none and is never
                          chosen); suffix _best-nacc-strict-per-qpu
+  --best-Nacc-bare-per-qpu      the same with the highest N_acc_bare (N_acc over the unmitigated schemes only; every run has
+                         one); suffix _best-nacc-bare-per-qpu
   --best-Emin-at-Nmax-per-qpu   the same with the lowest E_min at N_max; suffix _best-emin-at-nmax-per-qpu
-                         (the four per-QPU flags exclude each other)
+                         (the five per-QPU flags exclude each other)
   The collective plots and run table label layouts optimized_by_gates (optimized before T1/T2 entered the layout score) and
   optimized_per_chunk_by_2q_gates_IQM (iqm-emerald's legacy layout); --layouts= accepts these labels.
 
@@ -235,6 +240,9 @@ USAGE = f"usage: {LAUNCHER} " + """source/analysis_scripts/run_post_process.py S
   --individual-only      only the per-run analysis and plots (stages 1-5)
   --collective-only      only the plots comparing all runs (stage 6), from their existing results
   (neither flag: both)
+
+  --force-plots          redraw every per-run and collective figure, even when it is up to date (the analysis data is
+                         redone only when stale)
 
   --nsamples-comparison  full only: also analyze each run on 8, 48, 120, 240, 480 samples and plot its
                          best EMS per sample count (awae_best_ems_nsamples_comparison.png; only the RC samples vary,
@@ -622,23 +630,66 @@ def outputs_current(files, counts_mtime):
     return True
 
 
-def missing_plots(run_folder, n_samples):
-    """The per-run figure names (run_names.expected_plot_names) that are absent from the run's plots folder or not newer than
-    the collected results and health-check records (_inputs_mtime()). The nsamples-comparison figure is not one of them (--nsamples-comparison draws it)."""
+PLOT_SCRIPTS = {   # plot script -> (plot_names() keys of its figures, what else it reads: "run_data", "summary")
+    "plot_real_qpu_results.py": (("obs_no_spam", "obs_spam", "max_error"), ("run_data",)),
+    "plot_awae.py":             (("awae_no_spam", "awae_spam", "awae_best_ems"), ("run_data", "summary")),
+    # plot_health_checks.py writes processed_results/health_checks*.json itself, just before its figure: an output, not an input
+    # (as an input its figure was never newer, so every rerun redrew it). Its records are in _inputs_mtime().
+    "plot_health_checks.py":    (("health_checks",), ("run_data",)),
+}
+
+
+def stale_plot_scripts(run_folder, n_samples, force=False):
+    """{plot script: its stale figure names} for the plot scripts that must run (PLOT_SCRIPTS): a figure (run_names.expected_plot_names)
+    is stale when it is absent from the run's plots folder or not newer than the newest of the collected results, the health-check
+    records and the analysis outputs its script reads (run_data*, summary in processed_results/). force: every
+    expected figure is stale. The nsamples-comparison figure is not one of them (--nsamples-comparison draws it)."""
     from source.core.records.health_check_records import load_health_checks, load_extra_health_checks
 
     run_path = PROJECT_ROOT / "datafiles" / run_folder
+    processed = run_path / "processed_results"
     info = load_run_info(run_folder)
     has_hc = bool(load_health_checks(run_path) or load_extra_health_checks(run_path))
     folder = PROJECT_ROOT / plots_dir(run_folder)
-    counts_mtime = _inputs_mtime(run_path)
-    return [name for name in expected_plot_names(info.lnn, info.nshots, info.do_spam, has_hc, n_samples)
-            if not ((folder / name).exists() and (folder / name).stat().st_mtime > counts_mtime)]
+    suffix = "" if n_samples is None else subset_suffix(n_samples)
+    expected = expected_plot_names(info.lnn, info.nshots, info.do_spam, has_hc, n_samples)
+    names = plot_names(info.lnn, info.nshots, n_samples)
+    read = {"run_data": [processed / f"run_data{suffix}.json", processed / f"run_data_spam{suffix}.json"],
+            "summary": [processed / run_summary_name(n_samples)]}
+    base_mtime = _inputs_mtime(run_path)
+    out = {}
+    for script, (keys, reads) in PLOT_SCRIPTS.items():
+        newest = max([base_mtime] + [f.stat().st_mtime for r in reads for f in read[r] if f.exists()])
+        stale = [names[k] for k in keys if names[k] in expected
+                 and (force or not ((folder / names[k]).exists() and (folder / names[k]).stat().st_mtime > newest))]
+        if stale:
+            out[script] = stale
+    return out
+
+
+def summary_has_nacc_bare(run_folder, n_samples):
+    """Whether the run's summary on n_samples exists and carries N_acc_bare (one written before it existed does not)."""
+    path = PROJECT_ROOT / "datafiles" / run_folder / "processed_results" / run_summary_name(n_samples)
+    try:
+        return "N_acc_bare" in json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+
+
+def summary_current(run_folder, n_samples):
+    """Whether the run's summary exists, carries N_acc_bare and is not older than the run_data* files it is computed from."""
+    processed = PROJECT_ROOT / "datafiles" / run_folder / "processed_results"
+    if not summary_has_nacc_bare(run_folder, n_samples):
+        return False
+    suffix = "" if n_samples is None else subset_suffix(n_samples)
+    summary_mtime = (processed / run_summary_name(n_samples)).stat().st_mtime
+    return all(f.stat().st_mtime <= summary_mtime for f in (processed / f"run_data{suffix}.json", processed / f"run_data_spam{suffix}.json") if f.exists())
 
 
 BEST_FLAGS = {   # --best-* flag -> (PER_QPU_SUFFIXES key, summary key, whether a higher value is better)
     "--best-Nacc-per-qpu":         ("best-nacc",          "N_acc",      True),
     "--best-Nacc-strict-per-qpu":  ("best-nacc-strict",   "N_acc_strict", True),
+    "--best-Nacc-bare-per-qpu":    ("best-nacc-bare",     "N_acc_bare", True),
     "--best-Emin-at-Nmax-per-qpu": ("best-emin-at-nmax",  "E_min_Nmax", False),
 }
 
@@ -699,20 +750,24 @@ def run_script(script_name, run_folder, n_samples, extra_env=None):
 
 
 def copy_summary(run_folder, n_samples):
-    """Copy the run's summary json to the run's plots+summaries folder (a test run's: analysis/tests/plots+summaries/)."""
+    """Copy the run's summary json to the run's plots+summaries folder (a test run's: analysis/tests/plots+summaries/),
+    only when the copy is missing or older than the summary."""
     src = PROJECT_ROOT / "datafiles" / run_folder / "processed_results" / run_summary_name(n_samples)
     if src.exists():
         dest = PROJECT_ROOT / plots_dir(run_folder)
         dest.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dest / summary_name(run_folder, n_samples))
+        target = dest / summary_name(run_folder, n_samples)
+        if not target.exists() or target.stat().st_mtime < src.stat().st_mtime:
+            shutil.copy2(src, target)
 
 
-def analyze_run(run_folder, n_samples_override=None, hc_threshold=None):
+def analyze_run(run_folder, n_samples_override=None, hc_threshold=None, force_plots=False):
     """Stages 1-5 for one run. Returns (ok, run_folder, n_samples): ok is True if every
     stage that ran succeeded; run_folder/n_samples identify the analyzed benchmark data
     (run_folder None if there is none, e.g. a health-check-only run).
     hc_threshold: --filter-per-health-check — analyze only the chunks whose extra health checks are above it
-    (n_samples is then a HealthCheckScope); a run without extra health checks is skipped with a warning."""
+    (n_samples is then a HealthCheckScope); a run without extra health checks is skipped with a warning.
+    force_plots: redraw every figure even when up to date (the data is redone only when stale)."""
     from source.core.qpu.layout_selection import run_layout_warnings
     from source.core.records.health_check_records import load_health_checks
 
@@ -747,19 +802,20 @@ def analyze_run(run_folder, n_samples_override=None, hc_threshold=None):
                                  or 0 < n_samples_override <= len(json.loads(counts_path.read_text(encoding="utf-8")))):
         _, n_target = analyzed_data(run_folder, n_samples_override)
         if data_current(run_folder, n_target):
-            missing = missing_plots(run_folder, n_target)
-            if not missing:
+            ok = True
+            if not summary_current(run_folder, n_target):
+                print(f"⚠️  {backend_name}: run data is up to date but the summary is missing N_acc_bare or older than it — redoing the summary only.")
+                ok = run_script("bacq_ps_qbcs_summary_json.py", run_folder, n_target)
+            stale = stale_plot_scripts(run_folder, n_target, force_plots)
+            if not stale:
                 copy_summary(run_folder, n_target)
                 print(f"⚠️  {backend_name}: already analyzed (run data, summaries and plots are up to date) — "
                       f"skipping stages 1-5. Delete datafiles/{run_folder}/processed_results/ to analyze it anew.")
-                return True, run_folder, n_target
-            print(f"⚠️  {backend_name}: run data is up to date but {len(missing)} plot(s) are missing or stale "
-                  f"({', '.join(missing)}) — redrawing the plots only.")
-            ok = all([
-                run_script("plot_real_qpu_results.py", run_folder, n_target),
-                run_script("plot_awae.py",             run_folder, n_target),
-                run_script("plot_health_checks.py",    run_folder, n_target),   # skips runs without health checks
-            ])
+                return ok, run_folder, n_target
+            figures = [f for names in stale.values() for f in names]
+            print(f"⚠️  {backend_name}: run data is up to date but {len(figures)} plot(s) are missing or stale "
+                  f"({', '.join(figures)}) — redrawing with {', '.join(stale)} only.")
+            ok = all([run_script(script, run_folder, n_target) for script in stale] + [ok])
             copy_summary(run_folder, n_target)
             return ok, run_folder, n_target
 
@@ -798,7 +854,13 @@ def nsamples_comparison(run_folder, n_ref):
             files.append(run_path / "processed_results" / f"run_data_spam{subset_suffix(n)}.json")
         # no health_checks+nsamples-N json is produced for these n, so it is not checked
         if outputs_current(files, counts_mtime):
-            print(f"   {backend_name}: n_samples={n} already analyzed")
+            if summary_current(run_folder, n):
+                print(f"   {backend_name}: n_samples={n} already analyzed")
+            else:
+                print(f"   {backend_name}: n_samples={n} analyzed, summary without N_acc_bare — redoing the summary only")
+                if not run_script("bacq_ps_qbcs_summary_json.py", run_folder, n):
+                    continue
+                copy_summary(run_folder, n)
         else:
             ok, _ = merge_and_analyze(run_folder, n)
             if not (ok and run_script("bacq_ps_qbcs_summary_json.py", run_folder, n)):
@@ -820,6 +882,8 @@ def main():
         print(USAGE, file=sys.stderr)
         exit_with_error("--nsamples-comparison and --filter-per-health-check exclude each other.")
     args = [a for a in args if a != "--nsamples-comparison"]
+    force_plots = "--force-plots" in args
+    args = [a for a in args if a != "--force-plots"]
     per_qpu_flags = [a for a in args if a == "--latest-per-qpu" or a in BEST_FLAGS]
     if len(set(per_qpu_flags)) > 1:
         print(USAGE, file=sys.stderr)
@@ -861,6 +925,7 @@ def main():
             print("Backends with runs: " + ", ".join(sorted({parse_run_name(f).device for f in benchmark_runs()})))
         return
 
+    old_summaries = []   # --collective-only runs whose summary lacks N_acc_bare
     analyzed = []   # (run_folder, n_samples) of every run with benchmark data, for the collective plots
     for run_folder in folders:
         n_override = cfg_of[run_folder].get("n_samples")
@@ -872,10 +937,12 @@ def main():
             run_folder, n_samples = analyzed_data(run_folder, n_override)
             if run_folder is not None:
                 analyzed.append((run_folder, n_samples))
+                if not summary_has_nacc_bare(run_folder, n_samples):
+                    old_summaries.append(run_folder)
             continue
         section(run_folder)
         try:
-            _, done_folder, n_samples = analyze_run(run_folder, n_override, hc_threshold)
+            _, done_folder, n_samples = analyze_run(run_folder, n_override, hc_threshold, force_plots)
             if done_folder is not None:
                 analyzed.append((done_folder, n_samples))
                 if do_nsamples:
@@ -883,6 +950,9 @@ def main():
         except Exception as e:
             print(f"❌ {run_folder}: post-processing failed — {e}", file=sys.stderr)
 
+    if old_summaries:
+        print(f"⚠️  {len(old_summaries)} run(s) have a summary without N_acc_bare (analysis from before it existed): "
+              f"re-analyze them (without --collective-only) to add it; until then they are left out of n_acc_bare.png.")
     if not do_collective:
         print("\n✅ Pipeline complete.")
         return
@@ -898,7 +968,7 @@ def main():
     try:
         collective_name = collective_folder_name(selection, data_types, run_filter, latest_per_qpu,
                                                  per_qpu=best[0] if best else None, hc_threshold=hc_threshold)
-        make_collective_plots(analyzed, PROJECT_ROOT / collective_plots_dir(collective_name))
+        make_collective_plots(analyzed, PROJECT_ROOT / collective_plots_dir(collective_name), force=force_plots)
     except Exception as e:
         print(f"❌ collective plots failed — {e}", file=sys.stderr)
 

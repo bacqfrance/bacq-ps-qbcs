@@ -441,7 +441,9 @@ summary = {
                               "data are noisier, and AWAE contains |n - i|). N_acc_strict: the largest depth at which the "
                               "smallest upper 95% bound of the cumulative AWAE over the schemes is below the threshold there "
                               "and at every shallower depth (its scheme: best_ems_Nacc_strict); null, like every interval, "
-                              "when bootstrap_done is false (fewer than the minimum samples per NEC input state)."),
+                              "when bootstrap_done is false (fewer than the minimum samples per NEC input state). N_acc_bare: the "
+                              "N_acc rule over the unmitigated schemes only (bare, and bare+SPAM when present), by the full-run "
+                              "values (its scheme: best_ems_Nacc_bare); it needs no bootstrap."),
     "QPU_execution_time_s":  QPU_EXEC,
     "timing_definitions_version": TIMING["timing_definitions_version"],
     "timing_notes":          {
@@ -505,5 +507,5 @@ with open(out_path, "w", encoding="utf-8") as f:
     json.dump(summary, f, indent=4, cls=NaNEncoder)
 
 print(f"✅ Summary saved → {rel_path(out_path)}")
-print(f"   N_max={derived['N_max']}, N_acc={derived['N_acc']}, N_acc_strict={derived['N_acc_strict']}, best_ems={derived['best_ems_Nmax']}")
+print(f"   N_max={derived['N_max']}, N_acc={derived['N_acc']}, N_acc_strict={derived['N_acc_strict']}, N_acc_bare={derived['N_acc_bare']}, best_ems={derived['best_ems_Nmax']}")
 

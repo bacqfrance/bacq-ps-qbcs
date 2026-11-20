@@ -26,9 +26,9 @@ e.g. full_real-data_ibm-fez_lnn-True_service-ibm-cloud_spam-True_layout-optimize
 The builders below (qpu_run_name(), local_run_name(), health_check_run_name()) give the name without its date;
 dated_run_folder() adds it and the number: it reuses the latest folder of those settings while it is unfinished, else
 makes a new one dated today with the next number. Names without a date (test runs) still parse, with date None.
-Collective plots: <benchmark>_collective_<data type>[+<data type>...][_dates-…|_date-… for a single day][_backends-…][_services-…][_layouts-…][_latest-per-qpu|_best-nacc-per-qpu|_best-nacc-strict-per-qpu|_best-emin-at-nmax-per-qpu]
+Collective plots: <benchmark>_collective_<data type>[+<data type>...][_dates-…|_date-… for a single day][_backends-…][_services-…][_layouts-…][_latest-per-qpu|_best-nacc-per-qpu|_best-nacc-strict-per-qpu|_best-nacc-bare-per-qpu|_best-emin-at-nmax-per-qpu]
 [_hc-gt-T for --filter-per-health-check=T]
-(the optional parts name run_post_process.py's filters, RunFilter.suffix(), and --latest-per-qpu / --best-Nacc-per-qpu / --best-Nacc-strict-per-qpu / --best-Emin-at-Nmax-per-qpu; collective_folder_name(hc_threshold=T) adds the last); summaries: processed_results/summary.json
+(the optional parts name run_post_process.py's filters, RunFilter.suffix(), and --latest-per-qpu / --best-Nacc-per-qpu / --best-Nacc-strict-per-qpu / --best-Nacc-bare-per-qpu / --best-Emin-at-Nmax-per-qpu; collective_folder_name(hc_threshold=T) adds the last); summaries: processed_results/summary.json
 (summary+nsamples-N.json) in the run, copied to analysis/plots+summaries/<run folder>/summary_<run name>.json.
 Every other subset-analysis output in processed_results/ carries the same subset_suffix(N) = +nsamples-N
 (+hc-gt-T for a health-check-filtered analysis; run_data+nsamples-N.json, run_data_spam+nsamples-N.json, health_checks+nsamples-N.json, spam_confusion_matrix+nsamples-N.npy, plots).
@@ -529,7 +529,7 @@ def subset_suffix(n_samples=None):
     return f"+nsamples-{n_samples}"
 
 
-# The opt-in figure of run_post_process.py --nsamples-comparison; not part of plot_names() / missing_plots().
+# The opt-in figure of run_post_process.py --nsamples-comparison; not part of plot_names() / stale_plot_scripts().
 NSAMPLES_COMPARISON_PLOT = "awae_best_ems_nsamples_comparison.png"
 
 
@@ -605,12 +605,12 @@ def collective_plots_dir(name, test=False):
     return Path("analysis", *([TESTS_FOLDER] if test else []), PLOTS_FOLDER, name)
 
 
-PER_QPU_SUFFIXES = {"latest": "_latest-per-qpu", "best-nacc": "_best-nacc-per-qpu", "best-nacc-strict": "_best-nacc-strict-per-qpu", "best-emin-at-nmax": "_best-emin-at-nmax-per-qpu"}
+PER_QPU_SUFFIXES = {"latest": "_latest-per-qpu", "best-nacc": "_best-nacc-per-qpu", "best-nacc-strict": "_best-nacc-strict-per-qpu", "best-nacc-bare": "_best-nacc-bare-per-qpu", "best-emin-at-nmax": "_best-emin-at-nmax-per-qpu"}
 
 
 def collective_folder_name(benchmark, data_types, run_filter=None, latest_per_qpu=False, per_qpu=None, hc_threshold=None):
     """<benchmark>_collective_<data type>[+<data type>...][<RunFilter.suffix()>][_latest-per-qpu | _best-nacc-per-qpu |
-    _best-nacc-strict-per-qpu | _best-emin-at-nmax-per-qpu][_hc-gt-T] for the plots comparing several runs. `per_qpu` is a key of PER_QPU_SUFFIXES
+    _best-nacc-strict-per-qpu | _best-nacc-bare-per-qpu | _best-emin-at-nmax-per-qpu][_hc-gt-T] for the plots comparing several runs. `per_qpu` is a key of PER_QPU_SUFFIXES
     (latest_per_qpu=True is per_qpu="latest"); `hc_threshold` is --filter-per-health-check's threshold."""
     per_qpu = per_qpu or ("latest" if latest_per_qpu else None)
     return (f"{benchmark}_collective_{'+'.join(data_types)}{run_filter.suffix() if run_filter else ''}"

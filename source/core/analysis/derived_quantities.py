@@ -73,7 +73,8 @@ def compute_derived_quantities(awae_cumul_Nt, awae_Nt, T_cpu_total, T_qpu_total,
     E_bare / FE_coh_nec / FE_ct_nec (key with its "_spam" suffix). E_min and N_acc come from the full-run values;
     E_min_*_ci95 is the interval of the chosen scheme. N_acc_strict uses its own best scheme: at each depth the
     one with the smallest upper bound, and the largest depth with that bound below epsilon there and at every
-    shallower depth. Without a bootstrap (bootstrap_done False) every interval and every *_strict field is None.
+    shallower depth. N_acc_bare is the N_acc rule over bare (and bare+SPAM) alone, by the point values, so it needs no
+    bootstrap; its interval is the chosen scheme's. Without a bootstrap (bootstrap_done False) every interval and every *_strict field is None.
 
     awae_cumul_Nt / awae_Nt may carry just the 6 base schemes
     (bare, NEC, RC, NEC+RC, cRC, NEC+cRC) or, when SPAM-corrected data is
@@ -170,6 +171,17 @@ def compute_derived_quantities(awae_cumul_Nt, awae_Nt, T_cpu_total, T_qpu_total,
             "N_cnot_acc_strict"     : cnots_per_trotter * Nt_strict if not lnn else ((cnots_per_trotter + 3) * Nt_strict + (Nt_strict % 2) * 3),
         }
 
+    # N_acc_bare: the N_acc rule over the unmitigated schemes only (bare, and bare+SPAM for a SPAM run); no bootstrap needed
+    bare_list = [e for e in ("bare", "bare+SPAM") if e in cum]
+    bare_min  = np.array([_smin(*(cum[e][i] for e in bare_list), 1.0) for i in range(n)])
+    bare_best = [_best_ems(bare_list, [cum[e][i] for e in bare_list]) for i in range(n)]
+    Nt_bare = 0
+    for i in range(n):
+        if not math.isnan(bare_min[i]) and bare_min[i] < epsilon: Nt_bare = Nt_vals[i]
+        else: break
+    ind_bare = np.argmin(abs(Nt_vals-Nt_bare))   # N_acc_bare = 0: the depth-1 values, like N_acc
+    best_bare = bare_best[ind_bare]
+
     # Eq. 5.10 — timing fractions, with the queue as a third part of the total
     T_clas  = T_cpu_total;  T_quant = T_qpu_total;  T_queue = T_queue_total or 0.0
     T_collect = T_collect_total or 0.0
@@ -195,6 +207,11 @@ def compute_derived_quantities(awae_cumul_Nt, awae_Nt, T_cpu_total, T_qpu_total,
         "E_min_Nacc_strict"  : strict["E_min_Nacc_strict"] if strict else None,
         "E_min_Nacc_strict_ci95": _ci(strict["best_ems_Nacc_strict"], ind_strict) if strict else None,
         "best_ems_Nacc_strict": strict["best_ems_Nacc_strict"] if strict else None,
+        "N_acc_bare"         : Nt_bare,                   # N_acc over bare / bare+SPAM only
+        "E_min_Nacc_bare"    : bare_min[ind_bare],
+        "E_min_Nacc_bare_ci95": _ci(best_bare, ind_bare),
+        "best_ems_Nacc_bare" : best_bare,
+        "N_cnot_acc_bare"    : cnots_per_trotter * Nt_bare if not lnn else ((cnots_per_trotter + 3) * Nt_bare + (Nt_bare % 2) * 3),
         "N_cnot_max"         : N_cnot_max,        # N^max_2q
         "N_cnot_acc"         : N_cnot_acc,            # N^acc_2q
         "N_cnot_acc_strict"  : strict["N_cnot_acc_strict"] if strict else None,
@@ -214,9 +231,10 @@ def compute_derived_quantities(awae_cumul_Nt, awae_Nt, T_cpu_total, T_qpu_total,
     for key, arr in per_depth.items():
         result[f"{key}_Nmax"] = arr[ind_Nt_max]
         result[f"{key}_Nacc"] = arr[ind_Nt_acc]
+        result[f"{key}_Nacc_bare"] = arr[ind_bare]
         result[f"{key}_Nacc_strict"] = arr[ind_strict] if strict else None
         cis = (per_depth_ci95 or {}).get(key) if bootstrap_done else None
-        for tag, i in (("Nmax", ind_Nt_max), ("Nacc", ind_Nt_acc), ("Nacc_strict", ind_strict if strict else None)):
+        for tag, i in (("Nmax", ind_Nt_max), ("Nacc", ind_Nt_acc), ("Nacc_bare", ind_bare), ("Nacc_strict", ind_strict if strict else None)):
             ci = None if (cis is None or i is None) else cis[i]
             result[f"{key}_{tag}_ci95"] = None if ci is None else [float(ci[0]), float(ci[1])]
 

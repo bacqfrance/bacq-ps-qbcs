@@ -118,7 +118,7 @@ qbcs_real_submit_iqm_vlq.py            qbcs_real_collect_iqm_vlq.py
   An aborted run stays on record — `run_info.json` is written before the PRE check
   (`qbcs.resolve_physical_qubits(run_folder=…)`) — so `source/analysis_scripts/run_post_process.py` reports it as
   a degraded QPU with the benchmark not run, and plots its health checks only.
-  A job is one HEAppE job whose circuits are uploaded as separate OpenQASM 3 files, 10 at a time, so its upload takes seconds; transpiling the chunks is the slow part. An upload that could not reach IT4I is retried, 3 more
+  A job is one HEAppE job whose upload takes seconds; transpiling the chunks is the slow part. An upload that could not reach IT4I is retried, 3 more
   tries 30 / 60 / 120 s apart; one that still fails, or fails any other way, leaves `failed` records
   marked `"submission failed"` and stops the script. An upload that timed out (`VLQTimeout`) or lost its
   connection is not retried and is marked `may_exist_on_provider: true`: the job may still have been

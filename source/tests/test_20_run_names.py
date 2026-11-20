@@ -260,7 +260,8 @@ def test_collective_run_table(tmp_path):
         base.update(kw)
         return base
     runs = [run("full_real-data_a"), run("full_sim_b", n_samples=10, qpu_time_s=None, cost_eur=None,
-                                         emin_nmax=float("nan")), run("old_c", n_acc=None, n_max=None, emin_nmax="N/A")]
+                                         emin_nmax=float("nan"), n_acc_bare=5, best_ems_nacc_bare="bare", emin_nacc_bare=0.04,
+                                         emin_nacc_bare_ci=[0.01, 0.045]), run("old_c", n_acc=None, n_max=None, emin_nmax="N/A")]
     path = tmp_path / "collective_summary.csv"
     CP._write_run_table(runs, ["A", "B", "C"], path)
     lines = path.read_text(encoding="utf-8").splitlines()
@@ -269,10 +270,12 @@ def test_collective_run_table(tmp_path):
     assert rows[0] == ["run", "n_samples", "sample_size", "N_acc", "best_scheme_Nacc", "N_max", "E_min_Nmax", "best_scheme_Nmax",
                        "QPU_time_s", "QPU_time", "effective_cost_EUR", "N_acc_strict", "best_scheme_Nacc_strict", "E_min_Nacc",
                        "E_min_Nacc_strict", "E_min_Nmax_ci95_lo", "E_min_Nmax_ci95_hi", "E_min_Nacc_ci95_lo", "E_min_Nacc_ci95_hi",
-                       "E_min_Nacc_strict_ci95_lo", "E_min_Nacc_strict_ci95_hi"]
+                       "E_min_Nacc_strict_ci95_lo", "E_min_Nacc_strict_ci95_hi", "N_acc_bare", "best_scheme_Nacc_bare", "E_min_Nacc_bare",
+                       "E_min_Nacc_bare_ci95_lo", "E_min_Nacc_bare_ci95_hi"]
     assert [r[0] for r in rows[1:]] == ["A", "B", "C"]
-    assert rows[1] == ["A", "", "480", "19", "cRC", "19", "0.04512", "NEC+cRC", "151", "2.5 min", "212.08"] + [""] * 10
+    assert rows[1] == ["A", "", "480", "19", "cRC", "19", "0.04512", "NEC+cRC", "151", "2.5 min", "212.08"] + [""] * 15
     assert rows[2][3:11] == ["19", "cRC", "19", "", "NEC+cRC", "", "", ""] and rows[2][1] == "10"
+    assert rows[2][-5:] == ["5", "bare", "0.04", "0.01", "0.045"]
     assert rows[3][3] == "" and rows[3][5:7] == ["", ""]
     assert str(tmp_path) not in path.read_text(encoding="utf-8")
 
@@ -336,6 +339,7 @@ def test_run_filter_values_and_names():
     assert RN.collective_folder_name("mini", ["real-data"], RN.RunFilter()) == "mini_collective_real-data"
     assert RN.collective_folder_name("mini", ["real-data"], latest_per_qpu=True) == "mini_collective_real-data_latest-per-qpu"
     assert RN.collective_folder_name("mini", ["real-data"], per_qpu="best-nacc") == "mini_collective_real-data_best-nacc-per-qpu"
+    assert RN.collective_folder_name("mini", ["real-data"], per_qpu="best-nacc-bare") == "mini_collective_real-data_best-nacc-bare-per-qpu"
     assert (RN.collective_folder_name("mini", ["real-data"], RN.make_run_filter(backends=["ibm-fez"]), per_qpu="best-emin-at-nmax")
             == "mini_collective_real-data_backends-ibm-fez_best-emin-at-nmax-per-qpu")
     f = mk(date="2026-09-01:2026-09-30", backends=["iqm-garnet", "ibm-fez"], layouts=["random"])
@@ -492,14 +496,15 @@ def _draw(folder, names, mtime=3000):
 def test_run_with_json_but_no_plots_is_not_already_analyzed(tmp_path, monkeypatch):
     RPP, folder = _post_process_run(tmp_path, monkeypatch)
     assert RPP.data_current(RUN, None)
-    assert len(RPP.missing_plots(RUN, None)) == 7
-    assert not (RPP.data_current(RUN, None) and not RPP.missing_plots(RUN, None))
+    assert sum(len(v) for v in RPP.stale_plot_scripts(RUN, None).values()) == 7
+    assert not (RPP.data_current(RUN, None) and not RPP.stale_plot_scripts(RUN, None))
 
 
 def test_run_with_json_and_all_plots_is_already_analyzed(tmp_path, monkeypatch):
     RPP, folder = _post_process_run(tmp_path, monkeypatch)
     _draw(folder, RN.expected_plot_names(True, 100, True, True))
-    assert RPP.data_current(RUN, None) and not RPP.missing_plots(RUN, None)
+    assert RPP.data_current(RUN, None) and not RPP.stale_plot_scripts(RUN, None)
+    assert sum(len(v) for v in RPP.stale_plot_scripts(RUN, None, force=True).values()) == 7   # --force-plots
 
 
 def test_a_health_check_record_newer_than_the_outputs_makes_the_data_stale(tmp_path, monkeypatch):
@@ -517,13 +522,22 @@ def test_a_plot_older_than_the_collected_results_is_stale(tmp_path, monkeypatch)
     names = RN.expected_plot_names(True, 100, True, True)
     _draw(folder, names)
     os.utime(folder / names[0], (500, 500))
-    assert RPP.missing_plots(RUN, None) == [names[0]]
+    assert RPP.stale_plot_scripts(RUN, None) == {"plot_awae.py": [names[0]]}   # only the script of the stale figure runs
+
+
+def test_a_newer_summary_makes_only_the_awae_plots_stale(tmp_path, monkeypatch):
+    RPP, folder = _post_process_run(tmp_path, monkeypatch)
+    _draw(folder, RN.expected_plot_names(True, 100, True, True))
+    summary = tmp_path / "datafiles" / RUN / "processed_results" / "summary.json"
+    os.utime(summary, (4000, 4000))
+    assert set(RPP.stale_plot_scripts(RUN, None)) == {"plot_awae.py"}
+    assert not RPP.summary_current(RUN, None)   # the fixture summary has no N_acc_bare
 
 
 def test_plots_expected_without_spam_and_without_health_checks(tmp_path, monkeypatch):
     RPP, folder = _post_process_run(tmp_path, monkeypatch, do_spam=False, health_checks=False)
     _draw(folder, RN.expected_plot_names(True, 100, False, False))
-    assert RPP.data_current(RUN, None) and not RPP.missing_plots(RUN, None)
+    assert RPP.data_current(RUN, None) and not RPP.stale_plot_scripts(RUN, None)
 
 
 if __name__ == "__main__":

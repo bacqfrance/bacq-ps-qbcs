@@ -10,7 +10,8 @@ source/core/analysis/mitigation.py and of the strict accuracy depth in derived_q
   - compute_mitigated_expectation_values() on a tiny synthetic run: a zero attenuation gives a finite large value,
     the "global" switch reproduces mean(obs) / mean(F), per-observable differs, fewer than 5 samples per input
     state means no bootstrap, zero noise gives zero-width intervals;
-  - compute_derived_quantities(): N_acc_strict chosen by the upper bound, no bootstrap -> None fields, N_acc_strict = 0.
+  - compute_derived_quantities(): N_acc_strict chosen by the upper bound, no bootstrap -> None fields, N_acc_strict = 0;
+    N_acc_bare over bare and bare+SPAM only (never a mitigated scheme), the depth-1 values at 0, no bootstrap needed.
 """
 
 import sys, os
@@ -184,3 +185,14 @@ def test_n_acc_strict_zero_gives_depth_one_values():
     assert r["N_acc"] == 3 and r["N_acc_strict"] == 0 and r["N_cnot_acc_strict"] == 0
     assert r["best_ems_Nacc_strict"] == "NEC" and r["E_min_Nacc_strict"] == 0.01      # depth 1
     assert r["E_bare_Nacc_strict"] == 0.5   # bare cumulative AWAE at depth 1
+
+
+def test_n_acc_bare_counts_only_bare_schemes_and_needs_no_bootstrap():
+    # a mitigated scheme stays below EPSILON at every depth, bare only up to depth 2; no bootstrap data at all
+    r = _derived({"NEC": [0.01, 0.01, 0.01], "bare": [0.02, 0.03, 0.9]}, {}, bootstrap_done=False)
+    assert r["N_acc"] == 3 and r["N_acc_bare"] == 2 and r["bootstrap_done"] is False and r["N_acc_strict"] is None
+    assert r["best_ems_Nacc_bare"] == "bare" and r["E_min_Nacc_bare"] == 0.03
+    # N_acc_bare = 0: the *_Nacc_bare fields hold the depth-1 values (bare cumulative AWAE 0.6 there)
+    r = _derived({"NEC": [0.01, 0.01, 0.01], "bare": [0.6, 0.01, 0.01]}, {}, bootstrap_done=False)
+    assert r["N_acc"] == 3 and r["N_acc_bare"] == 0 and r["N_cnot_acc_bare"] == 0
+    assert r["best_ems_Nacc_bare"] == "bare" and r["E_min_Nacc_bare"] == 0.6
