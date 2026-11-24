@@ -16,10 +16,13 @@ Plots comparing all runs analyzed by source/analysis_scripts/run_post_process.py
   n_acc_strict.png          N_acc_strict per run (linear scale; a run without a bootstrap has none and is marked in a note)
   n_acc_bare.png            N_acc_bare per run (the N_acc rule over the unmitigated schemes only; linear scale)
   e_min_nmax.png            E_min at N_max per run (linear scale, with the threshold epsilon and the 95% interval of E_min_Nmax)
+  e_bare_nmax.png           E_bare at N_max per run, the lower of bare and bare+SPAM (E_bare_Nmax / E_bare_spam_Nmax; the chosen one
+                            is named in the run label), linear scale, with the threshold epsilon and its 95% interval
 and, in the same folder, <benchmark>_collective_<data types>[<filter suffix>][_latest-per-qpu|_best-nacc-per-qpu|_best-nacc-strict-per-qpu|_best-nacc-bare-per-qpu|_best-emin-at-nmax-per-qpu][_hc-gt-T].csv (the suffixes only for a filtered set of runs): one row per run with
   run, n_samples (the kept-chunk count of a health-check-filtered run), sample_size, N_acc, best_scheme_Nacc, N_max, E_min_Nmax, best_scheme_Nmax, QPU_time_s, QPU_time, effective_cost_EUR,
   N_acc_strict, best_scheme_Nacc_strict, E_min_Nacc, E_min_Nacc_strict, and the 95% interval ends E_min_Nmax_ci95_lo / _hi, E_min_Nacc_ci95_lo / _hi, E_min_Nacc_strict_ci95_lo / _hi,
-  N_acc_bare, E_min_Nacc_bare, E_min_Nacc_bare_ci95_lo / _hi, best_scheme_Nacc_bare
+  N_acc_bare, E_min_Nacc_bare, E_min_Nacc_bare_ci95_lo / _hi, best_scheme_Nacc_bare,
+  E_bare_Nmax (the lower of bare and bare+SPAM), E_bare_Nmax_version ("bare" / "bare+SPAM"), E_bare_Nmax_ci95_lo / _hi
   (the strict and interval cells are empty for a run without a bootstrap)
   and a last column, estimated ("estimated" for a dummy emulator), only when a dummy emulator is among the runs
 The figures are redrawn only when the set of runs or one of their summaries changed since the last drawing
@@ -128,10 +131,19 @@ def _load_run(run_folder, n_samples):
         emin_nacc_bare_ci = summary.get("E_min_Nacc_bare_ci95"),
         best_ems_nacc_bare = summary.get("best_ems_Nacc_bare"),
         best_ems_nmax = summary.get("best_ems_Nmax"),
+        **dict(zip(("ebare_nmax", "ebare_nmax_ci", "ebare_nmax_version"), _best_bare_nmax(summary))),
         best_ems_nacc = summary.get("best_ems_Nacc"),
         cost_eur   = summary.get("effective_cost_EUR", summary.get("effective_cost_euros")),   # legacy key: effective_cost_euros
         curves     = curves,
     )
+
+
+def _best_bare_nmax(summary):
+    """(value, 95% interval, version) of the lower of E_bare at N_max without and with SPAM correction
+    (E_bare_Nmax / E_bare_spam_Nmax; version "bare" / "bare+SPAM"); (None, None, None) when the summary has neither."""
+    found = [(summary[k], summary.get(f"{k}_ci95"), version) for version, k in (("bare", "E_bare_Nmax"), ("bare+SPAM", "E_bare_spam_Nmax"))
+             if isinstance(summary.get(k), (int, float)) and not math.isnan(summary[k])]
+    return min(found, key=lambda t: t[0]) if found else (None, None, None)
 
 
 def run_order(run):
@@ -216,7 +228,7 @@ def _bar_plot(runs, labels, key, ylabel, title, value_fmt, path, tick_fmt=None, 
             ax.vlines(x, ci[0], ci[1], color="black", lw=1.5, zorder=3)
             ax.hlines(ci, x - 0.04, x + 0.04, color="black", lw=1.5, zorder=3)
             highest[i] = max(highest[i], ci[1])
-    if not log and key == "emin_nmax":   # a label below the threshold line would sit on it: lift it just above the line
+    if not log and key in ("emin_nmax", "ebare_nmax"):   # a label below the threshold line would sit on it: lift it just above the line
         tops = [max(t, EPSILON) for t in tops]
     for b, v, top in zip(bars, vals, tops):
         # a white box keeps the number readable where the threshold line or a grid line crosses it
@@ -228,7 +240,7 @@ def _bar_plot(runs, labels, key, ylabel, title, value_fmt, path, tick_fmt=None, 
     if log:
         ax.set_ylim(min(vals) / 2, max(highest + tops) * 6)   # room for the value label above the tallest bar or interval
         _plain_log_axis(ax, tick_fmt)
-    elif key == "emin_nmax":
+    elif key in ("emin_nmax", "ebare_nmax"):
         ax.set_ylim(0, max(1.05, max(highest + tops) * 1.12))   # room above an interval reaching past 1
         ax.axhline(EPSILON, color="black", ls="--", lw=1, alpha=0.6, zorder=2, label=rf"accuracy threshold $\varepsilon$={EPSILON}")
         ax.legend(fontsize=8)
@@ -300,7 +312,8 @@ def _write_run_table(runs, labels, path):
              "N_acc_strict", "best_scheme_Nacc_strict", "E_min_Nacc", "E_min_Nacc_strict",
              "E_min_Nmax_ci95_lo", "E_min_Nmax_ci95_hi", "E_min_Nacc_ci95_lo", "E_min_Nacc_ci95_hi",
              "E_min_Nacc_strict_ci95_lo", "E_min_Nacc_strict_ci95_hi",
-             "N_acc_bare", "best_scheme_Nacc_bare", "E_min_Nacc_bare", "E_min_Nacc_bare_ci95_lo", "E_min_Nacc_bare_ci95_hi"]]
+             "N_acc_bare", "best_scheme_Nacc_bare", "E_min_Nacc_bare", "E_min_Nacc_bare_ci95_lo", "E_min_Nacc_bare_ci95_hi",
+             "E_bare_Nmax", "E_bare_Nmax_version", "E_bare_Nmax_ci95_lo", "E_bare_Nmax_ci95_hi"]]
     if with_estimated:
         rows[0].append("estimated")
     for l, r in zip(labels, runs):
@@ -316,6 +329,7 @@ def _write_run_table(runs, labels, path):
                     + ci_cells(r.get("emin_nmax_ci")) + ci_cells(r.get("emin_nacc_ci")) + ci_cells(r.get("emin_nacc_strict_ci"))
                     + [num(r.get("n_acc_bare"), "{:.0f}"), text(r.get("best_ems_nacc_bare")), num(r.get("emin_nacc_bare"), "{:.4g}")]
                     + ci_cells(r.get("emin_nacc_bare_ci"))
+                    + [num(r.get("ebare_nmax"), "{:.4g}"), text(r.get("ebare_nmax_version"))] + ci_cells(r.get("ebare_nmax_ci"))
                     + (["estimated" if r.get("estimated") else ""] if with_estimated else []))
     widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
     with open(path, "w", newline="", encoding="utf-8") as f:
@@ -379,6 +393,10 @@ def make_collective_plots(analyzed, out_dir, force=False):
               missing_note="runs left out: no $N_{acc,bare}$ (analysis from before it was added: re-analyze the run)")
     _bar_plot(runs, labels, "emin_nmax", "$E_{min}$ at $N_{max}$", "$E_{min}$ at $N_{max}$ per run",
               lambda v: f"{v:.3f}", out_dir / "e_min_nmax.png", log=False, ci_key="emin_nmax_ci")
+    _bar_plot(runs, [f"{l} [{r['ebare_nmax_version']}]" if r.get("ebare_nmax_version") else l for l, r in zip(labels, runs)],
+              "ebare_nmax", "$E_{bare}$ at $N_{max}$", "$E_{bare}$ at $N_{max}$ per run (lower of bare and bare+SPAM)",
+              lambda v: f"{v:.3f}", out_dir / "e_bare_nmax.png", log=False, ci_key="ebare_nmax_ci",
+              missing_note="runs left out: no $E_{bare}$ at $N_{max}$ in the summary (re-analyze the run)")
     _write_run_table(runs, labels, out_dir / f"{out_dir.name}.csv")
     files = sorted(p.name for p in out_dir.iterdir() if p.suffix in (".png", ".csv"))
     manifest_path.write_text(json.dumps({"inputs": inputs, "files": files}, indent=1), encoding="utf-8")

@@ -23,7 +23,7 @@ def simulate_run(*, run_folder, bench, layout, lnn, snapshot_path, cal_source, d
     bench / layout: BenchmarkArgs / LayoutArgs (source/core/runner_support/benchmark_args.py); lnn: the QPU's topology
     (backends.json); cal_source: the calibration_file= the noise (and, for an optimized layout, the layout scoring) comes from (None: the snapshot);
     seed: Aer sampling seed (None: fresh randomness per chunk); customize_backend(snapshot_backend):
-    an optional hook run before the qubits are chosen (VLQ attaches its raw calibration there);
+    an optional hook run before the qubits are chosen (the IQM star machines, VLQ and Sirius, attach their raw calibration there);
     scheduling_simulation: the scripts' optional scheduling_simulation=true|false (parse_scheduling_arg()): True transpiles
     the circuits (chunks, SPAM, health checks) like the submission and schedules them ALAP (delays only) so idle qubits relax, False leaves that out; recorded in run_info.json,
     and a run folder recorded with the other value is refused (check_scheduling_simulation());

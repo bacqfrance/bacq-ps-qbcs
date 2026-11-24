@@ -806,7 +806,7 @@ class bacq_ps_qbcs:
 
     def submit(
         self,
-        run_folder,          # str — subfolder under datafiles/, e.g. "run_01"
+        run_folder,          # str — subfolder under datafiles/, e.g. "mini_sim-noiseless_local-aer_lnn-True_service-local_spam-True_layout-none_2026-10-11_#1"
         layout_connection        = "all_to_all",    # only applied if CONFIG["lnn_architecture"] is unset (__init__ and build() set it)
         lang                     = "qiskit", # "qiskit" | "myqlm"
         service                  = "local",  # "local" | "IBM_Cloud" | "MQSS_LRZ" | "IQM_Resonance" | "QAAS_IT4I" | "PCSS"
@@ -830,7 +830,7 @@ class bacq_ps_qbcs:
         source/benchmark_scripts/real_qpu_scripts/ create it with the
         provider's token from tokens/ (source/core/qpu/tokens.py: read_token()).
 
-        :param run_folder:         str — output subfolder under datafiles/, e.g. "run_01" or "test00_myqlm".
+        :param run_folder:         str — output subfolder under datafiles/, e.g. "mini_sim-noiseless_local-aer_lnn-True_service-local_spam-True_layout-none_2026-10-11_#1" or "tests/test00_myqlm".
                                    Used to construct all result paths (raw_results/, processed_results/, etc.).
                                    Only applied if folder_path was not already set (chunks_to_submit(), record_run_info(), collect_results()).
 

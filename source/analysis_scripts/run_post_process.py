@@ -8,8 +8,9 @@ Run the full BACQ analysis pipeline for a chosen set of runs (real QPU or local 
   5. health checks     (source/analysis_scripts/plot_health_checks.py)
   6. collective plots  (source/core/analysis/collective_plots.py) — all analyzed runs together:
      AWAE vs N_t of each run's best EMS; QPU, submission and collection time, the
-     submission-to-results window and the effective cost per QPU; N_acc and E_min at N_max per
-     run; and a run table CSV (N_acc, N_max, E_min, best scheme at N_max and at N_acc, QPU time, effective cost) next to the plots
+     submission-to-results window and the effective cost per QPU; N_acc, N_acc_strict and
+     N_acc_bare, E_min and E_bare at N_max per run; and a run table CSV (those, their best schemes and 95% intervals,
+     QPU time, effective cost) next to the plots
 
 Stages 2-5 reuse the existing scripts, driven per-run via the QPU_RUN_FOLDER /
 QPU_N_SAMPLES env vars (plus QPU_NSAMPLES_LIST for the n-samples comparison, and QPU_HC_THRESHOLD for --filter-per-health-check, read by chunk_scope.scope_from_env); each run's summary json is also copied to its analysis/plots+summaries/<run folder>/. Each run's own settings (shots, samples,
@@ -192,7 +193,7 @@ RUN_THESE = {
 
 NSAMPLES_COMPARISON = [8, 48, 120, 240, 480]   # sample counts of --nsamples-comparison
 
-USAGE = f"usage: {LAUNCHER} " + """source/analysis_scripts/run_post_process.py SELECTION INCLUDE... [FILTER...] [--latest-per-qpu | --best-Nacc-per-qpu | --best-Nacc-strict-per-qpu | --best-Nacc-bare-per-qpu | --best-Emin-at-Nmax-per-qpu] [--individual-only | --collective-only] [--nsamples-comparison] [--filter-per-health-check[=T]]
+USAGE = f"usage: {LAUNCHER} " + """source/analysis_scripts/run_post_process.py SELECTION INCLUDE... [FILTER...] [--latest-per-qpu | --best-Nacc-per-qpu | --best-Nacc-strict-per-qpu | --best-Nacc-bare-per-qpu | --best-Emin-at-Nmax-per-qpu] [--individual-only | --collective-only] [--force-plots] [--nsamples-comparison] [--filter-per-health-check[=T]]
 
   Run the BACQ analysis pipeline (merge + analyze, summary, plots, collective plots) for a chosen set of runs,
   real-QPU and/or simulated. Nothing is analyzed unless at least one INCLUDE flag is given.

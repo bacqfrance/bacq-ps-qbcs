@@ -16,9 +16,9 @@ plot-folder and summary names are built and parsed:
     number (#N, numeric order, an 8-field name refused) and the full figure labels; dated_run_folder() reuses the
     latest folder only while unfinished and numbers a new run; latest_run_folder() with both date forms;
   - the service names (test_service_names);
-  - the run filters of run_post_process.py (RunFilter, make_run_filter, parse_date_filter) and the collective folder name of a filtered set;
+  - the run filters used by run_post_process.py (run_names.RunFilter, make_run_filter, parse_date_filter) and the collective folder name of a filtered set;
   - the collective plots' run labels and run order (collective_plots._labels, run_order), time units
-    (_duration_fmt), the run table CSV (_write_run_table) and the linear bar plot (_bar_plot, log=False);
+    (_duration_fmt), the run table CSV (_write_run_table) and the linear bar plot (_bar_plot, log=False), the lower of bare and bare+SPAM E_bare at N_max (_best_bare_nmax);
   - a sim-dummy (dummy emulator) run: its name, figure label, run kind, post-processing flag and the "estimated" marks of the collective table;
   - the coherent noise of a run read back from its job record (run_post_process.coherent_noise_of_run) and
     the circuit cache folder it names (common.get_circuit_folder).
@@ -261,7 +261,8 @@ def test_collective_run_table(tmp_path):
         return base
     runs = [run("full_real-data_a"), run("full_sim_b", n_samples=10, qpu_time_s=None, cost_eur=None,
                                          emin_nmax=float("nan"), n_acc_bare=5, best_ems_nacc_bare="bare", emin_nacc_bare=0.04,
-                                         emin_nacc_bare_ci=[0.01, 0.045]), run("old_c", n_acc=None, n_max=None, emin_nmax="N/A")]
+                                         emin_nacc_bare_ci=[0.01, 0.045], ebare_nmax=0.3,
+                                         ebare_nmax_version="bare+SPAM", ebare_nmax_ci=[0.25, 0.35]), run("old_c", n_acc=None, n_max=None, emin_nmax="N/A")]
     path = tmp_path / "collective_summary.csv"
     CP._write_run_table(runs, ["A", "B", "C"], path)
     lines = path.read_text(encoding="utf-8").splitlines()
@@ -271,13 +272,24 @@ def test_collective_run_table(tmp_path):
                        "QPU_time_s", "QPU_time", "effective_cost_EUR", "N_acc_strict", "best_scheme_Nacc_strict", "E_min_Nacc",
                        "E_min_Nacc_strict", "E_min_Nmax_ci95_lo", "E_min_Nmax_ci95_hi", "E_min_Nacc_ci95_lo", "E_min_Nacc_ci95_hi",
                        "E_min_Nacc_strict_ci95_lo", "E_min_Nacc_strict_ci95_hi", "N_acc_bare", "best_scheme_Nacc_bare", "E_min_Nacc_bare",
-                       "E_min_Nacc_bare_ci95_lo", "E_min_Nacc_bare_ci95_hi"]
+                       "E_min_Nacc_bare_ci95_lo", "E_min_Nacc_bare_ci95_hi", "E_bare_Nmax", "E_bare_Nmax_version",
+                       "E_bare_Nmax_ci95_lo", "E_bare_Nmax_ci95_hi"]
     assert [r[0] for r in rows[1:]] == ["A", "B", "C"]
-    assert rows[1] == ["A", "", "480", "19", "cRC", "19", "0.04512", "NEC+cRC", "151", "2.5 min", "212.08"] + [""] * 15
+    assert rows[1] == ["A", "", "480", "19", "cRC", "19", "0.04512", "NEC+cRC", "151", "2.5 min", "212.08"] + [""] * 19
     assert rows[2][3:11] == ["19", "cRC", "19", "", "NEC+cRC", "", "", ""] and rows[2][1] == "10"
-    assert rows[2][-5:] == ["5", "bare", "0.04", "0.01", "0.045"]
+    assert rows[2][-9:] == ["5", "bare", "0.04", "0.01", "0.045", "0.3", "bare+SPAM", "0.25", "0.35"]
     assert rows[3][3] == "" and rows[3][5:7] == ["", ""]
     assert str(tmp_path) not in path.read_text(encoding="utf-8")
+
+
+def test_best_bare_nmax_takes_the_lower_of_bare_and_spam():
+    from source.core.analysis import collective_plots as CP
+    s = {"E_bare_Nmax": 0.4, "E_bare_Nmax_ci95": [0.3, 0.5], "E_bare_spam_Nmax": 0.2, "E_bare_spam_Nmax_ci95": [0.1, 0.3]}
+    assert CP._best_bare_nmax(s) == (0.2, [0.1, 0.3], "bare+SPAM")
+    assert CP._best_bare_nmax({**s, "E_bare_spam_Nmax": 0.5}) == (0.4, [0.3, 0.5], "bare")
+    assert CP._best_bare_nmax({"E_bare_Nmax": 0.4}) == (0.4, None, "bare")                     # no SPAM data, no bootstrap
+    assert CP._best_bare_nmax({"E_bare_Nmax": float("nan"), "E_bare_spam_Nmax": 0.6})[2] == "bare+SPAM"
+    assert CP._best_bare_nmax({}) == (None, None, None)                                          # a summary from before
 
 
 def test_bar_plot_linear_keeps_zero(tmp_path):

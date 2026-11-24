@@ -30,8 +30,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from source.core.common import PROJECT_ROOT, exit_with_error, rel_path, scrub_paths
-from source.core.qpu.iqm_star import (PRX_PER_CLIFFORD, _fields, _qubit_logs, gate_roles, offline_backend,   # noqa: F401 — re-exported
-                                      prx_fidelity, qubit_metrics, qubit_names, representative_roles,
+from source.core.qpu.iqm_star import (PRX_PER_CLIFFORD, gate_roles,   # noqa: F401 — re-exported
+                                      prx_fidelity, qubit_metrics, representative_roles,
                                       resonator_name, RESONATOR)
 from source.core.qpu.iqm_star import choose_star_layout
 from source.core.qpu.iqm_star import select_star_qubits as select_vlq_qubits          # noqa: F401

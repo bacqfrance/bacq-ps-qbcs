@@ -158,6 +158,7 @@ def test_runs_on_different_instances_are_refused(tmp_path, capsys):
 
 def test_instance_is_written_kept_by_a_later_write_and_left_out_for_other_providers(tmp_path, monkeypatch):
     monkeypatch.setattr("source.core.records.run_info.PROJECT_ROOT", tmp_path.parent)
+    (tmp_path.parent / "datafiles").mkdir(exist_ok=True)   # Linux resolves datafiles/.. only if the folder exists
     run = tmp_path / "run_x"
     write_run_info(CONFIG, run, lnn=True, instance="open-instance", instance_plan="open")
     write_run_info(CONFIG, run, lnn=True)                                   # the per-chunk submit() call: no instance given

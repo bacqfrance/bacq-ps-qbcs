@@ -7,7 +7,7 @@ awae_best_ems_spam_no_spam_comparison figure.
 Driven by source/analysis_scripts/run_post_process.py --nsamples-comparison via env vars:
   QPU_RUN_FOLDER      the run, as for the other post-processing scripts
   QPU_N_SAMPLES       the reference analysis ("" = the full run; the largest one available): its best EMS
-                      (at N_max and at N_acc) and its N_acc are the ones plotted for every sample count
+                      (at N_max, at N_acc and at N_acc_strict) and its N_acc are the ones plotted for every sample count
                       (the smaller analyses are not asked for a best EMS of their own)
   QPU_NSAMPLES_LIST   comma-separated sample counts to compare, e.g. 8,48,120,240,480;
                       each needs its run_data[_spam][+nsamples-N].json already analyzed
